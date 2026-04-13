@@ -1,3 +1,4 @@
+using System.Management.Automation;
 using System.Management.Automation.Runspaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -62,7 +63,9 @@ public sealed class RunspacePoolManager : IDisposable
                     ? _opts.MaxRunspaces
                     : Environment.ProcessorCount * 2;
 
-        _pool = RunspaceFactory.CreateRunspacePool(min, max, iss);
+        _pool = RunspaceFactory.CreateRunspacePool(iss);
+        _pool.SetMinRunspaces(min);
+        _pool.SetMaxRunspaces(max);
         _pool.ThreadOptions = PSThreadOptions.ReuseThread;
         _pool.Open();
 

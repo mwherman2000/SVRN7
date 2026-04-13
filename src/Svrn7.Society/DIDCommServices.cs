@@ -7,6 +7,7 @@ using Svrn7.Core;
 using Svrn7.Core.Interfaces;
 using Svrn7.Core.Models;
 using Svrn7.DIDComm;
+using Svrn7.Federation;
 
 namespace Svrn7.Society;
 
@@ -318,5 +319,4 @@ public sealed class DIDCommMessageProcessorService : BackgroundService
                 ct);
         }
     }
-}
 }

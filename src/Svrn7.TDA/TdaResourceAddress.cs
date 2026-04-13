@@ -202,10 +202,9 @@ public sealed class TdaResourceAddress
     /// </summary>
     public LiteDB.ObjectId ToObjectId()
     {
-        if (!LiteDB.ObjectId.TryParse(Key, out var oid))
-            throw new InvalidOperationException(
-                $"DID URL key '{Key}' is not a valid LiteDB ObjectId hex string.");
-        return oid;
+        try { return new LiteDB.ObjectId(Key); }
+        catch { throw new InvalidOperationException(
+            $"DID URL key '{Key}' is not a valid LiteDB ObjectId hex string."); }
     }
 
     /// <summary>

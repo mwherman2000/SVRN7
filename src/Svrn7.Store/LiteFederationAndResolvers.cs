@@ -22,7 +22,10 @@ public sealed class FederationLiteContext : IDisposable
 
     public FederationLiteContext(string connectionString)
     {
-        _db = new LiteDatabase(connectionString);
+        var mapper = new BsonMapper();
+        mapper.Entity<FederationRecord>().Id(f => f.Did);
+        // SocietyDidMethodRecord has a synthetic Id property — LiteDB auto-maps it to _id.
+        _db = new LiteDatabase(connectionString, mapper);
         _db.GetCollection<SocietyDidMethodRecord>(ColMethodReg)
            .EnsureIndex(r => r.MethodName, unique: false);  // historical records — not unique
     }

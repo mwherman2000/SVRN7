@@ -26,7 +26,10 @@ public sealed class InboxLiteContext : IDisposable
 
     public InboxLiteContext(string connectionString)
     {
-        _db = new LiteDatabase(connectionString);
+        var mapper = new BsonMapper();
+        mapper.Entity<ProcessedOrderRecord>().Id(r => r.TransferId);
+        // InboxMessage.Id and OutboxRecord.Id are named "Id" — LiteDB auto-maps them to _id.
+        _db = new LiteDatabase(connectionString, mapper);
         EnsureIndexes();
     }
 
@@ -37,8 +40,7 @@ public sealed class InboxLiteContext : IDisposable
         col.EnsureIndex(m => m.Id, unique: true);
         col.EnsureIndex(m => m.Status);
         col.EnsureIndex(m => m.ReceivedAt);
-        _db.GetCollection<ProcessedOrderRecord>(ColProcessedOrders)
-           .EnsureIndex(r => r.TransferId, unique: true);
+        // ProcessedOrderRecord.TransferId is mapped to _id — primary key index is implicit.
         _db.GetCollection<OutboxRecord>(ColOutbox)
            .EnsureIndex(r => r.FailedAt);
         _db.GetCollection<OutboxRecord>(ColOutbox)
@@ -107,12 +109,14 @@ public sealed class InboxLiteContext : IDisposable
 public sealed class LiteInboxStore : IInboxStore
 {
     private readonly InboxLiteContext _ctx;
+    private readonly Svrn7SocietyOptions _opts;
     private readonly ILogger<LiteInboxStore> _log;
 
-    public LiteInboxStore(InboxLiteContext ctx, ILogger<LiteInboxStore> log)
+    public LiteInboxStore(InboxLiteContext ctx, IOptions<Svrn7SocietyOptions> opts, ILogger<LiteInboxStore> log)
     {
-        _ctx = ctx;
-        _log = log;
+        _ctx  = ctx;
+        _opts = opts.Value;
+        _log  = log;
     }
 
     /// <inheritdoc/>

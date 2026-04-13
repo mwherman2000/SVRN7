@@ -491,10 +491,9 @@ public sealed class Svrn7Driver : ISvrn7Driver
             throw new ArgumentException($"Batch size {list.Count} exceeds maximum {Svrn7Constants.MaxBatchSize}.");
         _batch.Record(list.Count);
 
-        // Validate all before committing any
-        foreach (var r in list)
-            await _validator.ValidateAsync(r, ct);
-
+        // Each TransferAsync validates internally. Pre-validating here would
+        // consume nonces in the nonce store and cause replay failures on the
+        // second validation pass inside each TransferAsync.
         var results = new List<OperationResult>();
         foreach (var r in list)
             results.Add(await TransferAsync(r, ct));

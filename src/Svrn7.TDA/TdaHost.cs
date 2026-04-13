@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Net.Http;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -24,59 +25,59 @@ public sealed class TdaOptions
 
     /// <summary>Society DID — e.g., "did:drn:alpha.svrn7.net".</summary>
     [Required]
-    public string SocietyDid { get; init; } = string.Empty;
+    public string SocietyDid { get; set; } = string.Empty;
 
     /// <summary>
     /// Society Ed25519 messaging private key (raw 32 bytes).
     /// Used by KestrelListenerService for UnpackAsync (DIDComm V2 Messaging boundary).
     /// </summary>
     [Required]
-    public byte[] SocietyMessagingPrivateKeyEd25519 { get; init; } = Array.Empty<byte>();
+    public byte[] SocietyMessagingPrivateKeyEd25519 { get; set; } = Array.Empty<byte>();
 
     // ── Network ───────────────────────────────────────────────────────────────
 
     /// <summary>Port for Kestrel HTTP/2 + mTLS inbound listener (default 8443).</summary>
-    public int ListenPort { get; init; } = 8443;
+    public int ListenPort { get; set; } = 8443;
 
     /// <summary>TLS certificate path (.pfx or .pem). Null = cleartext development mode.</summary>
-    public string? TlsCertificatePath { get; init; }
+    public string? TlsCertificatePath { get; set; }
 
     /// <summary>TLS certificate password (if .pfx). Null = no password.</summary>
-    public string? TlsCertificatePassword { get; init; }
+    public string? TlsCertificatePassword { get; set; }
 
     /// <summary>
     /// Require mutual TLS (mTLS) — peer TDA must present a valid certificate.
     /// Default true. Set false only in development/test environments.
     /// </summary>
-    public bool RequireMutualTls { get; init; } = true;
+    public bool RequireMutualTls { get; set; } = true;
 
     /// <summary>
     /// Accept self-signed peer certificates. Development mode only.
     /// Never true in production.
     /// </summary>
-    public bool AcceptSelfSignedPeerCertificates { get; init; } = false;
+    public bool AcceptSelfSignedPeerCertificates { get; set; } = false;
 
     // ── PowerShell Runspace Pool ──────────────────────────────────────────────
 
     /// <summary>
     /// Minimum runspaces in the pool (default 2 — Agent 1 coordinator + one task runspace).
     /// </summary>
-    public int MinRunspaces { get; init; } = 2;
+    public int MinRunspaces { get; set; } = 2;
 
     /// <summary>
     /// Maximum runspaces. 0 = ProcessorCount × 2 (default).
     /// </summary>
-    public int MaxRunspaces { get; init; } = 0;
+    public int MaxRunspaces { get; set; } = 0;
 
     // ── LOBE configuration ────────────────────────────────────────────────────
 
     /// <summary>Path to lobes.config.json. Default: "./lobes/lobes.config.json".</summary>
-    public string LobesConfigPath { get; init; } = "./lobes/lobes.config.json";
+    public string LobesConfigPath { get; set; } = "./lobes/lobes.config.json";
 
     // ── Data Storage databases ────────────────────────────────────────────────
 
     /// <summary>Path to svrn7-inbox.db (Long-Term Message Memory).</summary>
-    public string InboxDbPath { get; init; } = "svrn7-inbox.db";
+    public string InboxDbPath { get; set; } = "svrn7-inbox.db";
 }
 
 // ── SwitchboardHostedService ──────────────────────────────────────────────────
@@ -184,7 +185,7 @@ public static class TdaServiceCollectionExtensions
         // IOutboxStore — dead-letter outbox for failed outbound messages.
         services.TryAddSingleton<Svrn7.Core.Interfaces.IOutboxStore>(sp =>
             new Svrn7.Society.LiteOutboxStore(
-                sp.GetRequiredService<Svrn7.Store.InboxLiteContext>()));
+                sp.GetRequiredService<Svrn7.Society.InboxLiteContext>()));
 
         // DIDCommMessageSwitchboard — sole inbox reader + outbound delivery.
         // LobeManager injected for dynamic protocol registry lookup.

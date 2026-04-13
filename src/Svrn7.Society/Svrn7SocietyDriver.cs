@@ -250,7 +250,7 @@ public sealed class Svrn7SocietyDriver : ISvrn7SocietyDriver
         ThrowIfDisposed();
         ArgumentException.ThrowIfNullOrWhiteSpace(packedDIDCommMessage);
 
-        var unpacked = await _didComm.UnpackAsync(packedDIDCommMessage, ct);
+        var unpacked = await _didComm.UnpackAsync(packedDIDCommMessage, null, ct);
         var type     = unpacked.Type;
 
         string responseJson;

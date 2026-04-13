@@ -17,7 +17,7 @@ public enum DIDCommPackMode
 
 public record DIDCommMessage
 {
-    public string  Id      { get; init; } = Guid.NewGuid().ToString();
+    public string  Id      { get; init; } = Svrn7.Core.TdaResourceId.DIDCommMessage(Guid.NewGuid().ToString("N"));
     public string  Type    { get; init; } = string.Empty;
     public string? From    { get; init; }
     public string? To      { get; init; }

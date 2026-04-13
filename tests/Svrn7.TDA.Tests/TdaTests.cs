@@ -817,27 +817,81 @@ internal sealed class NullProcessedOrderStore : Svrn7.Core.Interfaces.IProcessed
 
 internal sealed class NullSocietyDriver : Svrn7.Society.ISvrn7SocietyDriver
 {
-    public string SocietyDid => "did:drn:alpha.svrn7.net";
     // All methods throw NotImplementedException — tests do not call them.
+
+    // ── ISvrn7SocietyDriver members ────────────────────────────────────────────
+    public string SocietyDid => "did:drn:alpha.svrn7.net";
     public Task<Svrn7.Core.Models.OperationResult> RegisterCitizenInSocietyAsync(Svrn7.Core.Models.RegisterCitizenInSocietyRequest r, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<bool> IsMemberAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
-    public Task<Svrn7.Core.Models.OperationResult> IncomingTransferAsync(Svrn7.Core.Models.TransferRequest r, CancellationToken ct = default) => throw new NotImplementedException();
-    public Task<Svrn7.Core.Models.OperationResult> ExternalTransferAsync(Svrn7.Core.Models.TransferRequest r, string targetSocietyDid, CancellationToken ct = default) => throw new NotImplementedException();
-    public Task<Svrn7.Core.Models.SocietyOverdraftRecord?> GetOverdraftRecordAsync(string societyDid, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<System.Collections.Generic.IReadOnlyList<string>> GetMemberCitizenDidsAsync(CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.OperationResult> AddCitizenDidAsync(string citizenPrimaryDid, string methodName, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.OperationResult> TransferToExternalCitizenAsync(Svrn7.Core.Models.TransferRequest r, string targetSocietyDid, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.OperationResult> TransferToFederationAsync(string payerDid, long amountGrana, string memo, string nonce, string? signature, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<string> HandleIncomingTransferMessageAsync(string packedDIDCommMessage, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.OperationResult> RegisterSocietyDidMethodAsync(string methodName, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.OperationResult> DeregisterSocietyDidMethodAsync(string methodName, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.SocietyDidMethodRecord>> GetSocietyDidMethodsAsync(CancellationToken ct = default) => throw new NotImplementedException();
-    public Task<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.SocietyMembershipRecord>> GetMembersAsync(CancellationToken ct = default) => throw new NotImplementedException();
-    // ISvrn7Driver pass-through members
-    public Task<Svrn7.Core.Models.OperationResult> TransferAsync(Svrn7.Core.Models.TransferRequest r, CancellationToken ct = default) => throw new NotImplementedException();
-    public Task<Svrn7.Core.Models.BalanceResult> GetBalanceResultAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
-    public Task<Svrn7.Core.Models.OperationResult> RegisterCitizenAsync(Svrn7.Core.Models.CitizenRecord c, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.SocietyRecord?> GetOwnSocietyAsync(CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.OverdraftStatus> GetOverdraftStatusAsync(CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.SocietyOverdraftRecord?> GetOverdraftRecordAsync(CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Interfaces.CrossSocietyVcQueryResult> FindVcsBySubjectAcrossSocietiesAsync(string subjectDid, TimeSpan? timeout = null, CancellationToken ct = default) => throw new NotImplementedException();
+
+    // ── ISvrn7Driver members ───────────────────────────────────────────────────
+    public Svrn7.Core.Interfaces.IDidDocumentRegistry DidRegistry => throw new NotImplementedException();
+    public Svrn7.Core.Interfaces.IVcRegistry VcRegistry => throw new NotImplementedException();
+    public int GetCurrentEpoch() => throw new NotImplementedException();
+    public Task AdvanceEpochAuthorisedAsync(int toEpoch, string governanceRef, string foundationSignature, string? notes = null, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task RecordEpochTransitionAsync(int toEpoch, string governanceRef, string? notes = null, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.OperationResult> RegisterCitizenAsync(Svrn7.Core.Models.RegisterCitizenRequest r, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.CitizenRecord?> GetCitizenAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
-    public Task<Svrn7.Core.Models.OperationResult> RegisterSocietyAsync(Svrn7.Core.Models.SocietyRecord s, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<bool> IsCitizenActiveAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.CitizenDidRecord>> GetAllDidsForCitizenAsync(string primaryDid, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<string?> ResolveCitizenPrimaryDidAsync(string anyDid, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.OperationResult> RegisterSocietyAsync(Svrn7.Core.Models.RegisterSocietyRequest r, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.SocietyRecord?> GetSocietyAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<bool> IsSocietyActiveAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task DeactivateSocietyAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.OperationResult> RegisterAdditionalDidMethodAsync(string societyDid, string methodName, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.OperationResult> DeregisterDidMethodAsync(string societyDid, string methodName, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.DidMethodStatus> GetDidMethodStatusAsync(string methodName, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.SocietyDidMethodRecord>> GetAllDidMethodsAsync(string? societyDid = null, Svrn7.Core.Models.DidMethodStatus? statusFilter = null, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.OperationResult> TransferAsync(Svrn7.Core.Models.TransferRequest r, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.OperationResult>> BatchTransferAsync(System.Collections.Generic.IEnumerable<Svrn7.Core.Models.TransferRequest> requests, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<decimal> GetBalanceSvrn7Async(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<long> GetBalanceGranaAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.BalanceResult> GetBalanceResultAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.FederationRecord?> GetFederationAsync(CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.OperationResult> UpdateFederationSupplyAsync(long newTotalSupplyGrana, string foundationSignature, string governanceRef, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task CreateDidAsync(Svrn7.Core.Models.DidDocument document, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task UpdateDidAsync(Svrn7.Core.Models.DidDocument document, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.DidResolutionResult> ResolveDidAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task DeactivateDidAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task SuspendDidAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task ReinstateDidAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.DidDocument>> GetDidHistoryAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<bool> IsDidActiveAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<string?> FindDidByPublicKeyAsync(string publicKeyHex, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task StoreVcAsync(Svrn7.Core.Models.VcRecord record, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.VcRecord?> GetVcByIdAsync(string vcId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.VcRecord>> GetVcsBySubjectAsync(string subjectDid, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.VcRecord>> GetVcsByIssuerAsync(string issuerDid, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task RevokeVcAsync(string vcId, string reason, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task SuspendVcAsync(string vcId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task ReinstateVcAsync(string vcId, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.VcStatus> GetVcStatusAsync(string vcId, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<int> ExpireStaleVcsAsync(CancellationToken ct = default) => throw new NotImplementedException();
-    public Task<Svrn7.Core.Models.MerkleTreeHead> SignMerkleTreeHeadAsync(CancellationToken ct = default) => throw new NotImplementedException();
-    public Task AppendToLogAsync(string eventType, string payload, CancellationToken ct = default) => throw new NotImplementedException();
-    public Task<Svrn7.Core.Models.DIDDocument?> ResolveDidDocumentAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
-    public Task<string?> GetSocietyDidAsync(CancellationToken ct = default) => Task.FromResult<string?>("did:drn:alpha.svrn7.net");
+    public Task<string> AppendToLogAsync(string entryType, string payloadJson, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<string> GetMerkleRootAsync(CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.TreeHead> SignMerkleTreeHeadAsync(CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<long> GetLogSizeAsync(CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.TreeHead?> GetLatestTreeHeadAsync(CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.OperationResult> ErasePersonAsync(string did, string controllerSignature, DateTimeOffset requestTimestamp, CancellationToken ct = default) => throw new NotImplementedException();
+    public Svrn7.Core.Models.Svrn7KeyPair GenerateSecp256k1KeyPair() => throw new NotImplementedException();
+    public Svrn7.Core.Models.Svrn7KeyPair GenerateEd25519KeyPair() => throw new NotImplementedException();
+    public string SignSecp256k1(byte[] payload, byte[] privateKeyBytes) => throw new NotImplementedException();
+    public bool VerifySecp256k1(byte[] payload, string cesrSig, string publicKeyHex) => throw new NotImplementedException();
+    public Task<string> Blake3HexAsync(byte[] data, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<string> Base58EncodeAsync(byte[] data, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<int> LiftAllWalletRestrictionsAsync(CancellationToken ct = default) => throw new NotImplementedException();
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

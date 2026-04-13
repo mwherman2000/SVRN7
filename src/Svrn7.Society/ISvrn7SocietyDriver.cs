@@ -1,4 +1,5 @@
 using Svrn7.Federation;
+using Svrn7.Core.Interfaces;
 using Svrn7.Core.Models;
 
 namespace Svrn7.Society;

@@ -137,6 +137,14 @@ public static class TdaResourceId
     public static string Wallet(string networkId, string ownerDidSuffix)
         => $"did:drn:{networkId}/main/wallet/{ownerDidSuffix}";
 
+    /// <summary>Society record DID URL. Key = society DID suffix.</summary>
+    public static string Society(string networkId, string societyDidSuffix)
+        => $"did:drn:{networkId}/main/society/{societyDidSuffix}";
+
+    /// <summary>Membership DID URL. Key = citizen DID suffix.</summary>
+    public static string Membership(string networkId, string citizenDidSuffix)
+        => $"did:drn:{networkId}/main/membership/{citizenDidSuffix}";
+
     /// <summary>UTXO DID URL. Key = Blake3 hex hash.</summary>
     public static string Utxo(string networkId, string blake3Hex)
         => $"did:drn:{networkId}/main/utxo/{blake3Hex}";
@@ -160,6 +168,14 @@ public static class TdaResourceId
     /// <summary>Schema DID URL. Key = schema common name.</summary>
     public static string Schema(string networkId, string schemaName)
         => $"did:drn:{networkId}/schemas/schema/{schemaName}";
+
+    /// <summary>
+    /// DIDComm message DID. Network-agnostic — uses the global svrn7.net protocol namespace.
+    /// Key = UUID (32-char hex, no hyphens). Generated at message creation time.
+    /// Form: did:drn:svrn7.net/didcomm/msg/{uuid}
+    /// </summary>
+    public static string DIDCommMessage(string uuidHex)
+        => $"did:drn:svrn7.net/didcomm/msg/{uuidHex}";
 
     // ── Parse ─────────────────────────────────────────────────────────────────
 

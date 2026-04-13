@@ -152,9 +152,9 @@ public static class SocietyServiceCollectionExtensions
                 sp.GetRequiredService<IIdentityRegistry>(),
                 sp.GetRequiredService<ISanctionsChecker>(),
                 sp.GetRequiredService<ICryptoService>(),
-                sp.GetRequiredService<ITransferNonceStore>(),
                 opts.SocietyDid,
                 opts.FederationDid,
+                sp.GetRequiredService<ITransferNonceStore>(),
                 currentEpoch: 0);
         });
 

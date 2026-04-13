@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
 using System.Management.Automation;
+using System.Net.Http;
 using Microsoft.Extensions.Logging;
 using Svrn7.Core;
 using Svrn7.Core.Interfaces;
+using Svrn7.Core.Models;
 
 namespace Svrn7.TDA;
 
@@ -302,7 +304,7 @@ public sealed class DIDCommMessageSwitchboard
         {
             // Dead-letter: persist the failed message to the outbox for operator inspection.
             _log.LogError(ex,
-                "Switchboard: outbound delivery failed to {Endpoint} after retries. "
+                "Switchboard: outbound delivery failed to {Endpoint} after retries. " +
                 "Persisting to dead-letter outbox.", endpoint);
 
             var networkId = Svrn7.Core.TdaResourceId.NetworkIdFromDid(_opts.SocietyDid);
