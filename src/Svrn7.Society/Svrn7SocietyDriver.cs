@@ -33,6 +33,7 @@ public sealed class Svrn7SocietyDriver : ISvrn7SocietyDriver
     private readonly IVcDocumentResolver   _vcResolver;
     private readonly Svrn7SocietyOptions   _opts;
     private readonly ILogger<Svrn7SocietyDriver> _log;
+    private readonly HttpClient?           _httpClient;
     private int _disposed;
 
     private void ThrowIfDisposed()
@@ -59,7 +60,8 @@ public sealed class Svrn7SocietyDriver : ISvrn7SocietyDriver
         IDIDCommService didComm,
         IVcDocumentResolver vcResolver,
         IOptions<Svrn7SocietyOptions> opts,
-        ILogger<Svrn7SocietyDriver> log)
+        ILogger<Svrn7SocietyDriver> log,
+        HttpClient? federationHttpClient = null)
     {
         _inner           = inner;
         _registry        = registry;
@@ -73,6 +75,7 @@ public sealed class Svrn7SocietyDriver : ISvrn7SocietyDriver
         _vcResolver      = vcResolver;
         _opts            = opts.Value;
         _log             = log;
+        _httpClient      = federationHttpClient;
     }
 
     // ── Society identity ──────────────────────────────────────────────────────
@@ -184,11 +187,36 @@ public sealed class Svrn7SocietyDriver : ISvrn7SocietyDriver
             .Body(drawRequest)
             .Build();
 
-        // In production this sends via DIDComm transport and awaits receipt
-        // For v1: log the request — transport adapter is a future enhancement
         _log.LogInformation(
             "Overdraft draw requested: {Amount} grana from Federation {Federation}",
             overdraft.DrawAmountGrana, _opts.FederationDid);
+
+        // Deliver via DIDComm HTTP transport when endpoint is configured.
+        // The Federation TDA processes the draw asynchronously and returns an
+        // OverdraftDrawReceipt via the Society's inbound /didcomm route.
+        if (_httpClient is not null && !string.IsNullOrEmpty(_opts.FederationEndpointUrl))
+        {
+            try
+            {
+                var packed = await _didComm.PackEncryptedAsync(
+                    msg,
+                    _opts.FederationMessagingPublicKeyEd25519,
+                    _opts.SocietyMessagingPrivateKeyEd25519,
+                    ct: ct);
+                var content = new System.Net.Http.StringContent(
+                    packed, System.Text.Encoding.UTF8, "application/didcomm+json");
+                var resp = await _httpClient.PostAsync(_opts.FederationEndpointUrl, content, ct);
+                _log.LogInformation(
+                    "Overdraft draw delivered to Federation TDA: HTTP {Status}", (int)resp.StatusCode);
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex,
+                    "Overdraft draw delivery failed (Federation endpoint: {Url}). " +
+                    "Record updated locally — receipt will arrive when Federation reconnects.",
+                    _opts.FederationEndpointUrl);
+            }
+        }
 
         // Update overdraft record
         overdraft.TotalOverdrawnGrana += overdraft.DrawAmountGrana;

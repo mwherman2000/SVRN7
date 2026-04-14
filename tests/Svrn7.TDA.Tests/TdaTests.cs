@@ -1,9 +1,13 @@
+using System.Net;
+using System.Net.Sockets;
 using FluentAssertions;
+using Svrn7.Core.Interfaces;
 using LiteDB;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Svrn7.Core;
 using Svrn7.Core.Models;
+using Svrn7.DIDComm;
 using Svrn7.Society;
 using Svrn7.Store;
 using Xunit;
@@ -894,4 +898,209 @@ internal sealed class NullSocietyDriver : Svrn7.Society.ISvrn7SocietyDriver
     public Task<string> Base58EncodeAsync(byte[] data, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<int> LiftAllWalletRestrictionsAsync(CancellationToken ct = default) => throw new NotImplementedException();
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
+
+// ── KestrelListenerService Integration Tests ──────────────────────────────────
+//
+// Starts a real Kestrel server in cleartext HTTP/2 dev mode (no TLS cert).
+// Uses stub IDIDCommService and a recording IInboxStore to verify the
+// POST /didcomm inbound pipeline end-to-end.
+
+public sealed class KestrelListenerServiceIntegrationTests : IAsyncLifetime
+{
+    private readonly KestrelListenerService _listener;
+    private readonly RecordingInboxStore   _inbox;
+    private readonly int                   _port;
+
+    public KestrelListenerServiceIntegrationTests()
+    {
+        _port  = FindFreePort();
+        _inbox = new RecordingInboxStore();
+
+        var opts = Options.Create(new TdaOptions
+        {
+            SocietyDid                        = "did:drn:test.svrn7.net",
+            SocietyMessagingPrivateKeyEd25519 = Array.Empty<byte>(),
+            ListenPort                        = _port,
+            TlsCertificatePath                = null,   // cleartext dev mode — no mTLS
+            RequireMutualTls                  = false,
+        });
+
+        _listener = new KestrelListenerService(
+            opts,
+            new StubDIDCommService("test/1.0/msg", """{"amount":500}"""),
+            _inbox,
+            NullLogger<KestrelListenerService>.Instance);
+    }
+
+    public Task InitializeAsync() => _listener.StartAsync(CancellationToken.None);
+
+    public async Task DisposeAsync()
+    {
+        await _listener.StopAsync(CancellationToken.None);
+        await _listener.DisposeAsync();
+    }
+
+    // ── 202 Accepted: valid body ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task Post_ValidDIDCommBody_Returns202_AndEnqueues()
+    {
+        AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+        using var handler = new SocketsHttpHandler();
+        using var client  = new HttpClient(handler)
+        {
+            BaseAddress           = new Uri($"http://localhost:{_port}"),
+            DefaultRequestVersion = new Version(2, 0),
+            DefaultVersionPolicy  = HttpVersionPolicy.RequestVersionOrHigher,
+        };
+
+        var content  = new StringContent("packed-didcomm-body",
+            System.Text.Encoding.UTF8, "application/didcomm+json");
+        var response = await client.PostAsync("/didcomm", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        _inbox.Messages.Should().ContainSingle(
+            because: "a valid unpacked message must be enqueued");
+        _inbox.Messages[0].Type.Should().Be("test/1.0/msg");
+    }
+
+    // ── 400 Bad Request: empty body ───────────────────────────────────────────
+
+    [Fact]
+    public async Task Post_EmptyBody_Returns400_DoesNotEnqueue()
+    {
+        AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+        using var handler = new SocketsHttpHandler();
+        using var client  = new HttpClient(handler)
+        {
+            BaseAddress           = new Uri($"http://localhost:{_port}"),
+            DefaultRequestVersion = new Version(2, 0),
+            DefaultVersionPolicy  = HttpVersionPolicy.RequestVersionOrHigher,
+        };
+
+        var response = await client.PostAsync("/didcomm", new StringContent(""));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        _inbox.Messages.Should().BeEmpty();
+    }
+
+    // ── 400 Bad Request: unpack failure ──────────────────────────────────────
+
+    [Fact]
+    public async Task Post_UnpackFailure_Returns400_DoesNotEnqueue()
+    {
+        AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+
+        var port        = FindFreePort();
+        var inbox       = new RecordingInboxStore();
+        var badListener = new KestrelListenerService(
+            Options.Create(new TdaOptions
+            {
+                SocietyDid                        = "did:drn:test.svrn7.net",
+                SocietyMessagingPrivateKeyEd25519 = Array.Empty<byte>(),
+                ListenPort                        = port,
+                TlsCertificatePath                = null,
+                RequireMutualTls                  = false,
+            }),
+            new ThrowingDIDCommService(),
+            inbox,
+            NullLogger<KestrelListenerService>.Instance);
+
+        await badListener.StartAsync(CancellationToken.None);
+        try
+        {
+            using var handler = new SocketsHttpHandler();
+            using var client  = new HttpClient(handler)
+            {
+                BaseAddress           = new Uri($"http://localhost:{port}"),
+                DefaultRequestVersion = new Version(2, 0),
+                DefaultVersionPolicy  = HttpVersionPolicy.RequestVersionOrHigher,
+            };
+
+            var response = await client.PostAsync("/didcomm",
+                new StringContent("invalid-packed-body",
+                    System.Text.Encoding.UTF8, "application/didcomm+json"));
+
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            inbox.Messages.Should().BeEmpty(
+                because: "a message that fails unpack must not be enqueued");
+        }
+        finally
+        {
+            await badListener.StopAsync(CancellationToken.None);
+            await badListener.DisposeAsync();
+        }
+    }
+
+    private static int FindFreePort()
+    {
+        using var listener = new TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
+}
+
+// ── Stubs for KestrelListenerService integration tests ────────────────────────
+
+internal sealed class RecordingInboxStore : IInboxStore
+{
+    public List<(string Type, string Payload)> Messages { get; } = new();
+
+    public Task EnqueueAsync(string messageType, string packedPayload, CancellationToken ct = default)
+    {
+        Messages.Add((messageType, packedPayload));
+        return Task.CompletedTask;
+    }
+
+    public Task<InboxMessage?> GetByIdAsync(string objectId, CancellationToken ct = default) =>
+        Task.FromResult<InboxMessage?>(null);
+    public Task<IReadOnlyList<InboxMessage>> DequeueBatchAsync(int batchSize = 20, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<InboxMessage>>(Array.Empty<InboxMessage>());
+    public Task MarkProcessedAsync(string messageId, CancellationToken ct = default) => Task.CompletedTask;
+    public Task MarkFailedAsync(string messageId, string error, bool retry = true, int maxAttempts = 3, CancellationToken ct = default) =>
+        Task.CompletedTask;
+    public Task ResetStuckMessagesAsync(CancellationToken ct = default) => Task.CompletedTask;
+    public Task<IReadOnlyDictionary<InboxMessageStatus, int>> GetStatusCountsAsync(CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyDictionary<InboxMessageStatus, int>>(
+            new Dictionary<InboxMessageStatus, int>());
+}
+
+/// <summary>Stub IDIDCommService: UnpackAsync always returns a pre-configured message.</summary>
+internal sealed class StubDIDCommService(string type, string body) : IDIDCommService
+{
+    public DIDCommMessageBuilder NewMessage() => new();
+    public Task<string> PackPlaintextAsync(DIDCommMessage m, CancellationToken ct = default) =>
+        Task.FromResult("{}");
+    public Task<string> PackSignedAsync(DIDCommMessage m, byte[] key, CancellationToken ct = default) =>
+        Task.FromResult("{}");
+    public Task<string> PackEncryptedAsync(DIDCommMessage m, byte[] recipKey, byte[] sendKey,
+        DIDCommPackMode mode = DIDCommPackMode.SignThenEncrypt, CancellationToken ct = default) =>
+        Task.FromResult("{}");
+    public Task<string> PackSignedAndEncryptedAsync(DIDCommMessage m, byte[] recipKey, byte[] sendKey,
+        CancellationToken ct = default) => Task.FromResult("{}");
+    public Task<DIDCommUnpackedMessage> UnpackAsync(string packed,
+        byte[]? recipientPrivateKey = null, CancellationToken ct = default) =>
+        Task.FromResult(new DIDCommUnpackedMessage
+            { Type = type, Body = body, Mode = DIDCommPackMode.Plaintext });
+}
+
+/// <summary>Stub IDIDCommService: UnpackAsync always throws — simulates a malformed message.</summary>
+internal sealed class ThrowingDIDCommService : IDIDCommService
+{
+    public DIDCommMessageBuilder NewMessage() => new();
+    public Task<string> PackPlaintextAsync(DIDCommMessage m, CancellationToken ct = default) =>
+        Task.FromResult("{}");
+    public Task<string> PackSignedAsync(DIDCommMessage m, byte[] key, CancellationToken ct = default) =>
+        Task.FromResult("{}");
+    public Task<string> PackEncryptedAsync(DIDCommMessage m, byte[] recipKey, byte[] sendKey,
+        DIDCommPackMode mode = DIDCommPackMode.SignThenEncrypt, CancellationToken ct = default) =>
+        Task.FromResult("{}");
+    public Task<string> PackSignedAndEncryptedAsync(DIDCommMessage m, byte[] recipKey, byte[] sendKey,
+        CancellationToken ct = default) => Task.FromResult("{}");
+    public Task<DIDCommUnpackedMessage> UnpackAsync(string packed,
+        byte[]? recipientPrivateKey = null, CancellationToken ct = default) =>
+        throw new InvalidOperationException("Simulated DIDComm unpack failure.");
 }

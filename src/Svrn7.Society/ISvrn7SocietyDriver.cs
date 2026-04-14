@@ -36,6 +36,14 @@ public class Svrn7SocietyOptions : Svrn7Options
     public TimeSpan FederationRoundTripTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
+    /// HTTP endpoint URL of the Federation TDA's POST /didcomm route.
+    /// Example: "http://federation.svrn7.net:8443/didcomm".
+    /// When configured, overdraft draw requests are delivered via DIDComm HTTP transport.
+    /// When empty (default), requests are logged only (development/test mode).
+    /// </summary>
+    public string FederationEndpointUrl { get; set; } = string.Empty;
+
+    /// <summary>
     /// File path for svrn7-inbox.db — the durable DIDComm message inbox.
     /// Kept separate from svrn7.db so inbox writes never contend with
     /// wallet and identity writes on the same LiteDB file lock.
