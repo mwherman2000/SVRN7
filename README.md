@@ -546,13 +546,14 @@ await driver.InitialiseFederationAsync(new InitialiseFederationRequest
 ```csharp
 builder.Services.AddSvrn7Society(opts =>
 {
-    opts.SocietyDid    = "did:socalpha:my-society";
-    opts.FederationDid = "did:web7:foundation";
+    opts.SocietyDid    = "did:drn:sovronia";
+    opts.FederationDid = "did:drn:foundation";
+    opts.DidMethodName  = "sovronia";
     opts.DrawAmountGrana         = 100_000 * Svrn7Constants.GranaPerSvrn7;
     opts.OverdraftCeilingGrana   = 1_000_000 * Svrn7Constants.GranaPerSvrn7;
     opts.SocietyMessagingPrivateKeyEd25519   = societyEd25519PrivKey;
     opts.FederationMessagingPublicKeyEd25519 = federationEd25519PubKey;
-    opts.FederationEndpoint = "https://federation.svrn7.net/didcomm";
+    opts.FederationEndpointUrl = "https://federation.svrn7.net/didcomm";
 });
 
 // Register a citizen
@@ -561,10 +562,10 @@ var citizenKey = driver.GenerateSecp256k1KeyPair();
 
 await driver.RegisterCitizenInSocietyAsync(new RegisterCitizenInSocietyRequest
 {
-    Did             = "did:socalpha:citizen-alice",
+    Did             = "did:drn:sovronia:alice",
     PublicKeyHex    = citizenKey.PublicKeyHex,
     PrivateKeyBytes = citizenKey.PrivateKeyBytes,
-    SocietyDid      = "did:socalpha:my-society",
+    SocietyDid      = "did:drn:sovronia",
 });
 // Alice's wallet now contains 1,000 SVRN7 (CitizenEndowmentGrana)
 ```
