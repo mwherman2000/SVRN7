@@ -85,8 +85,8 @@ await driver.RegisterSocietyAsync(new RegisterSocietyRequest
 ```csharp
 await driver.TransferAsync(new TransferRequest
 {
-    PayerDid     = "did:drn:sovronia:alice",
-    PayeeDid     = "did:drn:sovronia",
+    PayerDid     = "did:drn:sovronia.svrn7.net/citizen/alice",
+    PayeeDid     = "did:drn:sovronia.svrn7.net",
     AmountGrana  = 500_000,   // 0.5 SVRN7
     Nonce        = Guid.NewGuid().ToString(),
     Timestamp    = DateTimeOffset.UtcNow,

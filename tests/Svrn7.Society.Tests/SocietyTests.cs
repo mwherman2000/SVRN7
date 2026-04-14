@@ -24,7 +24,7 @@ public sealed class SocietyTestFixture : IAsyncDisposable
 {
     public ISvrn7SocietyDriver Driver     { get; }
     public ICryptoService      Crypto     { get; }
-    public string              SocietyDid { get; } = "did:drn:alpha";
+    public string              SocietyDid { get; } = "did:drn:alpha.svrn7.net";
     public Svrn7LiteContext    Context    { get; }  // exposed for test seeding
 
     private readonly DidRegistryLiteContext _didCtx;
@@ -69,7 +69,7 @@ public sealed class SocietyTestFixture : IAsyncDisposable
             FoundationPublicKeyHex = foundationKp.PublicKeyHex,
             DidMethodName          = "alpha",
             SocietyDid             = SocietyDid,
-            FederationDid          = "did:drn:federation",
+            FederationDid          = "did:drn:svrn7.net",
             DrawAmountGrana        = 1_000_000_000_000L,
             OverdraftCeilingGrana  = 10_000_000_000_000L,
             FederationRoundTripTimeout = TimeSpan.FromSeconds(5),
@@ -120,7 +120,7 @@ public class SocietyDriverTests : IAsyncDisposable
 
     [Fact] public void SocietyDid_ReturnsConfiguredDid()
     {
-        _f.Driver.SocietyDid.Should().Be("did:drn:alpha");
+        _f.Driver.SocietyDid.Should().Be("did:drn:alpha.svrn7.net");
     }
 
     [Fact] public async Task RegisterCitizenInSociety_WrongSociety_Fails()
@@ -128,10 +128,10 @@ public class SocietyDriverTests : IAsyncDisposable
         var kp  = _f.Crypto.GenerateSecp256k1KeyPair();
         var res = await _f.Driver.RegisterCitizenInSocietyAsync(new RegisterCitizenInSocietyRequest
         {
-            Did             = "did:drn:alpha:alice",
+            Did             = "did:drn:alpha.svrn7.net/citizen/alice",
             PublicKeyHex    = kp.PublicKeyHex,
             PrivateKeyBytes = kp.PrivateKeyBytes,
-            SocietyDid      = "did:drn:wrongsociety",
+            SocietyDid      = "did:drn:wrongsociety.svrn7.net",
         });
         res.Success.Should().BeFalse();
         res.ErrorMessage.Should().Contain("wrongsociety");
@@ -145,7 +145,7 @@ public class SocietyDriverTests : IAsyncDisposable
 
     [Fact] public async Task IsMember_UnknownCitizen_ReturnsFalse()
     {
-        var result = await _f.Driver.IsMemberAsync("did:drn:alpha:unknown");
+        var result = await _f.Driver.IsMemberAsync("did:drn:alpha.svrn7.net/citizen/unknown");
         result.Should().BeFalse();
     }
 
@@ -191,13 +191,13 @@ public class SocietyCitizenRegistrationTests : IAsyncDisposable
         var kp = _f.Crypto.GenerateSecp256k1KeyPair();
         var req = new RegisterCitizenInSocietyRequest
         {
-            Did = "did:drn:alpha:member1", PublicKeyHex = kp.PublicKeyHex,
+            Did = "did:drn:alpha.svrn7.net/citizen/member1", PublicKeyHex = kp.PublicKeyHex,
             PrivateKeyBytes = kp.PrivateKeyBytes, SocietyDid = _f.SocietyDid,
         };
         var res = await _f.Driver.RegisterCitizenInSocietyAsync(req);
         res.Success.Should().BeTrue(res.ErrorMessage);
 
-        var isMember = await _f.Driver.IsMemberAsync("did:drn:alpha:member1");
+        var isMember = await _f.Driver.IsMemberAsync("did:drn:alpha.svrn7.net/citizen/member1");
         isMember.Should().BeTrue();
     }
 
@@ -207,11 +207,11 @@ public class SocietyCitizenRegistrationTests : IAsyncDisposable
         var kp = _f.Crypto.GenerateSecp256k1KeyPair();
         await _f.Driver.RegisterCitizenInSocietyAsync(new RegisterCitizenInSocietyRequest
         {
-            Did = "did:drn:alpha:member2", PublicKeyHex = kp.PublicKeyHex,
+            Did = "did:drn:alpha.svrn7.net/citizen/member2", PublicKeyHex = kp.PublicKeyHex,
             PrivateKeyBytes = kp.PrivateKeyBytes, SocietyDid = _f.SocietyDid,
         });
         var members = await _f.Driver.GetMemberCitizenDidsAsync();
-        members.Should().Contain("did:drn:alpha:member2");
+        members.Should().Contain("did:drn:alpha.svrn7.net/citizen/member2");
     }
 
     public async ValueTask DisposeAsync() => await _f.DisposeAsync();
@@ -290,11 +290,11 @@ public class MultiDidCitizenTests : IAsyncDisposable
         var kp  = _f.Crypto.GenerateSecp256k1KeyPair();
         await _f.Driver.RegisterCitizenAsync(new RegisterCitizenRequest
         {
-            Did = "did:drn:alpha:c1", PublicKeyHex = kp.PublicKeyHex,
+            Did = "did:drn:alpha.svrn7.net/citizen/c1", PublicKeyHex = kp.PublicKeyHex,
             PrivateKeyBytes = kp.PrivateKeyBytes,
         });
-        var primary = await _f.Driver.ResolveCitizenPrimaryDidAsync("did:drn:alpha:c1");
-        primary.Should().Be("did:drn:alpha:c1");
+        var primary = await _f.Driver.ResolveCitizenPrimaryDidAsync("did:drn:alpha.svrn7.net/citizen/c1");
+        primary.Should().Be("did:drn:alpha.svrn7.net/citizen/c1");
     }
 
     [Fact] public async Task GetAllDidsForCitizen_ReturnsPrimaryDid()
@@ -302,10 +302,10 @@ public class MultiDidCitizenTests : IAsyncDisposable
         var kp = _f.Crypto.GenerateSecp256k1KeyPair();
         await _f.Driver.RegisterCitizenAsync(new RegisterCitizenRequest
         {
-            Did = "did:drn:alpha:c2", PublicKeyHex = kp.PublicKeyHex,
+            Did = "did:drn:alpha.svrn7.net/citizen/c2", PublicKeyHex = kp.PublicKeyHex,
             PrivateKeyBytes = kp.PrivateKeyBytes,
         });
-        var dids = await _f.Driver.GetAllDidsForCitizenAsync("did:drn:alpha:c2");
+        var dids = await _f.Driver.GetAllDidsForCitizenAsync("did:drn:alpha.svrn7.net/citizen/c2");
         dids.Should().NotBeEmpty();
         dids.Should().Contain(d => d.IsPrimary);
     }
@@ -323,11 +323,11 @@ public class MultiDidCitizenTests : IAsyncDisposable
         await _f.Driver.RegisterSocietyDidMethodAsync("alphaid");
         await _f.Driver.RegisterCitizenAsync(new RegisterCitizenRequest
         {
-            Did = "did:drn:alpha:c3", PublicKeyHex = kp.PublicKeyHex,
+            Did = "did:drn:alpha.svrn7.net/citizen/c3", PublicKeyHex = kp.PublicKeyHex,
             PrivateKeyBytes = kp.PrivateKeyBytes,
         });
 
-        var result = await _f.Driver.AddCitizenDidAsync("did:drn:alpha:c3", "alphaid");
+        var result = await _f.Driver.AddCitizenDidAsync("did:drn:alpha.svrn7.net/citizen/c3", "alphaid");
         result.Success.Should().BeTrue(result.ErrorMessage);
     }
 
@@ -345,7 +345,7 @@ public class CrossSocietyTransferTests : IAsyncDisposable
         // Advance to Epoch 1 to allow cross-Society transfers
         // (skipping Foundation signature verification for this unit test)
         var payerKp  = _f.Crypto.GenerateSecp256k1KeyPair();
-        var payerDid = "did:drn:alpha:xpayer";
+        var payerDid = "did:drn:alpha.svrn7.net/citizen/xpayer";
         var socKp    = _f.Crypto.GenerateSecp256k1KeyPair();
         await _f.Driver.RegisterSocietyAsync(new RegisterSocietyRequest
         {
@@ -363,8 +363,8 @@ public class CrossSocietyTransferTests : IAsyncDisposable
         // At epoch 0 this will fail due to epoch rules — expected
         var req = _f.BuildSignedTransfer(
             payerDid, payerKp.PrivateKeyBytes,
-            "did:drn:beta:payee", 1 * Svrn7Constants.GranaPerSvrn7);
-        var res = await _f.Driver.TransferToExternalCitizenAsync(req, "did:drn:beta");
+            "did:drn:beta.svrn7.net/citizen/payee", 1 * Svrn7Constants.GranaPerSvrn7);
+        var res = await _f.Driver.TransferToExternalCitizenAsync(req, "did:drn:beta.svrn7.net");
 
         // Epoch 0 restriction: transfer fails at epoch check — result is not null
         res.Should().NotBeNull();
@@ -375,14 +375,14 @@ public class CrossSocietyTransferTests : IAsyncDisposable
         var kp = _f.Crypto.GenerateSecp256k1KeyPair();
         await _f.Driver.RegisterCitizenAsync(new RegisterCitizenRequest
         {
-            Did = "did:drn:alpha:crossvc", PublicKeyHex = kp.PublicKeyHex,
+            Did = "did:drn:alpha.svrn7.net/citizen/crossvc", PublicKeyHex = kp.PublicKeyHex,
             PrivateKeyBytes = kp.PrivateKeyBytes,
         });
-        var vcs = await _f.Driver.GetVcsBySubjectAsync("did:drn:alpha:crossvc");
+        var vcs = await _f.Driver.GetVcsBySubjectAsync("did:drn:alpha.svrn7.net/citizen/crossvc");
         vcs.Should().NotBeEmpty(); // local VCs from registration
 
         // Cross-Society resolver returns partial result including local
-        var result = await _f.Driver.FindVcsBySubjectAcrossSocietiesAsync("did:drn:alpha:crossvc");
+        var result = await _f.Driver.FindVcsBySubjectAcrossSocietiesAsync("did:drn:alpha.svrn7.net/citizen/crossvc");
         result.Should().NotBeNull();
         result.RespondedSocieties.Should().Contain(_f.SocietyDid);
     }
@@ -401,10 +401,10 @@ public class VcDocumentResolverTests : IAsyncDisposable
         var kp = _f.Crypto.GenerateSecp256k1KeyPair();
         await _f.Driver.RegisterCitizenAsync(new RegisterCitizenRequest
         {
-            Did = "did:drn:alpha:vcr1", PublicKeyHex = kp.PublicKeyHex,
+            Did = "did:drn:alpha.svrn7.net/citizen/vcr1", PublicKeyHex = kp.PublicKeyHex,
             PrivateKeyBytes = kp.PrivateKeyBytes,
         });
-        var vcs = await _f.Driver.GetVcsBySubjectAsync("did:drn:alpha:vcr1");
+        var vcs = await _f.Driver.GetVcsBySubjectAsync("did:drn:alpha.svrn7.net/citizen/vcr1");
         vcs.Should().NotBeEmpty();
         // IsValid is on VcRegistry — accessible via driver
         var status = await _f.Driver.GetVcStatusAsync(vcs[0].VcId);
@@ -416,12 +416,12 @@ public class VcDocumentResolverTests : IAsyncDisposable
         var kp1 = _f.Crypto.GenerateSecp256k1KeyPair();
         var kp2 = _f.Crypto.GenerateSecp256k1KeyPair();
         await _f.Driver.RegisterCitizenAsync(new RegisterCitizenRequest
-            { Did = "did:drn:alpha:vcr2", PublicKeyHex = kp1.PublicKeyHex, PrivateKeyBytes = kp1.PrivateKeyBytes });
+            { Did = "did:drn:alpha.svrn7.net/citizen/vcr2", PublicKeyHex = kp1.PublicKeyHex, PrivateKeyBytes = kp1.PrivateKeyBytes });
         await _f.Driver.RegisterCitizenAsync(new RegisterCitizenRequest
-            { Did = "did:drn:alpha:vcr3", PublicKeyHex = kp2.PublicKeyHex, PrivateKeyBytes = kp2.PrivateKeyBytes });
+            { Did = "did:drn:alpha.svrn7.net/citizen/vcr3", PublicKeyHex = kp2.PublicKeyHex, PrivateKeyBytes = kp2.PrivateKeyBytes });
 
-        var vcs1 = await _f.Driver.GetVcsBySubjectAsync("did:drn:alpha:vcr2");
-        var vcs2 = await _f.Driver.GetVcsBySubjectAsync("did:drn:alpha:vcr3");
+        var vcs1 = await _f.Driver.GetVcsBySubjectAsync("did:drn:alpha.svrn7.net/citizen/vcr2");
+        var vcs2 = await _f.Driver.GetVcsBySubjectAsync("did:drn:alpha.svrn7.net/citizen/vcr3");
 
         var vcIds = vcs1.Concat(vcs2).Select(v => v.VcId).ToList();
         vcIds.Should().HaveCountGreaterOrEqualTo(2);

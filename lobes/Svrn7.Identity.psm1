@@ -168,7 +168,7 @@ function Resolve-Svrn7CitizenIdentity {
         or $null if citizen not found.
 
     .EXAMPLE
-        $identity = Resolve-Svrn7CitizenIdentity -CitizenDid "did:drn:alice.alpha.svrn7.net"
+        $identity = Resolve-Svrn7CitizenIdentity -CitizenDid "did:drn:alpha.svrn7.net/citizen/alice"
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]

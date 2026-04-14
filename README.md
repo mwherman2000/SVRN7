@@ -402,10 +402,10 @@ Every participant has exactly one primary DID — the wallet key, immutable.
 
 Formalised in `draft-herman-did-w3c-drn-00` Section 5a (W3C DID Core Section 3.2):
 
-| Form               | Delimiter | Example                                      | DID Document? |
-|--------------------|-----------|----------------------------------------------|---------------|
-| Identity DID       | `:`       | `did:drn:alice.alpha.svrn7.net`              | Yes           |
-| Locator DID URL    | `/`       | `did:drn:alpha.svrn7.net/inbox/msg/5f43a2...`| No            |
+| Form               | Delimiter | Example                                              | DID Document? |
+|--------------------|-----------|------------------------------------------------------|---------------|
+| Identity DID       | `:`       | `did:drn:alpha.svrn7.net` (society/federation only)  | Yes           |
+| Locator DID URL    | `/`       | `did:drn:alpha.svrn7.net/citizen/alice`         | No            |
 
 Identity DIDs identify subjects. Locator DID URLs address resources. The `:` vs `/` choice
 reflects W3C DID Core structural semantics, made explicit as a design principle.
@@ -562,10 +562,10 @@ var citizenKey = driver.GenerateSecp256k1KeyPair();
 
 await driver.RegisterCitizenInSocietyAsync(new RegisterCitizenInSocietyRequest
 {
-    Did             = "did:drn:sovronia:alice",
+    Did             = "did:drn:sovronia.svrn7.net/citizen/alice",
     PublicKeyHex    = citizenKey.PublicKeyHex,
     PrivateKeyBytes = citizenKey.PrivateKeyBytes,
-    SocietyDid      = "did:drn:sovronia",
+    SocietyDid      = "did:drn:sovronia.svrn7.net",
 });
 // Alice's wallet now contains 1,000 SVRN7 (CitizenEndowmentGrana)
 ```

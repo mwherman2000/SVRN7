@@ -74,7 +74,7 @@ public sealed class DIDCommTransferHandler : IDIDCommTransferHandler
             .Build();
 
         return await _didComm.PackEncryptedAsync(receipt,
-            _opts.SocietyMessagingPrivateKeyEd25519,
+            _opts.FederationMessagingPublicKeyEd25519,
             _opts.SocietyMessagingPrivateKeyEd25519,
             DIDCommPackMode.SignThenEncrypt, ct);
     }
@@ -139,7 +139,7 @@ public sealed class DIDCommTransferHandler : IDIDCommTransferHandler
             .Build();
 
         var packed = await _didComm.PackEncryptedAsync(receiptMsg,
-            _opts.SocietyMessagingPrivateKeyEd25519,
+            _opts.FederationMessagingPublicKeyEd25519,
             _opts.SocietyMessagingPrivateKeyEd25519,
             DIDCommPackMode.SignThenEncrypt, ct);
 

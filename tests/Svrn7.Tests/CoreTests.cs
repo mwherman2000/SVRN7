@@ -71,7 +71,7 @@ public class TestFixture : IAsyncDisposable
     public async Task<(string Did, string PubKey)> RegisterCitizenAsync(string id = "alice")
     {
         var kp  = Crypto.GenerateSecp256k1KeyPair();
-        var did = $"did:drn:{id}";
+        var did = $"did:drn:svrn7.net/citizen/{id}";
         var r   = await Driver.RegisterCitizenAsync(new RegisterCitizenRequest
         {
             Did             = did,
@@ -233,7 +233,7 @@ public class CitizenRegistrationTests : IAsyncLifetime
     [Fact] public async Task RegisterCitizen_HappyPath_Succeeds()
     {
         var (did, _) = await _f.RegisterCitizenAsync("alice");
-        did.Should().Be("did:drn:alice");
+        did.Should().Be("did:drn:svrn7.net/citizen/alice");
     }
 
     [Fact] public async Task RegisterCitizen_WalletCreated()

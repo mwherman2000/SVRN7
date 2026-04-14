@@ -36,10 +36,10 @@ public class TdaResourceIdTests
     [Fact]
     public void Citizen_RoundTrip()
     {
-        var suffix = "alice.alpha.svrn7.net";
+        var suffix = "alice";
         var didUrl = TdaResourceId.Citizen(Network, suffix);
 
-        didUrl.Should().Be($"did:drn:{Network}/main/citizen/{suffix}");
+        didUrl.Should().Be($"did:drn:{Network}/citizen/{suffix}");
         TdaResourceId.ParseKey(didUrl).Should().Be(suffix);
     }
 
@@ -134,14 +134,14 @@ public class TdaResourceIdTests
         var builders = new[]
         {
             TdaResourceId.InboxMessage(Network, "abc"),
-            TdaResourceId.Citizen(Network, "alice.alpha.svrn7.net"),
-            TdaResourceId.Wallet(Network, "alice.alpha.svrn7.net"),
+            TdaResourceId.Citizen(Network, "alice"),
+            TdaResourceId.Wallet(Network, "alice"),
             TdaResourceId.Utxo(Network, new string('a', 64)),
             TdaResourceId.Society(Network, "alpha.svrn7.net"),
-            TdaResourceId.Membership(Network, "alice.alpha.svrn7.net"),
+            TdaResourceId.Membership(Network, "alice"),
             TdaResourceId.LogEntry(Network, new string('b', 64)),
             TdaResourceId.TreeHead(Network, new string('c', 64)),
-            TdaResourceId.DidDocument(Network, "alice.alpha.svrn7.net"),
+            TdaResourceId.DidDocument(Network, "sovronia.svrn7.net"),
             TdaResourceId.Vc(Network, Guid.NewGuid().ToString()),
             TdaResourceId.Schema(Network, "TestSchema"),
             TdaResourceId.ProcessedOrder(Network, "abc"),
@@ -830,7 +830,7 @@ internal sealed class NullSocietyDriver : Svrn7.Society.ISvrn7SocietyDriver
     public Task<System.Collections.Generic.IReadOnlyList<string>> GetMemberCitizenDidsAsync(CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.OperationResult> AddCitizenDidAsync(string citizenPrimaryDid, string methodName, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.OperationResult> TransferToExternalCitizenAsync(Svrn7.Core.Models.TransferRequest r, string targetSocietyDid, CancellationToken ct = default) => throw new NotImplementedException();
-    public Task<Svrn7.Core.Models.OperationResult> TransferToFederationAsync(string payerDid, long amountGrana, string memo, string nonce, string? signature, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.OperationResult> TransferToFederationAsync(string payerDid, long amountGrana, string nonce, string signature, string? memo = null, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<string> HandleIncomingTransferMessageAsync(string packedDIDCommMessage, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.OperationResult> RegisterSocietyDidMethodAsync(string methodName, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.OperationResult> DeregisterSocietyDidMethodAsync(string methodName, CancellationToken ct = default) => throw new NotImplementedException();

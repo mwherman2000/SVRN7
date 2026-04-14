@@ -129,21 +129,21 @@ public static class TdaResourceId
     public static string ProcessedOrder(string networkId, string objectIdHex)
         => $"did:drn:{networkId}/inbox/processedorder/{objectIdHex}";
 
-    /// <summary>Citizen record DID URL. Key = citizen DID suffix.</summary>
-    public static string Citizen(string networkId, string citizenDidSuffix)
-        => $"did:drn:{networkId}/main/citizen/{citizenDidSuffix}";
+    /// <summary>Citizen Locator DID URL. Key = citizen local id (e.g., "alice").</summary>
+    public static string Citizen(string networkId, string citizenKey)
+        => $"did:drn:{networkId}/citizen/{citizenKey}";
 
-    /// <summary>Wallet DID URL. Key = owner DID suffix.</summary>
-    public static string Wallet(string networkId, string ownerDidSuffix)
-        => $"did:drn:{networkId}/main/wallet/{ownerDidSuffix}";
+    /// <summary>Wallet DID URL. Key = citizen local id or society DID suffix.</summary>
+    public static string Wallet(string networkId, string ownerKey)
+        => $"did:drn:{networkId}/main/wallet/{ownerKey}";
 
-    /// <summary>Society record DID URL. Key = society DID suffix.</summary>
+    /// <summary>Society record DID URL. Key = society DID suffix (e.g., "alpha.svrn7.net").</summary>
     public static string Society(string networkId, string societyDidSuffix)
         => $"did:drn:{networkId}/main/society/{societyDidSuffix}";
 
-    /// <summary>Membership DID URL. Key = citizen DID suffix.</summary>
-    public static string Membership(string networkId, string citizenDidSuffix)
-        => $"did:drn:{networkId}/main/membership/{citizenDidSuffix}";
+    /// <summary>Membership DID URL. Key = citizen local id (e.g., "alice").</summary>
+    public static string Membership(string networkId, string citizenKey)
+        => $"did:drn:{networkId}/main/membership/{citizenKey}";
 
     /// <summary>UTXO DID URL. Key = Blake3 hex hash.</summary>
     public static string Utxo(string networkId, string blake3Hex)

@@ -74,10 +74,10 @@ var citizenKey = driver.GenerateSecp256k1KeyPair();
 
 await driver.RegisterCitizenInSocietyAsync(new RegisterCitizenInSocietyRequest
 {
-    Did             = "did:drn:sovronia:alice",
+    Did             = "did:drn:sovronia.svrn7.net/citizen/alice",
     PublicKeyHex    = citizenKey.PublicKeyHex,
     PrivateKeyBytes = citizenKey.PrivateKeyBytes,
-    SocietyDid      = "did:drn:sovronia",
+    SocietyDid      = "did:drn:sovronia.svrn7.net",
 });
 // Alice's wallet now contains 1,000 grana (0.001 SVRN7)
 ```
@@ -87,8 +87,8 @@ await driver.RegisterCitizenInSocietyAsync(new RegisterCitizenInSocietyRequest
 ```csharp
 await driver.TransferAsync(new TransferRequest
 {
-    PayerDid    = "did:drn:sovronia:alice",
-    PayeeDid    = "did:drn:sovronia:bob",
+    PayerDid    = "did:drn:sovronia.svrn7.net/citizen/alice",
+    PayeeDid    = "did:drn:sovronia.svrn7.net/citizen/bob",
     AmountGrana = 500,
     Nonce       = Guid.NewGuid().ToString(),
     Timestamp   = DateTimeOffset.UtcNow,
@@ -143,11 +143,11 @@ Task<SocietyRecord?> GetOwnSocietyAsync()
 
 ## DID Format
 
-| Entity     | DID format                        | Example                      |
-|------------|-----------------------------------|------------------------------|
-| Federation | `did:drn:{fedMethodName}`         | `did:drn:foundation`         |
-| Society    | `did:drn:{societyMethodName}`     | `did:drn:sovronia`           |
-| Citizen    | `did:drn:{societyMethodName}:{id}`| `did:drn:sovronia:alice`     |
+| Entity     | DID type        | DID format                                       | Example                                          |
+|------------|-----------------|--------------------------------------------------|--------------------------------------------------|
+| Federation | Identity DID    | `did:drn:{fedHost}`                              | `did:drn:svrn7.net`                              |
+| Society    | Identity DID    | `did:drn:{societyHost}`                          | `did:drn:sovronia.svrn7.net`                     |
+| Citizen    | Locator DID URL | `did:drn:{societyHost}/citizen/{localId}`   | `did:drn:sovronia.svrn7.net/citizen/alice`  |
 
 DID method names must match `[a-z0-9]+` — no hyphens, no uppercase.
 

@@ -57,7 +57,13 @@ public sealed class InboxLiteContext : IDisposable
     }
 
     public ILiteCollection<OutboxRecord> Outbox
-        => _db.GetCollection<OutboxRecord>(ColOutbox);
+    {
+        get
+        {
+            ThrowIfDisposed();
+            return _db.GetCollection<OutboxRecord>(ColOutbox);
+        }
+    }
 
     public ILiteCollection<ProcessedOrderRecord> ProcessedOrders
     {

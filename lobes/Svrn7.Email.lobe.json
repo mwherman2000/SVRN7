@@ -176,7 +176,7 @@
         "additionalProperties": false
       },
       "pipelineExample": "Send-TdaEmail -RecipientDid $did -Subject $subj -Body $body | Send-TdaMessage",
-      "example": "Send-TdaEmail -RecipientDid \"did:drn:bob.beta.svrn7.net\" -Subject \"Hello\" -Body \"Hi Bob\""
+      "example": "Send-TdaEmail -RecipientDid \"did:drn:beta.svrn7.net/citizen/bob\" -Subject \"Hello\" -Body \"Hi Bob\""
     }
   ],
   "dependencies": {

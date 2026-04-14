@@ -119,14 +119,14 @@ function Send-TdaEmail {
         Plain text email body.
 
     .PARAMETER From
-        Sender display name and DID (e.g., "Alice <did:drn:alice.alpha.svrn7.net>").
+        Sender display name and DID (e.g., "Alice <did:drn:alpha.svrn7.net/citizen/alice>").
         Defaults to the Society DID if not specified.
 
     .OUTPUTS
         OutboundMessage — packed DIDComm message ready for Switchboard delivery.
 
     .EXAMPLE
-        Send-TdaEmail -RecipientDid "did:drn:bob.beta.svrn7.net" -Subject "Hello" -Body "Hi Bob"
+        Send-TdaEmail -RecipientDid "did:drn:beta.svrn7.net/citizen/bob" -Subject "Hello" -Body "Hi Bob"
     #>
     [CmdletBinding()]
     param(

@@ -101,7 +101,7 @@ function Send-TdaAlert {
         Hashtable — OutboundMessage for the Switchboard.
 
     .EXAMPLE
-        Send-TdaAlert -RecipientDid "did:drn:alice.alpha.svrn7.net" `
+        Send-TdaAlert -RecipientDid "did:drn:alpha.svrn7.net/citizen/alice" `
                       -AlertType BalanceChange -Severity Info `
                       -Message "Your balance changed by 500 grana."
     #>
