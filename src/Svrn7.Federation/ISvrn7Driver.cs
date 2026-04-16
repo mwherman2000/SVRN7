@@ -103,6 +103,14 @@ public interface ISvrn7Driver : IAsyncDisposable
     Task<OperationResult> UpdateFederationSupplyAsync(long newTotalSupplyGrana,
         string foundationSignature, string governanceRef, CancellationToken ct = default);
 
+    // ── Federation initialisation (idempotent — no-op if record already exists) ──
+    Task<OperationResult> InitialiseFederationAsync(
+        string federationDid,
+        string federationName,
+        string publicKeyHex,
+        string primaryDidMethodName,
+        CancellationToken ct = default);
+
     // ── DID Document registry ─────────────────────────────────────────────────
     Task CreateDidAsync(DidDocument document, CancellationToken ct = default);
     Task UpdateDidAsync(DidDocument document, CancellationToken ct = default);

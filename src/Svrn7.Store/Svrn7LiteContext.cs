@@ -33,6 +33,12 @@ public sealed class Svrn7LiteContext : IDisposable
         EnsureIndexes();
     }
 
+    /// <summary>
+    /// Exposes the underlying LiteDatabase so that other contexts (e.g. FederationLiteContext)
+    /// can share the same open file handle rather than opening a second exclusive connection.
+    /// </summary>
+    public LiteDatabase Database => _db;
+
     private static BsonMapper BuildMapper()
     {
         var m = new BsonMapper();
@@ -45,6 +51,7 @@ public sealed class Svrn7LiteContext : IDisposable
         m.Entity<NonceRecord>()             .Id(n => n.Nonce);
         m.Entity<LogEntry>()                .Id(l => l.TxId);
         m.Entity<TreeHead>()                .Id(t => t.RootHash);
+        m.Entity<FederationRecord>()        .Id(f => f.Did);
         return m;
     }
 

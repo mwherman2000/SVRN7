@@ -190,7 +190,7 @@ public sealed class DIDCommMessageSwitchboard
     /// passing the LiteDB ObjectId as the -MessageId parameter.
     ///
     /// Pipeline pattern (PowerShell, pass-by-reference):
-    ///   Get-TdaMessage -Id $msgId | Invoke-{Lobe}Cmdlet | Send-TdaMessage
+    ///   Get-Web7Message -Id $msgId | Invoke-{Lobe}Cmdlet | Send-Web7Message
     /// </summary>
     private async Task InvokeCmdletPipelineAsync(
         string cmdletOrScript, string didUrl, CancellationToken ct)
@@ -205,15 +205,29 @@ public sealed class DIDCommMessageSwitchboard
         }
         else
         {
-            // LOBE cmdlet pipeline: Get-TdaMessage | cmdlet (pass-by-reference).
-            ps.AddCommand("Get-TdaMessage")
+            // LOBE cmdlet pipeline: Get-Web7Message | cmdlet (pass-by-reference).
+            ps.AddCommand("Get-Web7Message")
               .AddParameter("Did", didUrl)
               .AddStatement()
               .AddCommand(cmdletOrScript)
               .AddParameter("MessageDid", didUrl);
         }
 
+        _log.LogTrace("PS invoke: {Cmdlet} -MessageDid {Did}", cmdletOrScript, didUrl);
+
         var results = await Task.Run(() => ps.Invoke(), ct);
+
+        _log.LogTrace("PS complete: {Cmdlet} → {Count} result(s).", cmdletOrScript, results.Count);
+
+        // Forward PowerShell streams to the .NET logger.
+        foreach (var v in ps.Streams.Verbose)
+            _log.LogTrace("  [PS Verbose] {Message}", v.Message);
+        foreach (var d in ps.Streams.Debug)
+            _log.LogDebug("  [PS Debug] {Message}", d.Message);
+        foreach (var i in ps.Streams.Information)
+            _log.LogInformation("  [PS Info] {Message}", i.MessageData);
+        foreach (var w in ps.Streams.Warning)
+            _log.LogWarning("  [PS Warning] {Message}", w.Message);
 
         if (ps.HadErrors)
         {
@@ -254,7 +268,7 @@ public sealed class DIDCommMessageSwitchboard
 
     /// <summary>
     /// Enqueues a packed outbound DIDComm message for delivery.
-    /// Called by LOBE cmdlets via the <c>Send-TdaMessage</c> cmdlet wrapper,
+    /// Called by LOBE cmdlets via the <c>Send-Web7Message</c> cmdlet wrapper,
     /// which posts an <see cref="OutboundMessage"/> to this queue.
     /// </summary>
     public void EnqueueOutbound(string peerEndpoint, string packedMessage)

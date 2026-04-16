@@ -145,6 +145,18 @@ NOT RECOMMENDED, MAY, and OPTIONAL are to be interpreted as described in BCP 14 
   DID URL (not the payload) to LOBE cmdlet pipelines. Cmdlets resolve the message payload
   via `$SVRN7.GetMessageAsync($messageDid)`.
 
+- **InboxMessageView**: The read-only projection of `InboxMessage` returned by
+  `$SVRN7.GetMessageAsync($messageDid)`. Fields: `Id`, `MessageType`, `PackedPayload`,
+  `FromDid` (nullable — the sender DID from the DIDComm envelope), `AttemptCount`.
+  `FromDid` is required by all `society/1.0/*` protocol handlers to route reply messages
+  back to the sender.
+
+- **FromDid threading**: `KestrelListenerService.HandleInboundAsync` extracts `unpacked.From`
+  from the `DIDCommUnpackedMessage` after `UnpackAsync` and passes it as the optional
+  `fromDid` parameter to `IInboxStore.EnqueueAsync(messageType, packedPayload, fromDid?, ct)`.
+  The `LiteInboxStore` persists it in `InboxMessage.FromDid`. The Switchboard reads it
+  back when constructing the `InboxMessageView` passed to LOBE cmdlets.
+
 ---
 
 ## 4. File Naming Convention
@@ -302,12 +314,12 @@ entry with a protocol prefix covers all message subtypes in a protocol family:
 {
   "uri":       "did:drn:svrn7.net/protocols/email/1.0/",
   "match":     "prefix",
-  "entrypoint":"Receive-TdaEmail"
+  "entrypoint":"Receive-Web7Email"
 }
 ```
 
 This routes `email/1.0/message`, `email/1.0/receipt`, and any future `email/1.0/*`
-subtypes to `Receive-TdaEmail`.
+subtypes to `Receive-Web7Email`.
 
 ### 6.2 `match: "exact"`
 
@@ -316,9 +328,9 @@ different subtypes within a protocol family require different entry-point cmdlet
 
 ```json
 { "uri": "did:drn:svrn7.net/protocols/calendar/1.0/invite",
-  "match": "exact", "entrypoint": "Receive-TdaMeetingRequest" },
+  "match": "exact", "entrypoint": "Receive-Web7MeetingRequest" },
 { "uri": "did:drn:svrn7.net/protocols/calendar/1.0/",
-  "match": "prefix", "entrypoint": "Import-TdaCalendarEvent" }
+  "match": "prefix", "entrypoint": "Import-Web7CalendarEvent" }
 ```
 
 ### 6.3 Match Priority
@@ -456,7 +468,7 @@ the following dispatch protocol:
 
 6. PIPELINE INVOCATION:
    Open PS pipeline from RunspacePool.
-   Execute: Get-TdaMessage -Did $msg.Id | {registration.Entrypoint} | Send-TdaMessage
+   Execute: Get-Web7Message -Did $msg.Id | {registration.Entrypoint} | Send-Web7Message
    (Pass-by-reference: msg.Id is the DID URL, not the payload.)
 
 7. OUTBOUND DELIVERY:
@@ -478,12 +490,12 @@ the LOBE entry-point cmdlet, not the message payload. This is the pass-by-refere
 pattern mandated by DSA 0.24:
 
 ```powershell
-Get-TdaMessage -Did "did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678" |
-    Receive-TdaEmail |
-    Send-TdaMessage
+Get-Web7Message -Did "did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678" |
+    Receive-Web7Email |
+    Send-Web7Message
 ```
 
-The `Get-TdaMessage` cmdlet (defined in `Agent1-Coordinator.ps1`) resolves the message
+The `Get-Web7Message` cmdlet (defined in `Agent1-Coordinator.ps1`) resolves the message
 from `IMemoryCache` (hot path) or `IInboxStore` (cold path) via
 `$SVRN7.GetMessageAsync($messageDid)`.
 
@@ -579,16 +591,16 @@ tooling can identify descriptors that were authored with the MCP-alignment desig
 read verbatim by an AI developer constructing a pipeline. They SHOULD describe:
 
 - Which cmdlet to use for a specific task.
-- Which cmdlets chain naturally (piping `Receive-TdaEmail` output to `Send-TdaEmail`).
+- Which cmdlets chain naturally (piping `Receive-Web7Email` output to `Send-Web7Email`).
 - Which cmdlets should NOT be chained (fire-and-forget cmdlets that return `$null`).
 - Important precedence or ordering constraints.
 - When to prefer one cmdlet over another.
 
 Example:
 ```
-"Chain Receive-TdaEmail after Get-TdaMessage for any pipeline handling email/1.0/* types."
+"Chain Receive-Web7Email after Get-Web7Message for any pipeline handling email/1.0/* types."
 "SenderDid in the returned record is authoritative — not the RFC 5322 From header."
-"Receive-TdaEmail is idempotent: processing the same MessageDid twice is safe."
+"Receive-Web7Email is idempotent: processing the same MessageDid twice is safe."
 ```
 
 ### 11.4 `inputSchema` and `outputSchema` Guidelines
@@ -648,7 +660,7 @@ The following nine LOBEs are shipped with the SVRN7 TDA Host v0.8.0.
 |-------------------|------------------------|--------------------------------------------------|
 | Svrn7.Common      | Svrn7.Common.psm1      | Shared helpers. No protocol handlers.            |
 | Svrn7.Federation  | Svrn7.Federation.psm1  | DID generation, key pairs, base registry.        |
-| Svrn7.Society     | Svrn7.Society.psm1     | Citizen registration, transfers, membership.     |
+| Svrn7.Society     | Svrn7.Society.psm1     | Citizen registration, transfers, membership, society/1.0/* query and admin protocols. |
 
 ### 12.2 JIT LOBEs (on-demand import)
 
@@ -672,20 +684,29 @@ handling in the Switchboard before being routed to the registered cmdlet:
 
 ### 12.4 Standard Protocol URI Registry
 
-| @type URI prefix                                         | LOBE              | Entrypoint                   | Epoch |
-|----------------------------------------------------------|-------------------|------------------------------|-------|
-| `did:drn:svrn7.net/protocols/transfer/1.0/request`      | Svrn7.Society     | Invoke-Svrn7IncomingTransfer | 0     |
-| `did:drn:svrn7.net/protocols/transfer/1.0/order`        | Svrn7.Society     | Invoke-Svrn7IncomingTransfer | 1     |
-| `did:drn:svrn7.net/protocols/transfer/1.0/order-receipt`| Svrn7.Society     | Confirm-Svrn7Settlement      | 1     |
-| `did:drn:svrn7.net/protocols/onboard/1.0/`              | Svrn7.Onboarding  | ConvertFrom-TdaOnboardRequest| 0     |
-| `did:drn:svrn7.net/protocols/email/1.0/`                | Svrn7.Email       | Receive-TdaEmail             | 0     |
-| `did:drn:svrn7.net/protocols/calendar/1.0/invite`       | Svrn7.Calendar    | Receive-TdaMeetingRequest    | 0     |
-| `did:drn:svrn7.net/protocols/calendar/1.0/`             | Svrn7.Calendar    | Import-TdaCalendarEvent      | 0     |
-| `did:drn:svrn7.net/protocols/presence/1.0/subscribe`    | Svrn7.Presence    | Add-TdaPresenceSubscription  | 0     |
-| `did:drn:svrn7.net/protocols/presence/1.0/`             | Svrn7.Presence    | Update-TdaPresence           | 0     |
-| `did:drn:svrn7.net/protocols/notification/1.0/`         | Svrn7.Notifications| Invoke-TdaNotification      | 0     |
-| `did:drn:svrn7.net/protocols/invoice/1.0/`              | Svrn7.Invoicing   | ConvertFrom-TdaInvoiceRequest| 0     |
-| `did:drn:svrn7.net/protocols/did/1.0/resolve-request`   | Svrn7.Society     | Resolve-Svrn7Did             | 0     |
+| @type URI prefix                                              | LOBE                | Entrypoint                    | Epoch |
+|---------------------------------------------------------------|---------------------|-------------------------------|-------|
+| `did:drn:svrn7.net/protocols/federation/1.0/federation-query`| Svrn7.Federation    | Invoke-Web7FederationQuery    | 0     |
+| `did:drn:svrn7.net/protocols/federation/1.0/init`            | Svrn7.Federation    | Invoke-Web7FederationInit     | 0     |
+| `did:drn:svrn7.net/protocols/federation/1.0/register-society`| Svrn7.Federation    | Invoke-Web7RegisterSociety    | 0     |
+| `did:drn:svrn7.net/protocols/transfer/1.0/request`           | Svrn7.Society       | Invoke-Svrn7IncomingTransfer  | 0     |
+| `did:drn:svrn7.net/protocols/transfer/1.0/order`             | Svrn7.Society       | Invoke-Svrn7IncomingTransfer  | 1     |
+| `did:drn:svrn7.net/protocols/transfer/1.0/order-receipt`     | Svrn7.Society       | Confirm-Svrn7Settlement       | 1     |
+| `did:drn:svrn7.net/protocols/onboard/1.0/`                   | Svrn7.Onboarding    | ConvertFrom-Web7OnboardRequest| 0     |
+| `did:drn:svrn7.net/protocols/email/1.0/`                     | Svrn7.Email         | Receive-Web7Email             | 0     |
+| `did:drn:svrn7.net/protocols/calendar/1.0/invite`            | Svrn7.Calendar      | Receive-Web7MeetingRequest    | 0     |
+| `did:drn:svrn7.net/protocols/calendar/1.0/`                  | Svrn7.Calendar      | Import-Web7CalendarEvent      | 0     |
+| `did:drn:svrn7.net/protocols/presence/1.0/subscribe`         | Svrn7.Presence      | Add-Web7PresenceSubscription  | 0     |
+| `did:drn:svrn7.net/protocols/presence/1.0/`                  | Svrn7.Presence      | Update-Web7Presence           | 0     |
+| `did:drn:svrn7.net/protocols/notification/1.0/`              | Svrn7.Notifications | Invoke-Web7Notification       | 0     |
+| `did:drn:svrn7.net/protocols/invoice/1.0/`                   | Svrn7.Invoicing     | ConvertFrom-Web7InvoiceRequest| 0     |
+| `did:drn:svrn7.net/protocols/did/1.0/resolve-request`        | Svrn7.Society       | Resolve-Svrn7Did              | 0     |
+| `did:drn:svrn7.net/protocols/society/1.0/society-query`      | Svrn7.Society       | Invoke-Web7SocietyQuery       | 0     |
+| `did:drn:svrn7.net/protocols/society/1.0/member-query`       | Svrn7.Society       | Invoke-Web7MemberQuery        | 0     |
+| `did:drn:svrn7.net/protocols/society/1.0/overdraft-query`    | Svrn7.Society       | Invoke-Web7OverdraftQuery     | 0     |
+| `did:drn:svrn7.net/protocols/society/1.0/did-methods-query`  | Svrn7.Society       | Invoke-Web7DidMethodsQuery    | 0     |
+| `did:drn:svrn7.net/protocols/society/1.0/did-method-register`| Svrn7.Society       | Invoke-Web7DidMethodRegister  | 0     |
+| `did:drn:svrn7.net/protocols/society/1.0/citizen-did-add`    | Svrn7.Society       | Invoke-Web7CitizenDidAdd      | 0     |
 
 ---
 
@@ -756,7 +777,7 @@ hypothetical health domain extension developed by an independent third party.
         }
       },
       "outputSchema": null,
-      "pipelineExample": "Get-TdaMessage -Did $MessageDid | Receive-HealthPrescriptionRequest"
+      "pipelineExample": "Get-Web7Message -Did $MessageDid | Receive-HealthPrescriptionRequest"
     }
   ],
   "dependencies": {

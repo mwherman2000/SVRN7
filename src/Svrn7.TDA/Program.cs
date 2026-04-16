@@ -23,7 +23,7 @@ var host = Host.CreateDefaultBuilder(args)
     .UseConsoleLifetime()
     .ConfigureLogging(logging =>
     {
-        logging.SetMinimumLevel(LogLevel.Information);
+        logging.SetMinimumLevel(LogLevel.Trace);
         logging.AddConsole();
     })
     .ConfigureServices((ctx, services) =>

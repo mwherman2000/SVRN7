@@ -107,7 +107,7 @@ Web7-DSA.sln
 │   ├── Svrn7.Store/       — LiteDB: 3 Data Storage databases (svrn7.db, dids.db, vcs.db), all store implementations
 │   ├── Svrn7.Ledger/      — RFC 6962 Merkle log, 8-step transfer validator
 │   ├── Svrn7.Identity/    — W3C VC v2 JWT issuance, verification, revocation
-│   ├── Svrn7.Federation/  — ISvrn7Driver (44 members), Svrn7Driver, DI extensions
+│   ├── Svrn7.Federation/  — ISvrn7Driver (45 members), Svrn7Driver, DI extensions
 │   ├── Svrn7.DIDComm/     — DIDComm v2: 5 pack modes, RFC 3394, X25519
 │   ├── Svrn7.Society/
 │   └── ISvrn7SocietyDriver.cs, Svrn7SocietyDriver.cs, DIDCommServices.cs, InboxStore.cs
@@ -129,8 +129,8 @@ Web7-DSA.sln
 | # | Module | Type | Protocol families |
 |---|---|---|---|
 | 1 | Svrn7.Common.psm1 | Eager | — (shared helpers) |
-| 2 | Svrn7.Federation.psm1 | Eager | transfer/1.0/*, did/1.0/* |
-| 3 | Svrn7.Society.psm1 | Eager | transfer/1.0/*, onboard/1.0/* |
+| 2 | Svrn7.Federation.psm1 | Eager | federation/1.0/*, transfer/1.0/*, did/1.0/* |
+| 3 | Svrn7.Society.psm1 | Eager | transfer/1.0/*, onboard/1.0/*, society/1.0/* |
 | 4 | Svrn7.UX.psm1 | Eager | ux/1.0/* (balance-update, notification, registration-complete) |
 | 5 | Svrn7.Email.psm1 | JIT | did:drn:svrn7.net/protocols/email/1.0/* |
 | 6 | Svrn7.Calendar.psm1 | JIT | did:drn:svrn7.net/protocols/calendar/1.0/* |
@@ -184,7 +184,7 @@ specs/
 | Interface | Implementation(s) | Project |
 |---|---|---|
 | `ICryptoService` | `CryptoService` | Svrn7.Crypto |
-| `ISvrn7Driver` | `Svrn7Driver` (44 members) | Svrn7.Federation |
+| `ISvrn7Driver` | `Svrn7Driver` (45 members) | Svrn7.Federation |
 | `ISvrn7SocietyDriver : ISvrn7Driver` | `Svrn7SocietyDriver` (wraps `ISvrn7Driver` via `_inner`) | Svrn7.Society |
 | `IWalletStore` | `LiteWalletStore` | Svrn7.Store |
 | `IIdentityRegistry` | `LiteIdentityRegistry` | Svrn7.Store |
@@ -209,7 +209,7 @@ specs/
 - **Initial Federation supply: 1,000,000,000 SVRN7 = 10¹⁵ grana**
 - **Citizen endowment: 1,000 grana = 0.001 SVRN7 (changed from 1,000 SVRN7 in v0.8.0, DSA 0.24)**
 - **Step 3 nonce replay: `ConcurrentDictionary` → `ITransferNonceStore` / `LiteTransferNonceStore` (LiteDB TTL collection in `Svrn7LiteContext.ColNonces`). `NonceRecord { Nonce, SeenAt, ExpiresAt }` in `Models.cs`. Sweep-on-access + duplicate-key insert = replay detection. Survives process restarts.**
-- **Durable inbox: `ConcurrentQueue` → `IInboxStore` / `LiteInboxStore` (svrn7-inbox.db via `InboxLiteContext`). `InboxMessage { Id, MessageType, PackedPayload, ReceivedAt, Status, ProcessedAt, LastError, AttemptCount }`. Lifecycle: `Pending → Processing → Processed | Failed`. `ResetStuckMessagesAsync` on startup. Max 3 retries then dead-letter. `InboxDbPath` option on `Svrn7SocietyOptions`.**
+- **Durable inbox: `ConcurrentQueue` → `IInboxStore` / `LiteInboxStore` (svrn7-inbox.db via `InboxLiteContext`). `InboxMessage { Id, MessageType, PackedPayload, FromDid, ReceivedAt, Status, ProcessedAt, LastError, AttemptCount }`. `FromDid` is the sender DID from the DIDComm envelope, threaded from `KestrelListenerService` via `unpacked.From` → `IInboxStore.EnqueueAsync(messageType, packedPayload, fromDid?, ct)`. Exposed to LOBE cmdlets as `InboxMessageView.FromDid` via `$SVRN7.GetMessageAsync()`. Lifecycle: `Pending → Processing → Processed | Failed`. `ResetStuckMessagesAsync` on startup. Max 3 retries then dead-letter. `InboxDbPath` option on `Svrn7SocietyOptions`.**
 - **DIDCommTransferHandler idempotency: `ConcurrentDictionary._processedOrders` → `IProcessedOrderStore` / `LiteProcessedOrderStore` (also in svrn7-inbox.db). `ProcessedOrderRecord { TransferId, PackedReceipt, ProcessedAt }`. Ensures duplicate `TransferOrder` DIDComm messages return the cached receipt without re-crediting.**
 
 ### Supply Rules
@@ -309,6 +309,24 @@ did:drn:svrn7.net/protocols/endowment/1.0/top-up
 did:drn:svrn7.net/protocols/supply/1.0/update
 did:drn:svrn7.net/protocols/did/1.0/resolve-request
 did:drn:svrn7.net/protocols/did/1.0/resolve-response
+did:drn:svrn7.net/protocols/society/1.0/society-query
+did:drn:svrn7.net/protocols/society/1.0/society-query-result
+did:drn:svrn7.net/protocols/society/1.0/member-query
+did:drn:svrn7.net/protocols/society/1.0/member-query-result
+did:drn:svrn7.net/protocols/society/1.0/overdraft-query
+did:drn:svrn7.net/protocols/society/1.0/overdraft-query-result
+did:drn:svrn7.net/protocols/society/1.0/did-methods-query
+did:drn:svrn7.net/protocols/society/1.0/did-methods-query-result
+did:drn:svrn7.net/protocols/society/1.0/did-method-register
+did:drn:svrn7.net/protocols/society/1.0/did-method-register-result
+did:drn:svrn7.net/protocols/society/1.0/citizen-did-add
+did:drn:svrn7.net/protocols/society/1.0/citizen-did-add-result
+did:drn:svrn7.net/protocols/federation/1.0/federation-query
+did:drn:svrn7.net/protocols/federation/1.0/federation-query-result
+did:drn:svrn7.net/protocols/federation/1.0/init
+did:drn:svrn7.net/protocols/federation/1.0/init-result
+did:drn:svrn7.net/protocols/federation/1.0/register-society
+did:drn:svrn7.net/protocols/federation/1.0/register-society-result
 ```
 
 ---
@@ -608,9 +626,26 @@ JIT (Import-Module on first use):
   Svrn7.Invoicing.psm1     — invoice/1.0/* (wraps Invoke-Svrn7IncomingTransfer)
 
 ### Agent Scripts (lobes/)
-  Agent1-Coordinator.ps1  — dispatch to Email/Calendar/Presence/Notifications LOBEs
-  Agent2-Onboarding.ps1   — onboard/1.0/request pipeline
-  AgentN-Invoicing.ps1    — invoice/1.0/request pipeline (same + cross-Society)
+  Agent1-Coordinator.ps1  — dispatch via Get-Web7Message / Send-Web7Message
+  Agent2-Onboarding.ps1   — onboard/1.0/request → ConvertFrom-Web7OnboardRequest
+  AgentN-Invoicing.ps1    — invoice/1.0/request → ConvertFrom-Web7InvoiceRequest
+
+### LOBE Cmdlet Naming Convention (v0.8.0)
+All DIDComm handler cmdlets use the `-Web7` infix.
+Federation handlers (Svrn7.Federation.psm1):
+  Invoke-Web7FederationQuery  — federation/1.0/federation-query
+  Invoke-Web7FederationInit   — federation/1.0/init (idempotent bootstrap)
+  Invoke-Web7RegisterSociety  — federation/1.0/register-society
+Society handlers (Svrn7.Society.psm1):
+  Invoke-Web7SocietyQuery, Invoke-Web7MemberQuery, Invoke-Web7OverdraftQuery,
+  Invoke-Web7DidMethodsQuery, Invoke-Web7DidMethodRegister, Invoke-Web7CitizenDidAdd
+Shared helpers (Svrn7.Common.psm1 — dot-sourced by both modules):
+  Get-ActiveSocietyDriver   — returns $SVRN7.Driver (TDA) or $Script:SocietyDriver
+  Get-ActiveFederationDriver— returns $SVRN7.Driver (TDA) or $Script:FederationDriver
+  Resolve-SocietySenderEndpoint — resolves DIDComm reply endpoint from sender DID
+ISvrn7Driver new method (v0.8.0):
+  InitialiseFederationAsync(federationDid, federationName, publicKeyHex,
+    primaryDidMethodName) → OperationResult  (idempotent; no-op if already initialised)
 
 ## LOBE Registry and Dynamic Dispatch (v0.8.0)
 

@@ -102,11 +102,9 @@ public static class SocietyServiceCollectionExtensions
             var opts = sp.GetRequiredService<IOptions<Svrn7SocietyOptions>>().Value;
             return new VcRegistryLiteContext(opts.VcsDbPath);
         });
+        // Share Svrn7LiteContext's open LiteDatabase — avoids a second exclusive lock on svrn7.db.
         services.TryAddSingleton<FederationLiteContext>(sp =>
-        {
-            var opts = sp.GetRequiredService<IOptions<Svrn7SocietyOptions>>().Value;
-            return new FederationLiteContext(opts.Svrn7DbPath);
-        });
+            new FederationLiteContext(sp.GetRequiredService<Svrn7LiteContext>().Database));
         services.TryAddSingleton<InboxLiteContext>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<Svrn7SocietyOptions>>().Value;

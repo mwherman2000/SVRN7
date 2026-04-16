@@ -496,6 +496,7 @@ public sealed class Svrn7SocietyDriver : ISvrn7SocietyDriver
     public Task<BalanceResult>    GetBalanceResultAsync(string d, CancellationToken ct) => _inner.GetBalanceResultAsync(d, ct);
     public Task<FederationRecord?> GetFederationAsync(CancellationToken ct)             => _inner.GetFederationAsync(ct);
     public Task<OperationResult>  UpdateFederationSupplyAsync(long n, string s, string r, CancellationToken ct) => _inner.UpdateFederationSupplyAsync(n, s, r, ct);
+    public Task<OperationResult>  InitialiseFederationAsync(string d, string n, string k, string m, CancellationToken ct) => _inner.InitialiseFederationAsync(d, n, k, m, ct);
     public Task CreateDidAsync(DidDocument d, CancellationToken ct)                    => _inner.CreateDidAsync(d, ct);
     public Task UpdateDidAsync(DidDocument d, CancellationToken ct)                    => _inner.UpdateDidAsync(d, ct);
     public Task<DidResolutionResult> ResolveDidAsync(string d, CancellationToken ct)   => _inner.ResolveDidAsync(d, ct);

@@ -46,7 +46,8 @@ public record InboxMessage
     public required string             Id            { get; set; }  // TDA resource DID URL
                                                                       // e.g. did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678
     public required string             MessageType   { get; set; }  // Protocol URI
-    public required string             PackedPayload { get; set; }  // Raw DIDComm packed string
+    public required string             PackedPayload { get; set; }  // Unpacked DIDComm body (plaintext)
+    public string?                     FromDid       { get; set; }  // Sender DID from DIDComm envelope
     public required DateTimeOffset     ReceivedAt    { get; set; }
     public InboxMessageStatus          Status        { get; set; } = InboxMessageStatus.Pending;
     public DateTimeOffset?             ProcessedAt   { get; set; }

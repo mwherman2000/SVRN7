@@ -161,9 +161,12 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
 
         // ── Write-ahead log (Long-Term Message Memory — DSA 0.24) ─────────────
         // Persist the unpacked payload (not the JWE — agents work with plaintext).
+        // FromDid is threaded through so LOBE cmdlets can route reply messages back
+        // to the sender without requiring the sender to repeat their DID in the body.
         await _inbox.EnqueueAsync(
             unpacked.Type,
             unpacked.Body,
+            unpacked.From,
             http.RequestAborted);
 
         _log.LogInformation(
