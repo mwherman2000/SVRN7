@@ -1,5 +1,9 @@
 # Svrn7.TDA — Debug & Testing Guide
 
+![](../../docs/images/Web%207.0%20DSA-SocietyArch%200.26.png)
+
+![](../../docs/images/Web%207.0%20DSA-TDA%200.25.png)
+
 ## Overview
 
 - Single inbound endpoint: `POST http://localhost:8443/didcomm`

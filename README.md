@@ -17,6 +17,8 @@ specified by the DSA 0.24 diagram using the Parchment Programming Modeling Langu
 It includes the TDA Host runtime, all eleven standard LOBE modules, the SOVRONA (SVRN7)
 Shared Reserve Currency (SRC) library, and fifteen IETF Internet-Drafts.
 
+![Web 7.0 Societal Architecture](./docs/images/Web%207.0%20DSA-SocietyArch%200.26.png)
+
 ![Web 7.0 DSA](./docs/images/Web%207.0%20DSA-TDA%200.25.png)
 
 ---
