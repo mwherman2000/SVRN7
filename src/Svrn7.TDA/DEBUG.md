@@ -253,10 +253,10 @@ Run once and save the output. The private key must be stored securely by the cit
 own TDA — the Society stores only the public key.
 
 ```powershell
+# Import the module (loads assemblies; no database opened)
 Import-Module ./src/Svrn7.TDA/lobes/Svrn7.Federation.psm1
-Initialize-Svrn7Federation
 
-# Generate secp256k1 signing key pair
+# Generate secp256k1 signing key pair — no driver or database needed
 $kp  = New-Svrn7KeyPair
 
 # Derive citizen DID under the "bindloss" method
@@ -676,11 +676,40 @@ generation as Scenario B steps B.1–B.2).
 
 Sent once, before any societies are registered. Idempotent — safe to repeat.
 
+#### E.0.1 — Generate the federation governance key pair
+
+This is a **one-time operation**. The private key must be stored in a key vault or HSM and
+never placed in config files. The public key is recorded permanently in the federation record.
+
+`New-Svrn7KeyPair` requires only the Svrn7 assemblies — no driver or database connection.
+The TDA may be running or stopped when this step is executed.
+
+```powershell
+# Import the module (loads assemblies; no database opened)
+Import-Module .\Svrn7.Federation.psm1
+
+$federationKp = New-Svrn7KeyPair
+
+Write-Host "Public key  : $($federationKp.PublicKeyHex)"
+Write-Host "Private key : $($federationKp.PrivateKeyHex)   <-- store securely, never share"
+```
+
+Example output (your values will differ):
+
+```
+Public key  : 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+Private key : 18e14a7b5a...  <-- store securely, never share
+```
+
+#### E.0.2 — Send the federation/1.0/init DIDComm message
+
+Replace `$federationKp.PublicKeyHex` with the value saved in E.0.1 on subsequent runs.
+
 ```powershell
 $body = @{
     federationDid        = "did:drn:foundation.svrn7.net"
     federationName       = "SOVRONA Web 7.0 Foundation"
-    publicKeyHex         = "03a1b2c3d4e5f6..."   # Foundation governance public key
+    publicKeyHex         = $federationKp.PublicKeyHex
     primaryDidMethodName = "drn"
 } | ConvertTo-Json -Compress
 

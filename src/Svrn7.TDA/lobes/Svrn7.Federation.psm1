@@ -120,8 +120,14 @@ function New-Svrn7KeyPair {
     [CmdletBinding()]
     [OutputType([PSCustomObject])]
     param()
-    Assert-FederationDriver
-    $kp = $Script:FederationDriver.GenerateSecp256k1KeyPair()
+    # Key generation is pure crypto — no database connection required.
+    # Use the driver if already initialised; otherwise instantiate CryptoService directly.
+    $kp = if ($Script:FederationDriver) {
+        $Script:FederationDriver.GenerateSecp256k1KeyPair()
+    } else {
+        Initialize-Svrn7Assemblies -ModuleRoot $PSScriptRoot
+        [Svrn7.Crypto.CryptoService]::new().GenerateSecp256k1KeyPair()
+    }
     [PSCustomObject]@{
         PSTypeName      = $Script:TypeKeyPair
         PublicKeyHex    = $kp.PublicKeyHex
@@ -153,8 +159,13 @@ function New-Svrn7Ed25519KeyPair {
     [CmdletBinding()]
     [OutputType([PSCustomObject])]
     param()
-    Assert-FederationDriver
-    $kp = $Script:FederationDriver.GenerateEd25519KeyPair()
+    # Key generation is pure crypto — no database connection required.
+    $kp = if ($Script:FederationDriver) {
+        $Script:FederationDriver.GenerateEd25519KeyPair()
+    } else {
+        Initialize-Svrn7Assemblies -ModuleRoot $PSScriptRoot
+        [Svrn7.Crypto.CryptoService]::new().GenerateEd25519KeyPair()
+    }
     [PSCustomObject]@{
         PSTypeName      = $Script:TypeKeyPair
         PublicKeyHex    = $kp.PublicKeyHex

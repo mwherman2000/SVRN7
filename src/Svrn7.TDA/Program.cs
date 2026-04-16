@@ -84,11 +84,13 @@ var host = Host.CreateDefaultBuilder(args)
     var cfg     = host.Services.GetRequiredService<IConfiguration>();
     var driver  = host.Services.GetRequiredService<Svrn7.Society.ISvrn7SocietyDriver>();
 
-    var version = typeof(Program).Assembly
-                      .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-                      ?.InformationalVersion
-                  ?? typeof(Program).Assembly.GetName().Version?.ToString(3)
-                  ?? "0.0.0";
+    var rawVersion = typeof(Program).Assembly
+                         .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                         ?.InformationalVersion
+                     ?? typeof(Program).Assembly.GetName().Version?.ToString(3)
+                     ?? "0.0.0";
+    // Strip SemVer build metadata (git commit hash appended by the .NET SDK: "0.8.0+e542da3...")
+    var version = rawVersion.Contains('+') ? rawVersion[..rawVersion.IndexOf('+')] : rawVersion;
 
     // Federation and society data — may be null on first run before initialisation.
     var federation = await driver.GetFederationAsync();
@@ -118,7 +120,7 @@ var host = Host.CreateDefaultBuilder(args)
     }
     else
     {
-        Console.WriteLine($"  Federation  : (not yet initialised — run Invoke-Web7FederationInit)");
+        Console.WriteLine($"  Federation  : (not yet initialised — POST federation/1.0/init to :{cfg["Tda:ListenPort"] ?? "8443"}/didcomm  |  see DEBUG.md §E.0)");
         Console.WriteLine($"  Societies   : (not yet initialised)");
     }
     Console.WriteLine(hr);
