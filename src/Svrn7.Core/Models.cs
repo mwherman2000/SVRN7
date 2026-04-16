@@ -48,6 +48,7 @@ public record InboxMessage
     public required string             MessageType   { get; set; }  // Protocol URI
     public required string             PackedPayload { get; set; }  // Unpacked DIDComm body (plaintext)
     public string?                     FromDid       { get; set; }  // Sender DID from DIDComm envelope
+    public string?                     WireId        { get; set; }  // DIDComm wire 'id' from the sender's envelope (null for encrypted/opaque messages)
     public required DateTimeOffset     ReceivedAt    { get; set; }
     public InboxMessageStatus          Status        { get; set; } = InboxMessageStatus.Pending;
     public DateTimeOffset?             ProcessedAt   { get; set; }

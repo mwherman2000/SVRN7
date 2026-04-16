@@ -209,8 +209,8 @@ Svrn7.Society
 Derived from: "Citizen/Society TDA (Host)" — element type Host — DSA 0.24 Epoch 0 (PPML).
 
 **Inbound**: `POST /didcomm` (Kestrel HTTP/2 + mTLS)
-→ `KestrelListenerService.UnpackAsync()`
-→ `LiteInboxStore.EnqueueAsync()` — persists to `svrn7-inbox.db`
+→ `KestrelListenerService.UnpackAsync()` — extracts `Id`, `Type`, `From`, `Body` from plaintext; encrypted messages pass through undecrypted
+→ `LiteInboxStore.EnqueueAsync(type, body, fromDid?, wireId?)` — persists to `svrn7-inbox.db`; `wireId = unpacked.Id` (null for encrypted)
 → `DIDCommMessageSwitchboard` — routes by `@type` Locator DID URL
 → LOBE cmdlet pipeline (PowerShell Runspace)
 

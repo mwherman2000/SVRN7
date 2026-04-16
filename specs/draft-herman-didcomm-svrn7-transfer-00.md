@@ -461,7 +461,9 @@ request asynchronously and sends the result message to the sender's TDA endpoint
 
 All `society/1.0/*` requests require `InboxMessage.FromDid` to be set (the sender DID
 from the DIDComm envelope, threaded from `KestrelListenerService.HandleInboundAsync`
-through `IInboxStore.EnqueueAsync`). If `FromDid` is null the handler returns an error.
+through `IInboxStore.EnqueueAsync(messageType, packedPayload, fromDid?, wireId?, ct)`).
+If `FromDid` is null the handler returns an error. `InboxMessage.WireId` carries the
+sender's DIDComm wire `id` field (populated for plaintext messages; null for encrypted).
 
 **7.13.1 SocietyQuery / SocietyQueryResult**
 
@@ -578,7 +580,8 @@ to the Federation TDA. These three protocols enable a fresh TDA deployment to be
 initialised entirely via DIDComm messages without direct driver API access.
 
 All `federation/1.0/*` requests require `InboxMessage.FromDid` to be set. If `FromDid`
-is null the handler returns an error and cannot route the reply.
+is null the handler returns an error and cannot route the reply. `InboxMessage.WireId`
+carries the sender's DIDComm wire `id` field (populated for plaintext messages; null for encrypted).
 
 `InitialiseFederationAsync` (driver level) is idempotent: if the Federation record
 already exists the call is a no-op and returns the existing record DID. VTC credential

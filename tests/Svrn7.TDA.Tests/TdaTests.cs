@@ -804,7 +804,7 @@ public class LobeManagerRegistryTests : IDisposable
 
 internal sealed class NullInboxStore : Svrn7.Core.Interfaces.IInboxStore
 {
-    public Task EnqueueAsync(string t, string p, CancellationToken ct = default) => Task.CompletedTask;
+    public Task EnqueueAsync(string t, string p, string? fromDid = null, string? wireId = null, CancellationToken ct = default) => Task.CompletedTask;
     public Task<Svrn7.Core.Models.InboxMessage?> GetByIdAsync(string id, CancellationToken ct = default) => Task.FromResult<Svrn7.Core.Models.InboxMessage?>(null);
     public Task<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.InboxMessage>> DequeueBatchAsync(int b = 20, CancellationToken ct = default) => Task.FromResult<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.InboxMessage>>(Array.Empty<Svrn7.Core.Models.InboxMessage>());
     public Task MarkProcessedAsync(string id, CancellationToken ct = default) => Task.CompletedTask;
@@ -853,6 +853,7 @@ internal sealed class NullSocietyDriver : Svrn7.Society.ISvrn7SocietyDriver
     public Task<string?> ResolveCitizenPrimaryDidAsync(string anyDid, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.OperationResult> RegisterSocietyAsync(Svrn7.Core.Models.RegisterSocietyRequest r, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.SocietyRecord?> GetSocietyAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.SocietyRecord>> GetAllSocietiesAsync(CancellationToken ct = default) => throw new NotImplementedException();
     public Task<bool> IsSocietyActiveAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
     public Task DeactivateSocietyAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.OperationResult> RegisterAdditionalDidMethodAsync(string societyDid, string methodName, CancellationToken ct = default) => throw new NotImplementedException();
@@ -866,6 +867,7 @@ internal sealed class NullSocietyDriver : Svrn7.Society.ISvrn7SocietyDriver
     public Task<Svrn7.Core.Models.BalanceResult> GetBalanceResultAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.FederationRecord?> GetFederationAsync(CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.OperationResult> UpdateFederationSupplyAsync(long newTotalSupplyGrana, string foundationSignature, string governanceRef, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.OperationResult> InitialiseFederationAsync(string federationDid, string federationName, string publicKeyHex, string primaryDidMethodName, CancellationToken ct = default) => throw new NotImplementedException();
     public Task CreateDidAsync(Svrn7.Core.Models.DidDocument document, CancellationToken ct = default) => throw new NotImplementedException();
     public Task UpdateDidAsync(Svrn7.Core.Models.DidDocument document, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.DidResolutionResult> ResolveDidAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
@@ -1049,7 +1051,7 @@ internal sealed class RecordingInboxStore : IInboxStore
 {
     public List<(string Type, string Payload)> Messages { get; } = new();
 
-    public Task EnqueueAsync(string messageType, string packedPayload, CancellationToken ct = default)
+    public Task EnqueueAsync(string messageType, string packedPayload, string? fromDid = null, string? wireId = null, CancellationToken ct = default)
     {
         Messages.Add((messageType, packedPayload));
         return Task.CompletedTask;

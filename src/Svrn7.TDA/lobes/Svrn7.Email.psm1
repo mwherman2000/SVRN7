@@ -137,7 +137,7 @@ function Send-Web7Email {
     )
 
     process {
-        if (-not $From) { $From = $SVRN7.Driver.GetSocietyDidAsync().GetAwaiter().GetResult() }
+        if (-not $From) { $From = $SVRN7.Driver.SocietyDid }
 
         $date = [datetime]::UtcNow.ToString('ddd, dd MMM yyyy HH:mm:ss') + ' +0000'
 
@@ -153,13 +153,13 @@ Content-Type: text/plain; charset=utf-8
 $Body
 "@
         $payload = @{
-            from        = $SVRN7.Driver.GetSocietyDidAsync().GetAwaiter().GetResult()
+            from        = $SVRN7.Driver.SocietyDid
             to          = $RecipientDid
             rfc5322Body = $rfc5322
         } | ConvertTo-Json -Compress
 
         # Resolve peer TDA endpoint via IDidDocumentResolver
-        $peerEndpoint = Resolve-Web7Endpoint -Did $RecipientDid
+        $peerEndpoint = Resolve-SocietySenderEndpoint -Did $RecipientDid
 
         return @{
             PeerEndpoint  = $peerEndpoint
@@ -176,14 +176,6 @@ function Get-Rfc5322Header {
     $pattern = "(?m)^${Header}:\s*(.+)$"
     if ($Raw -match $pattern) { return $Matches[1].Trim() }
     return $null
-}
-
-function Resolve-Web7Endpoint {
-    param([string] $Did)
-    $doc = $SVRN7.Driver.ResolveDidDocumentAsync($Did).GetAwaiter().GetResult()
-    $svc = $doc.Service | Where-Object { $_.type -eq 'DIDComm' } | Select-Object -First 1
-    if (-not $svc) { throw "No DIDComm service endpoint found in DID Document for $Did" }
-    return $svc.serviceEndpoint
 }
 
 Export-ModuleMember -Function @(

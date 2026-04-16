@@ -374,8 +374,8 @@ function Register-Svrn7CitizenInSociety {
         PSTypeName     = $Script:TypeCitizenReg
         CitizenDid     = $CitizenDid
         SocietyDid     = $societyDid
-        EndowmentSvrn7 = 1000.0M
-        EndowmentGrana = 1_000_000_000L
+        EndowmentSvrn7 = 0.001M
+        EndowmentGrana = 1_000L
         MethodName     = $PreferredMethodName
         Success        = $true
     }
@@ -1669,6 +1669,58 @@ function Invoke-Web7CitizenDidAdd {
 #endregion
 
 ###############################################################################
+#region SETTLEMENT CONFIRMATION — transfer/1.0/order-receipt
+###############################################################################
+
+function Confirm-Svrn7Settlement {
+    <#
+    .SYNOPSIS
+        Handles transfer/1.0/order-receipt — records settlement confirmation from a receiving Society.
+    .DESCRIPTION
+        Called by the Switchboard when a target Society sends back a
+        transfer/1.0/order-receipt acknowledging receipt and credit of a
+        cross-Society TransferOrderCredential. Logs the confirmation.
+        No reply is sent — the receipt is a terminal message in the protocol.
+
+        Body fields:
+            transferId   [string]  Blake3 hex of the original canonical JSON.
+            success      [bool]    true if the payee was credited.
+            payeeDid     [string]  DID of the credited citizen.
+            amountGrana  [long]    Amount credited.
+            memo         [string?] Optional memo echoed from the order.
+            errorMessage [string?] Set when success=false.
+
+    .PARAMETER MessageDid
+        LiteDB ObjectId of the InboxMessage containing the receipt.
+
+    .OUTPUTS
+        $null — no outbound message is generated.
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [string] $MessageDid
+    )
+    process {
+        $msg = $SVRN7.GetMessageAsync($MessageDid).GetAwaiter().GetResult()
+        if (-not $msg) { throw "Confirm-Svrn7Settlement: message '$MessageDid' not found." }
+
+        $body = $msg.PackedPayload | ConvertFrom-Json
+
+        if ($body.success) {
+            Write-Verbose "Confirm-Svrn7Settlement: transfer '$($body.transferId)' settled — $($body.amountGrana) grana credited to $($body.payeeDid)"
+        } else {
+            Write-Warning "Confirm-Svrn7Settlement: transfer '$($body.transferId)' rejected by peer — $($body.errorMessage)"
+        }
+
+        return $null
+    }
+}
+
+#endregion
+
+###############################################################################
 #region MODULE CLEANUP
 ###############################################################################
 
@@ -1697,6 +1749,8 @@ Export-ModuleMember -Function @(
     'Unregister-Svrn7SocietyDidMethod'
     'Get-Svrn7SocietyDidMethods'
     'Find-Svrn7VcsBySubject'
+    # transfer/1.0/* DIDComm protocol handlers
+    'Confirm-Svrn7Settlement'
     # society/1.0/* DIDComm protocol handlers
     'Invoke-Web7SocietyQuery'
     'Invoke-Web7MemberQuery'

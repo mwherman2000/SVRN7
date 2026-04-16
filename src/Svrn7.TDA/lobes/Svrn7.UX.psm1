@@ -262,11 +262,7 @@ function New-Svrn7TransferIntent {
             }
         } | ConvertTo-Json -Depth 5 -Compress
 
-        $societyDid   = $SVRN7.Driver.GetSocietyDidAsync().GetAwaiter().GetResult()
-        $societyDoc   = $SVRN7.Driver.ResolveDidDocumentAsync($societyDid).GetAwaiter().GetResult()
-        $peerEndpoint = ($societyDoc.Service |
-            Where-Object { $_.type -eq 'DIDComm' } |
-            Select-Object -First 1).serviceEndpoint
+        $peerEndpoint = Resolve-SocietySenderEndpoint -Did $SVRN7.Driver.SocietyDid
 
         return @{
             PeerEndpoint  = $peerEndpoint

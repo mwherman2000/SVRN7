@@ -73,6 +73,7 @@ public interface ISvrn7Driver : IAsyncDisposable
     Task<OperationResult> RegisterSocietyAsync(RegisterSocietyRequest request,
         CancellationToken ct = default);
     Task<SocietyRecord?> GetSocietyAsync(string did, CancellationToken ct = default);
+    Task<IReadOnlyList<SocietyRecord>> GetAllSocietiesAsync(CancellationToken ct = default);
     Task<bool> IsSocietyActiveAsync(string did, CancellationToken ct = default);
     Task DeactivateSocietyAsync(string did, CancellationToken ct = default);
 

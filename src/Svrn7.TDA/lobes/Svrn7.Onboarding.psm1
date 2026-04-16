@@ -101,7 +101,7 @@ function New-Web7OnboardReceipt {
     )
 
     process {
-        $mySocietyDid = $SVRN7.Driver.GetSocietyDidAsync().GetAwaiter().GetResult()
+        $mySocietyDid = $SVRN7.Driver.SocietyDid
 
         $payload = @{
             from            = $mySocietyDid
@@ -114,7 +114,7 @@ function New-Web7OnboardReceipt {
             registeredAt    = [datetimeoffset]::UtcNow.ToString('o')
         } | ConvertTo-Json -Compress
 
-        $endpoint = Resolve-Web7Endpoint -Did $RegistrationResult.CitizenDid
+        $endpoint = Resolve-SocietySenderEndpoint -Did $RegistrationResult.CitizenDid
 
         Write-Verbose "Onboarding LOBE: receipt for $($RegistrationResult.CitizenDid) — $($RegistrationResult.EndowmentGrana) grana"
 
@@ -149,7 +149,7 @@ function Send-Web7OnboardError {
     )
 
     process {
-        $mySocietyDid = $SVRN7.Driver.GetSocietyDidAsync().GetAwaiter().GetResult()
+        $mySocietyDid = $SVRN7.Driver.SocietyDid
 
         $payload = @{
             from          = $mySocietyDid
@@ -159,23 +159,13 @@ function Send-Web7OnboardError {
             registeredAt  = [datetimeoffset]::UtcNow.ToString('o')
         } | ConvertTo-Json -Compress
 
-        $endpoint = Resolve-Web7Endpoint -Did $CitizenDid
+        $endpoint = Resolve-SocietySenderEndpoint -Did $CitizenDid
         return @{
             PeerEndpoint  = $endpoint
             PackedMessage = $payload
             MessageType   = 'did:drn:svrn7.net/protocols/onboard/1.0/receipt'
         }
     }
-}
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-function Resolve-Web7Endpoint {
-    param([string] $Did)
-    $doc = $SVRN7.Driver.ResolveDidDocumentAsync($Did).GetAwaiter().GetResult()
-    $svc = $doc.Service | Where-Object { $_.type -eq 'DIDComm' } | Select-Object -First 1
-    if (-not $svc) { throw "No DIDComm service endpoint for $Did" }
-    return $svc.serviceEndpoint
 }
 
 Export-ModuleMember -Function @(

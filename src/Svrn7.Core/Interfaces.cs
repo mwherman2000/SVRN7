@@ -60,6 +60,7 @@ public interface IIdentityRegistry
 
     Task RegisterSocietyAsync(SocietyRecord society, CancellationToken ct = default);
     Task<SocietyRecord?> GetSocietyAsync(string did, CancellationToken ct = default);
+    Task<IReadOnlyList<SocietyRecord>> GetAllSocietiesAsync(CancellationToken ct = default);
     Task<bool> IsSocietyActiveAsync(string did, CancellationToken ct = default);
     Task SetSocietyActiveAsync(string did, bool active, CancellationToken ct = default);
 
@@ -263,7 +264,7 @@ public interface IProcessedOrderStore
 public interface IInboxStore
 {
     /// <summary>Persists a new incoming message with Status = Pending.</summary>
-    Task EnqueueAsync(string messageType, string packedPayload, string? fromDid = null, CancellationToken ct = default);
+    Task EnqueueAsync(string messageType, string packedPayload, string? fromDid = null, string? wireId = null, CancellationToken ct = default);
 
     /// <summary>
     /// Retrieves a single message by its LiteDB ObjectId string.

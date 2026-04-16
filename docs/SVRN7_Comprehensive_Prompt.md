@@ -209,7 +209,7 @@ specs/
 - **Initial Federation supply: 1,000,000,000 SVRN7 = 10¹⁵ grana**
 - **Citizen endowment: 1,000 grana = 0.001 SVRN7 (changed from 1,000 SVRN7 in v0.8.0, DSA 0.24)**
 - **Step 3 nonce replay: `ConcurrentDictionary` → `ITransferNonceStore` / `LiteTransferNonceStore` (LiteDB TTL collection in `Svrn7LiteContext.ColNonces`). `NonceRecord { Nonce, SeenAt, ExpiresAt }` in `Models.cs`. Sweep-on-access + duplicate-key insert = replay detection. Survives process restarts.**
-- **Durable inbox: `ConcurrentQueue` → `IInboxStore` / `LiteInboxStore` (svrn7-inbox.db via `InboxLiteContext`). `InboxMessage { Id, MessageType, PackedPayload, FromDid, ReceivedAt, Status, ProcessedAt, LastError, AttemptCount }`. `FromDid` is the sender DID from the DIDComm envelope, threaded from `KestrelListenerService` via `unpacked.From` → `IInboxStore.EnqueueAsync(messageType, packedPayload, fromDid?, ct)`. Exposed to LOBE cmdlets as `InboxMessageView.FromDid` via `$SVRN7.GetMessageAsync()`. Lifecycle: `Pending → Processing → Processed | Failed`. `ResetStuckMessagesAsync` on startup. Max 3 retries then dead-letter. `InboxDbPath` option on `Svrn7SocietyOptions`.**
+- **Durable inbox: `ConcurrentQueue` → `IInboxStore` / `LiteInboxStore` (svrn7-inbox.db via `InboxLiteContext`). `InboxMessage { Id, MessageType, PackedPayload, FromDid, WireId, ReceivedAt, Status, ProcessedAt, LastError, AttemptCount }`. `FromDid` is the sender DID from the DIDComm envelope; `WireId` is the sender's DIDComm wire `id` field — both threaded from `KestrelListenerService` via `unpacked.From` / `unpacked.Id` → `IInboxStore.EnqueueAsync(messageType, packedPayload, fromDid?, wireId?, ct)`. `WireId` is null for encrypted messages (the wire `id` is inside the ciphertext; populated only for plaintext messages). Exposed to LOBE cmdlets as `InboxMessageView.FromDid` via `$SVRN7.GetMessageAsync()`. Lifecycle: `Pending → Processing → Processed | Failed`. `ResetStuckMessagesAsync` on startup. Max 3 retries then dead-letter. `InboxDbPath` option on `Svrn7SocietyOptions`.**
 - **DIDCommTransferHandler idempotency: `ConcurrentDictionary._processedOrders` → `IProcessedOrderStore` / `LiteProcessedOrderStore` (also in svrn7-inbox.db). `ProcessedOrderRecord { TransferId, PackedReceipt, ProcessedAt }`. Ensures duplicate `TransferOrder` DIDComm messages return the cached receipt without re-crediting.**
 
 ### Supply Rules
@@ -594,6 +594,13 @@ InboxMessage.Id is generated as a full TDA resource DID URL (not a UUID):
 Generated in LiteInboxStore.EnqueueAsync() via TdaResourceId.InboxMessage().
 The Switchboard passes this DID URL by reference to LOBE cmdlet pipelines.
 GetMessageAsync() accepts the DID URL, uses it as IMemoryCache key directly.
+
+### InboxMessage.WireId — DIDComm Wire Identity
+InboxMessage.WireId stores the sender's DIDComm wire `id` field (e.g. `did:drn:svrn7.net/didcomm/msg/{guid}`).
+Threaded from KestrelListenerService via DIDCommUnpackedMessage.Id → IInboxStore.EnqueueAsync(wireId?).
+Null for encrypted messages — the wire id is inside the JWE ciphertext and not recoverable without decryption.
+Populated only for plaintext messages (dev/internal traffic). Enables correlation between a stored InboxMessage
+and the original DIDComm message identity on the wire without re-parsing PackedPayload.
 
 ### TdaResourceId (Svrn7.Core — zero dependencies)
 Static helper for all TDA resource DID URL construction:

@@ -341,6 +341,12 @@ public sealed class Svrn7Driver : ISvrn7Driver
         return _registry.GetSocietyAsync(did, ct);
     }
 
+    public Task<IReadOnlyList<SocietyRecord>> GetAllSocietiesAsync(CancellationToken ct = default)
+    {
+        ThrowIfDisposed();
+        return _registry.GetAllSocietiesAsync(ct);
+    }
+
     public Task<bool> IsSocietyActiveAsync(string did, CancellationToken ct = default)
     {
         ThrowIfDisposed();

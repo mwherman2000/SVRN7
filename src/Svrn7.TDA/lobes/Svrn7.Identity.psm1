@@ -31,7 +31,7 @@ function Resolve-Svrn7Did {
         did/1.0/resolve-response OutboundMessage.
 
     .DESCRIPTION
-        Resolves the requested DID via ISvrn7SocietyDriver.ResolveDidDocumentAsync().
+        Resolves the requested DID via ISvrn7SocietyDriver.ResolveDidAsync().
         If the DID belongs to this Society it is resolved locally; if cross-Society,
         the FederationDidDocumentResolver performs a DIDComm round-trip.
 
@@ -62,9 +62,9 @@ function Resolve-Svrn7Did {
 
         Write-Verbose "Identity LOBE: resolving DID $requestedDid"
 
-        $didDoc = $SVRN7.Driver.ResolveDidDocumentAsync($requestedDid).GetAwaiter().GetResult()
+        $didDoc = $SVRN7.Driver.ResolveDidAsync($requestedDid).GetAwaiter().GetResult()
 
-        $mySocietyDid = $SVRN7.Driver.GetSocietyDidAsync().GetAwaiter().GetResult()
+        $mySocietyDid = $SVRN7.Driver.SocietyDid
 
         $responsePayload = @{
             from        = $mySocietyDid
@@ -75,7 +75,7 @@ function Resolve-Svrn7Did {
             resolvedAt  = [datetimeoffset]::UtcNow.ToString('o')
         } | ConvertTo-Json -Depth 10 -Compress
 
-        $peerEndpoint = Resolve-Web7Endpoint -Did $body.from
+        $peerEndpoint = Resolve-SocietySenderEndpoint -Did $body.from
 
         return @{
             PeerEndpoint  = $peerEndpoint
@@ -126,7 +126,7 @@ function Get-Svrn7VcById {
         # Find-Svrn7VcsBySubject is in Svrn7.Society.psm1 (eager)
         $vcs = Find-Svrn7VcsBySubject -SubjectDid $subjectDid
 
-        $mySocietyDid = $SVRN7.Driver.GetSocietyDidAsync().GetAwaiter().GetResult()
+        $mySocietyDid = $SVRN7.Driver.SocietyDid
 
         $responsePayload = @{
             from        = $mySocietyDid
@@ -137,7 +137,7 @@ function Get-Svrn7VcById {
             resolvedAt  = [datetimeoffset]::UtcNow.ToString('o')
         } | ConvertTo-Json -Depth 10 -Compress
 
-        $peerEndpoint = Resolve-Web7Endpoint -Did $body.from
+        $peerEndpoint = Resolve-SocietySenderEndpoint -Did $body.from
 
         return @{
             PeerEndpoint  = $peerEndpoint
@@ -177,7 +177,7 @@ function Resolve-Svrn7CitizenIdentity {
     )
 
     process {
-        $didDoc = $SVRN7.Driver.ResolveDidDocumentAsync($CitizenDid).GetAwaiter().GetResult()
+        $didDoc = $SVRN7.Driver.ResolveDidAsync($CitizenDid).GetAwaiter().GetResult()
         if (-not $didDoc) {
             Write-Verbose "Identity LOBE: DID Document not found for $CitizenDid"
             return $null
@@ -195,14 +195,6 @@ function Resolve-Svrn7CitizenIdentity {
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-function Resolve-Web7Endpoint {
-    param([string] $Did)
-    $doc = $SVRN7.Driver.ResolveDidDocumentAsync($Did).GetAwaiter().GetResult()
-    $svc = $doc.Service | Where-Object { $_.type -eq 'DIDComm' } | Select-Object -First 1
-    if (-not $svc) { throw "No DIDComm service endpoint for $Did" }
-    return $svc.serviceEndpoint
-}
 
 Export-ModuleMember -Function @(
     'Resolve-Svrn7Did',

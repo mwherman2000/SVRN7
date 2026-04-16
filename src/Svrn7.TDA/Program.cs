@@ -1,3 +1,6 @@
+using System.Reflection;
+using System.Runtime.InteropServices;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -75,5 +78,51 @@ var host = Host.CreateDefaultBuilder(args)
         });
     })
     .Build();
+
+// ── Startup banner ────────────────────────────────────────────────────────────
+{
+    var cfg     = host.Services.GetRequiredService<IConfiguration>();
+    var driver  = host.Services.GetRequiredService<Svrn7.Society.ISvrn7SocietyDriver>();
+
+    var version = typeof(Program).Assembly
+                      .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                      ?.InformationalVersion
+                  ?? typeof(Program).Assembly.GetName().Version?.ToString(3)
+                  ?? "0.0.0";
+
+    // Federation and society data — may be null on first run before initialisation.
+    var federation = await driver.GetFederationAsync();
+    var societies  = await driver.GetAllSocietiesAsync();
+    var activeSocietyCount = societies.Count(s => s.IsActive);
+
+    const string hr = "────────────────────────────────────────────────────────────────────────────────";
+    Console.WriteLine(hr);
+    Console.WriteLine($"  SVRN7 Trusted Digital Assistant (TDA)  v{version}");
+    Console.WriteLine($"  Web 7.0 Foundation — https://svrn7.net");
+    Console.WriteLine(hr);
+    Console.WriteLine($"  Started     : {DateTimeOffset.Now.ToString("F")}");
+    Console.WriteLine($"  Executable  : {Environment.ProcessPath ?? "(unknown)"}");
+    Console.WriteLine($"  Runtime     : {RuntimeInformation.FrameworkDescription}");
+    Console.WriteLine($"  OS          : {RuntimeInformation.OSDescription}");
+    Console.WriteLine(hr);
+    Console.WriteLine($"  Society DID : {cfg["Svrn7:SocietyDid"] ?? cfg["Tda:SocietyDid"] ?? "(not configured)"}");
+    Console.WriteLine($"  Listen port : {cfg["Tda:ListenPort"] ?? "8443"}");
+    Console.WriteLine($"  LOBEs       : {cfg["Tda:LobesConfigPath"] ?? "./lobes/lobes.config.json"}");
+    Console.WriteLine(hr);
+    if (federation is not null)
+    {
+        Console.WriteLine($"  Federation  : {federation.FederationName}  ({federation.Did})");
+        Console.WriteLine($"  Supply      : {federation.TotalSupplyGrana / 1_000_000m:N6} SVRN7  ({federation.TotalSupplyGrana:N0} grana)");
+        Console.WriteLine($"  Epoch       : {driver.GetCurrentEpoch()}");
+        Console.WriteLine($"  Societies   : {societies.Count} registered  ({activeSocietyCount} active)");
+    }
+    else
+    {
+        Console.WriteLine($"  Federation  : (not yet initialised — run Invoke-Web7FederationInit)");
+        Console.WriteLine($"  Societies   : (not yet initialised)");
+    }
+    Console.WriteLine(hr);
+    Console.WriteLine();
+}
 
 await host.RunAsync();

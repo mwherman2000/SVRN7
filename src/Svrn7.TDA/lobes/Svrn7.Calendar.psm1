@@ -148,7 +148,7 @@ function New-Web7CalendarResponse {
 
     process {
         $partstat = if ($Accept) { 'ACCEPTED' } else { 'DECLINED' }
-        $mySocietyDid = $SVRN7.Driver.GetSocietyDidAsync().GetAwaiter().GetResult()
+        $mySocietyDid = $SVRN7.Driver.SocietyDid
 
         $replyVcal = @"
 BEGIN:VCALENDAR
@@ -171,7 +171,7 @@ END:VCALENDAR
             icalendarBody  = $replyVcal
         } | ConvertTo-Json -Compress
 
-        $peerEndpoint = Resolve-Web7Endpoint -Did $Invite.OrganizerDid
+        $peerEndpoint = Resolve-SocietySenderEndpoint -Did $Invite.OrganizerDid
         return @{
             PeerEndpoint  = $peerEndpoint
             PackedMessage = $payload
@@ -196,14 +196,6 @@ function Get-ICalAttendees {
         $attendees += $m.Groups[1].Value.Trim()
     }
     return $attendees
-}
-
-function Resolve-Web7Endpoint {
-    param([string] $Did)
-    $doc = $SVRN7.Driver.ResolveDidDocumentAsync($Did).GetAwaiter().GetResult()
-    $svc = $doc.Service | Where-Object { $_.type -eq 'DIDComm' } | Select-Object -First 1
-    if (-not $svc) { throw "No DIDComm service endpoint found for $Did" }
-    return $svc.serviceEndpoint
 }
 
 Export-ModuleMember -Function @(

@@ -95,7 +95,7 @@ try {
         # Cross-Society transfer — Invoke-Svrn7ExternalTransfer
         # Requires TargetSocietyDid resolved from payee DID Document.
         Write-Verbose "Agent N / Invoicing: cross-Society transfer for $invoiceId"
-        $payeeDoc         = $SVRN7.Driver.ResolveDidDocumentAsync(
+        $payeeDoc         = $SVRN7.Driver.ResolveDidAsync(
             $invoice.PayeeDid).GetAwaiter().GetResult()
         $targetSocietyDid = $payeeDoc.Controller  # Society that controls payee DID
 

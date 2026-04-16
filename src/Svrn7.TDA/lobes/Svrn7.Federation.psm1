@@ -1346,6 +1346,120 @@ function Invoke-Web7RegisterSociety {
 #endregion
 
 ###############################################################################
+#region TEST UTILITIES
+###############################################################################
+
+function Remove-Svrn7Databases {
+    <#
+    .SYNOPSIS
+        Deletes all SVRN7 LiteDB database files and their companion log files.
+
+    .DESCRIPTION
+        Removes the five LiteDB files used by a SVRN7 Society deployment:
+
+            svrn7.db        — wallets, UTXOs, citizens, societies, Merkle log
+            svrn7-dids.db   — DID Documents and verification methods
+            svrn7-vcs.db    — Verifiable Credentials
+            svrn7-inbox.db  — DIDComm inbox, outbox, processed orders
+            svrn7-schemas.db— JSON Schema 2020-12 registry
+
+        LiteDB also writes a companion journal file alongside each database
+        (e.g. svrn7.db-log). Those files are removed as well when present.
+
+        THIS CMDLET IS DESTRUCTIVE AND IRREVERSIBLE. It is intended for test
+        teardown only. Always run against a test data directory, never against
+        a production deployment.
+
+        Confirmation is required. Pass -Confirm:$false to suppress the prompt
+        in automated test scripts. Use -WhatIf to preview without deleting.
+
+    .PARAMETER Svrn7DbPath
+        Path to svrn7.db. Default: data/svrn7.db
+
+    .PARAMETER DidsDbPath
+        Path to svrn7-dids.db. Default: data/svrn7-dids.db
+
+    .PARAMETER VcsDbPath
+        Path to svrn7-vcs.db. Default: data/svrn7-vcs.db
+
+    .PARAMETER InboxDbPath
+        Path to svrn7-inbox.db. Default: data/svrn7-inbox.db
+
+    .PARAMETER SchemasDbPath
+        Path to svrn7-schemas.db. Default: data/svrn7-schemas.db
+
+    .OUTPUTS
+        PSCustomObject[] — one entry per candidate file with Path and Removed fields.
+
+    .EXAMPLE
+        # Interactive confirmation prompt:
+        Remove-Svrn7Databases
+
+    .EXAMPLE
+        # Non-interactive test teardown:
+        Remove-Svrn7Databases -Confirm:$false
+
+    .EXAMPLE
+        # Preview without deleting:
+        Remove-Svrn7Databases -WhatIf
+
+    .EXAMPLE
+        # Custom data directory:
+        Remove-Svrn7Databases -Svrn7DbPath tests/data/svrn7.db `
+                              -DidsDbPath   tests/data/svrn7-dids.db `
+                              -VcsDbPath    tests/data/svrn7-vcs.db `
+                              -InboxDbPath  tests/data/svrn7-inbox.db `
+                              -SchemasDbPath tests/data/svrn7-schemas.db `
+                              -Confirm:$false
+    #>
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
+    [OutputType([PSCustomObject[]])]
+    param(
+        [string] $Svrn7DbPath   = 'data/svrn7.db',
+        [string] $DidsDbPath    = 'data/svrn7-dids.db',
+        [string] $VcsDbPath     = 'data/svrn7-vcs.db',
+        [string] $InboxDbPath   = 'data/svrn7-inbox.db',
+        [string] $SchemasDbPath = 'data/svrn7-schemas.db'
+    )
+
+    $results = [System.Collections.Generic.List[PSCustomObject]]::new()
+
+    # Collect every candidate path: the main .db file and its LiteDB journal companion.
+    $candidates = foreach ($dbPath in @($Svrn7DbPath, $DidsDbPath, $VcsDbPath,
+                                         $InboxDbPath, $SchemasDbPath)) {
+        $dbPath
+        "$dbPath-log"   # LiteDB 5 journal file written alongside the main database
+    }
+
+    foreach ($path in $candidates) {
+        $exists = Test-Path -LiteralPath $path -PathType Leaf
+
+        if ($exists) {
+            if ($PSCmdlet.ShouldProcess($path, 'Delete LiteDB database file')) {
+                Remove-Item -LiteralPath $path -Force
+                $removed = $true
+                Write-Verbose "Removed: $path"
+            } else {
+                $removed = $false   # -WhatIf path
+            }
+        } else {
+            $removed = $false
+            Write-Verbose "Not found (skipped): $path"
+        }
+
+        $results.Add([PSCustomObject]@{
+            Path    = $path
+            Existed = $exists
+            Removed = $removed
+        })
+    }
+
+    $results.ToArray()
+}
+
+#endregion
+
+###############################################################################
 #region MODULE CLEANUP
 ###############################################################################
 $ExecutionContext.SessionState.Module.OnRemove = {
@@ -1372,6 +1486,7 @@ Export-ModuleMember -Function @(
     'Get-Svrn7VcById'
     'Get-Svrn7VcsBySubject'
     'Initialize-Svrn7Federation'
+    'Remove-Svrn7Databases'
     'Invoke-Svrn7BatchTransfer'
     'Invoke-Web7FederationQuery'
     'Invoke-Web7FederationInit'

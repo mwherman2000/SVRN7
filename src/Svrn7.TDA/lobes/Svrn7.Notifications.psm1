@@ -120,7 +120,7 @@ function Send-Web7Alert {
     )
 
     process {
-        $mySocietyDid = $SVRN7.Driver.GetSocietyDidAsync().GetAwaiter().GetResult()
+        $mySocietyDid = $SVRN7.Driver.SocietyDid
 
         $payload = @{
             from        = $mySocietyDid
@@ -132,7 +132,7 @@ function Send-Web7Alert {
             issuedAt    = [datetimeoffset]::UtcNow.ToString('o')
         } | ConvertTo-Json -Compress
 
-        $endpoint = Resolve-Web7Endpoint -Did $RecipientDid
+        $endpoint = Resolve-SocietySenderEndpoint -Did $RecipientDid
         return @{
             PeerEndpoint  = $endpoint
             PackedMessage = $payload
@@ -166,8 +166,7 @@ function Test-Web7InboxDepth {
         $pending = if ($counts.ContainsKey(0)) { $counts[0] } else { 0 }  # 0 = Pending
 
         if ($pending -gt $script:InboxDepthThreshold) {
-            $societyDid = $SVRN7.Driver.GetSocietyDidAsync().GetAwaiter().GetResult()
-            Send-Web7Alert -RecipientDid $societyDid `
+            Send-Web7Alert -RecipientDid $SVRN7.Driver.SocietyDid `
                           -AlertType InboxDepth `
                           -Severity Warning `
                           -Message "Inbox depth is $pending messages (threshold: $($script:InboxDepthThreshold))."
@@ -176,14 +175,6 @@ function Test-Web7InboxDepth {
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-function Resolve-Web7Endpoint {
-    param([string] $Did)
-    $doc = $SVRN7.Driver.ResolveDidDocumentAsync($Did).GetAwaiter().GetResult()
-    $svc = $doc.Service | Where-Object { $_.type -eq 'DIDComm' } | Select-Object -First 1
-    if (-not $svc) { throw "No DIDComm service endpoint for $Did" }
-    return $svc.serviceEndpoint
-}
 
 Export-ModuleMember -Function @(
     'Invoke-Web7Notification',

@@ -41,15 +41,6 @@
       "epochRequired": 0
     },
     {
-      "uri": "did:drn:svrn7.net/protocols/onboard/1.0/request",
-      "title": "Onboard Request (Society handler)",
-      "description": "Handled via Svrn7.Onboarding LOBE which calls Register-Svrn7CitizenInSociety.",
-      "direction": "inbound",
-      "match": "prefix",
-      "entrypoint": "Register-Svrn7CitizenInSociety",
-      "epochRequired": 0
-    },
-    {
       "uri": "did:drn:svrn7.net/protocols/society/1.0/society-query",
       "title": "Society Query",
       "description": "Returns this Society's own record (DID, epoch, Federation DID). Reply: society/1.0/society-query-result.",

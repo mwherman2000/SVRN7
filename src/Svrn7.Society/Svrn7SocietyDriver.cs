@@ -482,8 +482,9 @@ public sealed class Svrn7SocietyDriver : ISvrn7SocietyDriver
     public Task<IReadOnlyList<CitizenDidRecord>> GetAllDidsForCitizenAsync(string d, CancellationToken ct) => _inner.GetAllDidsForCitizenAsync(d, ct);
     public Task<string?> ResolveCitizenPrimaryDidAsync(string d, CancellationToken ct) => _inner.ResolveCitizenPrimaryDidAsync(d, ct);
     public Task<OperationResult>  RegisterSocietyAsync(RegisterSocietyRequest r, CancellationToken ct) => _inner.RegisterSocietyAsync(r, ct);
-    public Task<SocietyRecord?>   GetSocietyAsync(string d, CancellationToken ct)    => _inner.GetSocietyAsync(d, ct);
-    public Task<bool>             IsSocietyActiveAsync(string d, CancellationToken ct)=> _inner.IsSocietyActiveAsync(d, ct);
+    public Task<SocietyRecord?>   GetSocietyAsync(string d, CancellationToken ct)             => _inner.GetSocietyAsync(d, ct);
+    public Task<IReadOnlyList<SocietyRecord>> GetAllSocietiesAsync(CancellationToken ct)      => _inner.GetAllSocietiesAsync(ct);
+    public Task<bool>             IsSocietyActiveAsync(string d, CancellationToken ct)        => _inner.IsSocietyActiveAsync(d, ct);
     public Task DeactivateSocietyAsync(string d, CancellationToken ct)               => _inner.DeactivateSocietyAsync(d, ct);
     public Task<OperationResult>  RegisterAdditionalDidMethodAsync(string s, string m, CancellationToken ct) => _inner.RegisterAdditionalDidMethodAsync(s, m, ct);
     public Task<OperationResult>  DeregisterDidMethodAsync(string s, string m, CancellationToken ct) => _inner.DeregisterDidMethodAsync(s, m, ct);

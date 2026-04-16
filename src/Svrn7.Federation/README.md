@@ -198,6 +198,34 @@ Three LiteDB 5 embedded databases per deployment:
 
 ---
 
+## PowerShell Test Utilities
+
+`Remove-Svrn7Databases` is exported from `Svrn7.Federation.psm1` and removes all LiteDB database files for a deployment. It is intended for test teardown — stop the TDA host before calling it.
+
+```powershell
+# Interactive — PowerShell prompts for confirmation (ConfirmImpact = High)
+Remove-Svrn7Databases
+
+# Non-interactive (CI / test scripts)
+Remove-Svrn7Databases -Confirm:$false
+
+# Preview without deleting
+Remove-Svrn7Databases -WhatIf
+
+# Custom paths (e.g. isolated test data directory)
+Remove-Svrn7Databases `
+    -Svrn7DbPath    tests/data/svrn7.db `
+    -DidsDbPath     tests/data/svrn7-dids.db `
+    -VcsDbPath      tests/data/svrn7-vcs.db `
+    -InboxDbPath    tests/data/svrn7-inbox.db `
+    -SchemasDbPath  tests/data/svrn7-schemas.db `
+    -Confirm:$false
+```
+
+Defaults match the `Svrn7Options` / `SocietyOptions` path defaults (`data/*.db`). Each database also has a companion LiteDB journal file (`{path}-log`) which is removed automatically when present.
+
+---
+
 ## Links
 
 - **Project**: https://svrn7.net

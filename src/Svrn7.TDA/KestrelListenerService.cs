@@ -167,6 +167,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
             unpacked.Type,
             unpacked.Body,
             unpacked.From,
+            unpacked.Id,
             http.RequestAborted);
 
         _log.LogInformation(

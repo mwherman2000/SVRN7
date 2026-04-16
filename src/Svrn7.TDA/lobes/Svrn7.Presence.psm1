@@ -143,7 +143,7 @@ function Publish-Web7Presence {
     )
 
     process {
-        $mySocietyDid = $SVRN7.Driver.GetSocietyDidAsync().GetAwaiter().GetResult()
+        $mySocietyDid = $SVRN7.Driver.SocietyDid
         $subs = Get-PresenceSubscriptions
 
         if ($subs.Count -eq 0) {
@@ -159,7 +159,7 @@ function Publish-Web7Presence {
         } | ConvertTo-Json -Compress
 
         foreach ($subscriberDid in $subs) {
-            $endpoint = Resolve-Web7Endpoint -Did $subscriberDid
+            $endpoint = Resolve-SocietySenderEndpoint -Did $subscriberDid
             [PSCustomObject]@{
                 PeerEndpoint  = $endpoint
                 PackedMessage = $payload
@@ -201,14 +201,6 @@ function Get-PresenceSubscriptions {
     $subs = $null
     if ($SVRN7.Cache.TryGetValue($script:SubscriptionCacheKey, [ref]$subs)) { return $subs }
     return @()
-}
-
-function Resolve-Web7Endpoint {
-    param([string] $Did)
-    $doc = $SVRN7.Driver.ResolveDidDocumentAsync($Did).GetAwaiter().GetResult()
-    $svc = $doc.Service | Where-Object { $_.type -eq 'DIDComm' } | Select-Object -First 1
-    if (-not $svc) { throw "No DIDComm service endpoint for $Did" }
-    return $svc.serviceEndpoint
 }
 
 Export-ModuleMember -Function @(

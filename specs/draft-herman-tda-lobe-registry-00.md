@@ -147,15 +147,23 @@ NOT RECOMMENDED, MAY, and OPTIONAL are to be interpreted as described in BCP 14 
 
 - **InboxMessageView**: The read-only projection of `InboxMessage` returned by
   `$SVRN7.GetMessageAsync($messageDid)`. Fields: `Id`, `MessageType`, `PackedPayload`,
-  `FromDid` (nullable — the sender DID from the DIDComm envelope), `AttemptCount`.
+  `FromDid` (nullable — the sender DID from the DIDComm envelope), `WireId` (nullable —
+  the sender's DIDComm wire `id` field; null for encrypted messages), `AttemptCount`.
   `FromDid` is required by all `society/1.0/*` protocol handlers to route reply messages
   back to the sender.
 
 - **FromDid threading**: `KestrelListenerService.HandleInboundAsync` extracts `unpacked.From`
   from the `DIDCommUnpackedMessage` after `UnpackAsync` and passes it as the optional
-  `fromDid` parameter to `IInboxStore.EnqueueAsync(messageType, packedPayload, fromDid?, ct)`.
+  `fromDid` parameter to `IInboxStore.EnqueueAsync(messageType, packedPayload, fromDid?, wireId?, ct)`.
   The `LiteInboxStore` persists it in `InboxMessage.FromDid`. The Switchboard reads it
   back when constructing the `InboxMessageView` passed to LOBE cmdlets.
+
+- **WireId threading**: `KestrelListenerService.HandleInboundAsync` also extracts `unpacked.Id`
+  from the `DIDCommUnpackedMessage` and passes it as the optional `wireId` parameter to
+  `IInboxStore.EnqueueAsync`. The `LiteInboxStore` persists it in `InboxMessage.WireId`.
+  `WireId` holds the sender's DIDComm wire `id` field (e.g. `did:drn:svrn7.net/didcomm/msg/{guid}`),
+  enabling correlation between a stored `InboxMessage` and the original wire-level message identity.
+  `WireId` is null for encrypted messages — the wire `id` is inside the JWE ciphertext.
 
 ---
 

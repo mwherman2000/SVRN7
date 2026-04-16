@@ -150,7 +150,7 @@ function New-Web7InvoiceReceipt {
     )
 
     process {
-        $mySocietyDid = $SVRN7.Driver.GetSocietyDidAsync().GetAwaiter().GetResult()
+        $mySocietyDid = $SVRN7.Driver.SocietyDid
 
         $payload = @{
             from           = $mySocietyDid
@@ -165,7 +165,7 @@ function New-Web7InvoiceReceipt {
             settledAt      = [datetimeoffset]::UtcNow.ToString('o')
         } | ConvertTo-Json -Compress
 
-        $endpoint = Resolve-Web7Endpoint -Did $TransferResult.PayerDid
+        $endpoint = Resolve-SocietySenderEndpoint -Did $TransferResult.PayerDid
 
         Write-Verbose "Invoicing LOBE: receipt for invoice $($TransferResult.InvoiceId) — transferId $($TransferResult.TransferId)"
 
@@ -204,7 +204,7 @@ function Send-Web7InvoiceError {
     )
 
     process {
-        $mySocietyDid = $SVRN7.Driver.GetSocietyDidAsync().GetAwaiter().GetResult()
+        $mySocietyDid = $SVRN7.Driver.SocietyDid
 
         $payload = @{
             from       = $mySocietyDid
@@ -215,7 +215,7 @@ function Send-Web7InvoiceError {
             failedAt   = [datetimeoffset]::UtcNow.ToString('o')
         } | ConvertTo-Json -Compress
 
-        $endpoint = Resolve-Web7Endpoint -Did $PayerDid
+        $endpoint = Resolve-SocietySenderEndpoint -Did $PayerDid
         return @{
             PeerEndpoint  = $endpoint
             PackedMessage = $payload
@@ -225,14 +225,6 @@ function Send-Web7InvoiceError {
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-function Resolve-Web7Endpoint {
-    param([string] $Did)
-    $doc = $SVRN7.Driver.ResolveDidDocumentAsync($Did).GetAwaiter().GetResult()
-    $svc = $doc.Service | Where-Object { $_.type -eq 'DIDComm' } | Select-Object -First 1
-    if (-not $svc) { throw "No DIDComm service endpoint for $Did" }
-    return $svc.serviceEndpoint
-}
 
 Export-ModuleMember -Function @(
     'ConvertFrom-Web7InvoiceRequest',

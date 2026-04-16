@@ -5,7 +5,8 @@
 - Single inbound endpoint: `POST http://localhost:8443/didcomm`
 - Protocol: **HTTP/2 cleartext (h2c)** — the server only speaks HTTP/2; HTTP/1.1 requests are rejected
 - No TLS cert configured → cleartext development mode (see `Program.cs` and `KestrelListenerService.cs`)
-- `UnpackAsync` has a **plaintext branch**: if the JSON body has a `"type"` property at the root, it passes through without decryption — no keys needed for dev testing
+- `UnpackAsync` has a **plaintext branch**: if the JSON body has a `"type"` property at the root, it passes through without decryption — no keys needed for dev testing. It also extracts the `"id"` field as `DIDCommUnpackedMessage.Id` (the DIDComm wire id), which is stored in `InboxMessage.WireId`.
+- **Encrypted messages are not yet decrypted**: `UnpackAsync` does not implement JWE decryption — `recipientPrivateKey` is accepted but currently ignored. Encrypted inbound messages will be stored with `MessageType = "application/didcomm-encrypted+json"` and immediately dead-lettered by the Switchboard (`MarkFailedAsync`, no retry). Only plaintext messages are routed end-to-end in the current implementation.
 - A valid message returns **202 Accepted** and is enqueued; the Switchboard routes it asynchronously
 
 ---
@@ -38,7 +39,7 @@ Test-NetConnection localhost -Port 8443
 ```powershell
 $msg = @{
     typ  = "application/didcomm-plain+json"
-    id   = [System.Guid]::NewGuid().ToString("N")
+    id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/transfer/1.0/request"
     from = "did:test:sender"
     to   = @("did:drn:alpha.svrn7.net")
@@ -65,7 +66,7 @@ $client.DefaultVersionPolicy  = [System.Net.Http.HttpVersionPolicy]::RequestVers
 
 $body = @{
     typ  = "application/didcomm-plain+json"
-    id   = [System.Guid]::NewGuid().ToString("N")
+    id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/transfer/1.0/request"
     from = "did:test:sender"
     to   = @("did:drn:alpha.svrn7.net")
@@ -294,7 +295,7 @@ $body = @{
 
 $msg = @{
     typ  = "application/didcomm-plain+json"
-    id   = [System.Guid]::NewGuid().ToString("N")
+    id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/onboard/1.0/request"
     from = $citizenDid
     to   = @("did:drn:bindloss.svrn7.net")
@@ -324,7 +325,7 @@ $body = @{
 
 $msgJson = @{
     typ  = "application/didcomm-plain+json"
-    id   = [System.Guid]::NewGuid().ToString("N")
+    id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/onboard/1.0/request"
     from = $citizenDid
     to   = @("did:drn:bindloss.svrn7.net")
@@ -685,7 +686,7 @@ $body = @{
 
 $msg = @{
     typ  = "application/didcomm-plain+json"
-    id   = [System.Guid]::NewGuid().ToString("N")
+    id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/federation/1.0/init"
     from = "did:drn:foundation.svrn7.net"
     to   = @("did:drn:bindloss.svrn7.net")
@@ -727,7 +728,7 @@ Verify the federation was initialised correctly. Also works before initialisatio
 ```powershell
 $msg = @{
     typ  = "application/didcomm-plain+json"
-    id   = [System.Guid]::NewGuid().ToString("N")
+    id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/federation/1.0/federation-query"
     from = "did:drn:foundation.svrn7.net"
     to   = @("did:drn:bindloss.svrn7.net")
@@ -783,7 +784,7 @@ $body = @{
 
 $msg = @{
     typ  = "application/didcomm-plain+json"
-    id   = [System.Guid]::NewGuid().ToString("N")
+    id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/federation/1.0/register-society"
     from = "did:drn:foundation.svrn7.net"
     to   = @("did:drn:bindloss.svrn7.net")
@@ -841,7 +842,7 @@ $body = @{
 
 $msg = @{
     typ  = "application/didcomm-plain+json"
-    id   = [System.Guid]::NewGuid().ToString("N")
+    id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/onboard/1.0/request"
     from = $citizenDid
     to   = @("did:drn:bindloss.svrn7.net")
@@ -873,7 +874,7 @@ now sent as DIDComm messages to the running TDA.
 ```powershell
 $msg = @{
     typ  = "application/didcomm-plain+json"
-    id   = [System.Guid]::NewGuid().ToString("N")
+    id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/society/1.0/society-query"
     from = "did:bindloss:3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy"   # sender DID
     to   = @("did:drn:bindloss.svrn7.net")
@@ -915,7 +916,7 @@ $body = @{ did = $citizenDid } | ConvertTo-Json -Compress
 
 $msg = @{
     typ  = "application/didcomm-plain+json"
-    id   = [System.Guid]::NewGuid().ToString("N")
+    id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/society/1.0/member-query"
     from = $citizenDid
     to   = @("did:drn:bindloss.svrn7.net")
@@ -942,7 +943,7 @@ Send the same `member-query` with an empty body (`"{}"`):
 ```powershell
 $msg = @{
     typ  = "application/didcomm-plain+json"
-    id   = [System.Guid]::NewGuid().ToString("N")
+    id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/society/1.0/member-query"
     from = "did:bindloss:3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy"
     to   = @("did:drn:bindloss.svrn7.net")
@@ -967,7 +968,7 @@ Reply body:
 ```powershell
 $msg = @{
     typ  = "application/didcomm-plain+json"
-    id   = [System.Guid]::NewGuid().ToString("N")
+    id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/society/1.0/overdraft-query"
     from = "did:bindloss:3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy"
     to   = @("did:drn:bindloss.svrn7.net")
@@ -1001,7 +1002,7 @@ $body = @{ methodName = "bindlossgov" } | ConvertTo-Json -Compress
 
 $msg = @{
     typ  = "application/didcomm-plain+json"
-    id   = [System.Guid]::NewGuid().ToString("N")
+    id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/society/1.0/did-method-register"
     from = "did:bindloss:3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy"
     to   = @("did:drn:bindloss.svrn7.net")
@@ -1026,7 +1027,7 @@ Reply body:
 ```powershell
 $msg = @{
     typ  = "application/didcomm-plain+json"
-    id   = [System.Guid]::NewGuid().ToString("N")
+    id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/society/1.0/did-methods-query"
     from = "did:bindloss:3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy"
     to   = @("did:drn:bindloss.svrn7.net")
@@ -1062,7 +1063,7 @@ $body = @{
 
 $msg = @{
     typ  = "application/didcomm-plain+json"
-    id   = [System.Guid]::NewGuid().ToString("N")
+    id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/society/1.0/citizen-did-add"
     from = "did:bindloss:3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy"
     to   = @("did:drn:bindloss.svrn7.net")
@@ -1099,3 +1100,87 @@ Reply body:
 | `202` but log shows `SocietyEndowmentDepletedException` | Society overdraft ceiling reached | Check `Get-Svrn7OverdraftStatus`; await Federation top-up |
 | Agent 2 log: `No DIDComm service endpoint for <DID>` | Citizen DID document has no `DIDComm` service entry | Register the citizen's DID document before sending the receipt |
 | Switchboard epoch gate log warning | `type` URI requires a higher epoch than `CurrentEpoch` | Only transfer/order URIs are epoch-gated (require Epoch 1+) |
+| `202` but log shows `unknown message type 'application/didcomm-encrypted+json'` | Encrypted JWE was sent — `UnpackAsync` does not decrypt JWE; stores raw ciphertext with wrong type | Use plaintext messages for dev/test (`typ = "application/didcomm-plain+json"`, no `protected_` wrapper) |
+
+---
+
+## Scenario F — Test teardown: Remove all LiteDB databases
+
+`Remove-Svrn7Databases` deletes all five LiteDB files and their companion journal files.
+**Stop the TDA host before running this** — LiteDB holds an exclusive file lock while the process is running.
+
+### F.1 — Interactive teardown (prompts for confirmation)
+
+```powershell
+# Defaults match the Svrn7Options/SocietyOptions path defaults.
+# PowerShell will display a High-impact confirmation prompt.
+Remove-Svrn7Databases
+```
+
+### F.2 — Non-interactive teardown (CI / automated test scripts)
+
+```powershell
+Remove-Svrn7Databases -Confirm:$false
+```
+
+### F.3 — Preview without deleting (`-WhatIf`)
+
+```powershell
+Remove-Svrn7Databases -WhatIf
+```
+
+Expected output (one row per candidate path):
+
+```
+Path                      Existed Removed
+----                      ------- -------
+data/svrn7.db             True    True
+data/svrn7.db-log         False   False
+data/svrn7-dids.db        True    True
+data/svrn7-dids.db-log    False   False
+data/svrn7-vcs.db         True    True
+data/svrn7-vcs.db-log     False   False
+data/svrn7-inbox.db       True    True
+data/svrn7-inbox.db-log   False   False
+data/svrn7-schemas.db     True    True
+data/svrn7-schemas.db-log False   False
+```
+
+### F.4 — Custom data directory
+
+```powershell
+Remove-Svrn7Databases `
+    -Svrn7DbPath    tests/data/svrn7.db `
+    -DidsDbPath     tests/data/svrn7-dids.db `
+    -VcsDbPath      tests/data/svrn7-vcs.db `
+    -InboxDbPath    tests/data/svrn7-inbox.db `
+    -SchemasDbPath  tests/data/svrn7-schemas.db `
+    -Confirm:$false
+```
+
+### F.5 — Typical test lifecycle pattern
+
+```powershell
+# 1. Tear down previous run
+Remove-Svrn7Databases -Confirm:$false
+
+# 2. Start TDA host (separate process or background job)
+Start-Process dotnet -ArgumentList 'run --project src/Svrn7.TDA' -NoNewWindow
+
+# 3. Run test scenarios A/B/D/E ...
+
+# 4. Tear down
+Remove-Svrn7Databases -Confirm:$false
+```
+
+### Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `-Svrn7DbPath` | `data/svrn7.db` | Main wallet / UTXO / Merkle log database |
+| `-DidsDbPath` | `data/svrn7-dids.db` | DID Document registry |
+| `-VcsDbPath` | `data/svrn7-vcs.db` | Verifiable Credential registry |
+| `-InboxDbPath` | `data/svrn7-inbox.db` | DIDComm inbox, outbox, processed orders |
+| `-SchemasDbPath` | `data/svrn7-schemas.db` | JSON Schema 2020-12 registry |
+
+Each path also generates a `{path}-log` candidate (LiteDB 5 journal file). If present it is removed automatically.

@@ -16,7 +16,7 @@
 - **DID method governance** — self-service registration and deregistration of additional DID method names
 - **DIDComm SignThenEncrypt transfers** — cross-Society citizen-to-citizen transfers via `TransferOrderCredential`
 - **Overdraft management** — revolving credit facility from the Federation when the Society wallet is low; delivered via DIDComm HTTP transport when `FederationEndpointUrl` is configured
-- **Inbox/outbox** — `LiteInboxStore` backed by `svrn7-inbox.db`; `DIDCommMessageProcessorService` background service
+- **Inbox/outbox** — `LiteInboxStore` backed by `svrn7-inbox.db`; `DIDCommMessageProcessorService` background service. `InboxMessage` stores `FromDid` (sender DID) and `WireId` (DIDComm wire `id`; null for encrypted messages), both threaded from `KestrelListenerService` via `IInboxStore.EnqueueAsync`.
 - **Schema Registry** — JSON Schema 2020-12 registry for credential schemas (Society TDA only)
 - **Cross-Society VC queries** — `FindVcsBySubjectAcrossSocietiesAsync` via DIDComm
 

@@ -17,21 +17,21 @@
       "uri": "did:drn:svrn7.net/protocols/federation/1.0/federation-query",
       "title": "Federation Query",
       "description": "Returns the current Federation record (DID, name, supply, epoch, status). No body required. Returns found=false if the federation has not yet been initialised.",
-      "handler": "Invoke-Web7FederationQuery",
+      "entrypoint": "Invoke-Web7FederationQuery",
       "epochRequired": 0
     },
     {
       "uri": "did:drn:svrn7.net/protocols/federation/1.0/init",
       "title": "Federation Init",
       "description": "Initialises the Federation record (idempotent — no-op if already initialised). Body: federationDid, federationName, publicKeyHex, primaryDidMethodName.",
-      "handler": "Invoke-Web7FederationInit",
+      "entrypoint": "Invoke-Web7FederationInit",
       "epochRequired": 0
     },
     {
       "uri": "did:drn:svrn7.net/protocols/federation/1.0/register-society",
       "title": "Register Society",
       "description": "Registers a new Society with the Federation. Body: societyDid, publicKeyHex, societyName, primaryDidMethodName, drawAmountGrana, overdraftCeilingGrana.",
-      "handler": "Invoke-Web7RegisterSociety",
+      "entrypoint": "Invoke-Web7RegisterSociety",
       "epochRequired": 0
     }
   ],
