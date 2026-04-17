@@ -808,7 +808,7 @@ internal sealed class NullInboxStore : Svrn7.Core.Interfaces.IInboxStore
     public Task<Svrn7.Core.Models.InboxMessage?> GetByIdAsync(string id, CancellationToken ct = default) => Task.FromResult<Svrn7.Core.Models.InboxMessage?>(null);
     public Task<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.InboxMessage>> DequeueBatchAsync(int b = 20, CancellationToken ct = default) => Task.FromResult<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.InboxMessage>>(Array.Empty<Svrn7.Core.Models.InboxMessage>());
     public Task MarkProcessedAsync(string id, CancellationToken ct = default) => Task.CompletedTask;
-    public Task MarkFailedAsync(string id, string err, bool retry = true, int max = 3, CancellationToken ct = default) => Task.CompletedTask;
+    public Task MarkFailedAsync(string id, string err, bool retry = true, int max = Svrn7Constants.InboxMaxAttempts, CancellationToken ct = default) => Task.CompletedTask;
     public Task ResetStuckMessagesAsync(CancellationToken ct = default) => Task.CompletedTask;
     public Task<System.Collections.Generic.IReadOnlyDictionary<Svrn7.Core.Models.InboxMessageStatus, int>> GetStatusCountsAsync(CancellationToken ct = default) => Task.FromResult<System.Collections.Generic.IReadOnlyDictionary<Svrn7.Core.Models.InboxMessageStatus, int>>(new System.Collections.Generic.Dictionary<Svrn7.Core.Models.InboxMessageStatus, int>());
 }
@@ -1062,7 +1062,7 @@ internal sealed class RecordingInboxStore : IInboxStore
     public Task<IReadOnlyList<InboxMessage>> DequeueBatchAsync(int batchSize = 20, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<InboxMessage>>(Array.Empty<InboxMessage>());
     public Task MarkProcessedAsync(string messageId, CancellationToken ct = default) => Task.CompletedTask;
-    public Task MarkFailedAsync(string messageId, string error, bool retry = true, int maxAttempts = 3, CancellationToken ct = default) =>
+    public Task MarkFailedAsync(string messageId, string error, bool retry = true, int maxAttempts = Svrn7Constants.InboxMaxAttempts, CancellationToken ct = default) =>
         Task.CompletedTask;
     public Task ResetStuckMessagesAsync(CancellationToken ct = default) => Task.CompletedTask;
     public Task<IReadOnlyDictionary<InboxMessageStatus, int>> GetStatusCountsAsync(CancellationToken ct = default) =>
@@ -1105,4 +1105,456 @@ internal sealed class ThrowingDIDCommService : IDIDCommService
     public Task<DIDCommUnpackedMessage> UnpackAsync(string packed,
         byte[]? recipientPrivateKey = null, CancellationToken ct = default) =>
         throw new InvalidOperationException("Simulated DIDComm unpack failure.");
+}
+
+// ── Svrn7Constants Inbox Reliability Tests ────────────────────────────────────
+
+public class Svrn7ConstantsInboxReliabilityTests
+{
+    [Fact]
+    public void InboxMaxAttempts_Is_1()
+    {
+        Svrn7Constants.InboxMaxAttempts.Should().Be(1,
+            because: "transactional messages must never retry — double-spend risk");
+    }
+
+    [Fact]
+    public void InboxNonTransactionalMaxAttempts_Is_3()
+    {
+        Svrn7Constants.InboxNonTransactionalMaxAttempts.Should().Be(3,
+            because: "non-financial messages may safely retry on transient failure");
+    }
+
+    [Theory]
+    [InlineData(Svrn7Constants.Protocols.TransferRequest)]
+    [InlineData(Svrn7Constants.Protocols.TransferReceipt)]
+    [InlineData(Svrn7Constants.Protocols.TransferOrder)]
+    [InlineData(Svrn7Constants.Protocols.TransferOrderReceipt)]
+    [InlineData(Svrn7Constants.Protocols.OverdraftDrawRequest)]
+    [InlineData(Svrn7Constants.Protocols.OverdraftDrawReceipt)]
+    [InlineData(Svrn7Constants.Protocols.EndowmentTopUp)]
+    [InlineData(Svrn7Constants.Protocols.SupplyUpdate)]
+    [InlineData(Svrn7Constants.Protocols.InvoiceRequest)]
+    [InlineData(Svrn7Constants.Protocols.InvoiceReceipt)]
+    public void TransactionalProtocols_Contains_Financial_Protocol(string protocol)
+    {
+        Svrn7Constants.TransactionalProtocols.Should().Contain(protocol,
+            because: $"{protocol} carries financial state and must never retry");
+    }
+
+    [Theory]
+    [InlineData(Svrn7Constants.Protocols.DidResolveRequest)]
+    [InlineData(Svrn7Constants.Protocols.DidResolveResponse)]
+    [InlineData(Svrn7Constants.Protocols.OnboardRequest)]
+    [InlineData(Svrn7Constants.Protocols.OnboardReceipt)]
+    public void TransactionalProtocols_Does_Not_Contain_Query_Protocol(string protocol)
+    {
+        Svrn7Constants.TransactionalProtocols.Should().NotContain(protocol,
+            because: $"{protocol} carries no financial state and may safely retry");
+    }
+
+    [Fact]
+    public void TransactionalProtocols_Lookup_Is_Case_Insensitive()
+    {
+        var upper = Svrn7Constants.Protocols.TransferOrder.ToUpperInvariant();
+        Svrn7Constants.TransactionalProtocols.Should().Contain(upper,
+            because: "case-insensitive comparison is required for @type URI matching");
+    }
+}
+
+// ── LiteInboxStore Stuck-Message Recovery Tests ───────────────────────────────
+
+public class LiteInboxStoreStuckMessageTests : IDisposable
+{
+    private readonly InboxLiteContext   _ctx;
+    private readonly LiteInboxStore     _store;
+    private const string                SocietyDid = "did:drn:alpha.svrn7.net";
+
+    public LiteInboxStoreStuckMessageTests()
+    {
+        _ctx   = new InboxLiteContext(":memory:");
+        var opts = Options.Create(new Svrn7SocietyOptions { SocietyDid = SocietyDid });
+        _store = new LiteInboxStore(_ctx, opts, NullLogger<LiteInboxStore>.Instance);
+    }
+
+    [Fact]
+    public async Task ResetStuckMessages_Restores_Processing_To_Pending()
+    {
+        // Enqueue two messages and dequeue them — they move to Processing.
+        await _store.EnqueueAsync("test/1.0/msg", "payload-a");
+        await _store.EnqueueAsync("test/1.0/msg", "payload-b");
+        var batch = await _store.DequeueBatchAsync(10);
+        batch.Should().HaveCount(2);
+
+        var counts = await _store.GetStatusCountsAsync();
+        counts[InboxMessageStatus.Processing].Should().Be(2,
+            because: "DequeueBatchAsync moves messages to Processing");
+
+        // Simulate an unclean shutdown recovery.
+        await _store.ResetStuckMessagesAsync();
+
+        counts = await _store.GetStatusCountsAsync();
+        counts.TryGetValue(InboxMessageStatus.Processing, out var processing);
+        processing.Should().Be(0, because: "ResetStuckMessagesAsync clears all Processing messages");
+        counts[InboxMessageStatus.Pending].Should().Be(2,
+            because: "stuck messages are restored to Pending for re-processing");
+    }
+
+    [Fact]
+    public async Task ResetStuckMessages_Does_Not_Affect_Processed_Messages()
+    {
+        await _store.EnqueueAsync("test/1.0/msg", "payload");
+        var batch = await _store.DequeueBatchAsync(1);
+        await _store.MarkProcessedAsync(batch[0].Id);
+
+        await _store.ResetStuckMessagesAsync();
+
+        var counts = await _store.GetStatusCountsAsync();
+        counts[InboxMessageStatus.Processed].Should().Be(1);
+        counts.TryGetValue(InboxMessageStatus.Pending, out var pending);
+        pending.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ResetStuckMessages_Does_Not_Affect_Failed_Messages()
+    {
+        await _store.EnqueueAsync("test/1.0/msg", "payload");
+        var batch = await _store.DequeueBatchAsync(1);
+        await _store.MarkFailedAsync(batch[0].Id, "simulated error",
+            retry: false, maxAttempts: Svrn7Constants.InboxMaxAttempts);
+
+        await _store.ResetStuckMessagesAsync();
+
+        var counts = await _store.GetStatusCountsAsync();
+        counts[InboxMessageStatus.Failed].Should().Be(1,
+            because: "Failed messages are permanently dead-lettered and must not be reset");
+        counts.TryGetValue(InboxMessageStatus.Pending, out var pending);
+        pending.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ResetStuckMessages_On_Empty_Inbox_Does_Not_Throw()
+    {
+        var act = async () => await _store.ResetStuckMessagesAsync();
+        await act.Should().NotThrowAsync();
+    }
+
+    public void Dispose() => _ctx.Dispose();
+}
+
+// ── DIDCommMessageSwitchboard Startup Recovery Tests ─────────────────────────
+
+public class SwitchboardStartupTests : IDisposable
+{
+    private readonly string _lobeDir;
+
+    public SwitchboardStartupTests()
+    {
+        _lobeDir = Path.Combine(Path.GetTempPath(), $"sb-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_lobeDir);
+        File.WriteAllText(Path.Combine(_lobeDir, "lobes.config.json"), """{"eager":[],"jit":[]}""");
+    }
+
+    [Fact]
+    public async Task StartupAsync_Calls_ResetStuckMessages()
+    {
+        var inbox      = new TrackingInboxStore();
+        var outbox     = new TrackingOutboxStore(Array.Empty<Svrn7.Core.Models.OutboxRecord>());
+        var switchboard = CreateSwitchboard(inbox, outbox);
+
+        await switchboard.StartupAsync(CancellationToken.None);
+
+        inbox.ResetStuckCalled.Should().BeTrue(
+            because: "stuck inbox messages from a prior unclean shutdown must be recovered on startup");
+    }
+
+    [Fact]
+    public async Task StartupAsync_Calls_GetPendingOutbox()
+    {
+        var inbox      = new TrackingInboxStore();
+        var outbox     = new TrackingOutboxStore(Array.Empty<Svrn7.Core.Models.OutboxRecord>());
+        var switchboard = CreateSwitchboard(inbox, outbox);
+
+        await switchboard.StartupAsync(CancellationToken.None);
+
+        outbox.GetPendingCalled.Should().BeTrue(
+            because: "dead-lettered outbound messages from the prior session must be re-enqueued");
+    }
+
+    [Fact]
+    public async Task StartupAsync_ReEnqueues_PendingOutbox_Into_OutboundQueue()
+    {
+        var inbox = new TrackingInboxStore();
+        var pending = new[]
+        {
+            new Svrn7.Core.Models.OutboxRecord
+            {
+                Id            = TdaResourceId.Build("test.svrn7.net", "inbox", "outbox",
+                                    LiteDB.ObjectId.NewObjectId().ToString()),
+                PeerEndpoint  = "https://peer.example",
+                PackedMessage = "packed-1",
+                MessageType   = "outbound",
+                AttemptCount  = 3,
+            },
+            new Svrn7.Core.Models.OutboxRecord
+            {
+                Id            = TdaResourceId.Build("test.svrn7.net", "inbox", "outbox",
+                                    LiteDB.ObjectId.NewObjectId().ToString()),
+                PeerEndpoint  = "https://peer2.example",
+                PackedMessage = "packed-2",
+                MessageType   = "outbound",
+                AttemptCount  = 3,
+            },
+        };
+        var outbox      = new TrackingOutboxStore(pending);
+        var switchboard = CreateSwitchboard(inbox, outbox);
+
+        await switchboard.StartupAsync(CancellationToken.None);
+
+        switchboard.PendingOutboundCount.Should().Be(2,
+            because: "both dead-lettered outbound records must be re-enqueued for delivery");
+    }
+
+    [Fact]
+    public async Task StartupAsync_Continues_If_InboxStore_Throws()
+    {
+        var inbox      = new ThrowingResetInboxStore();
+        var outbox     = new TrackingOutboxStore(Array.Empty<Svrn7.Core.Models.OutboxRecord>());
+        var switchboard = CreateSwitchboard(inbox, outbox);
+
+        // StartupAsync must not propagate the exception — it is best-effort.
+        var act = async () => await switchboard.StartupAsync(CancellationToken.None);
+        await act.Should().NotThrowAsync(
+            because: "a failing inbox store must not prevent the TDA from starting");
+
+        // The outbox recovery should still have been attempted.
+        outbox.GetPendingCalled.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task StartupAsync_Empty_Outbox_Does_Not_Enqueue_Anything()
+    {
+        var inbox      = new TrackingInboxStore();
+        var outbox     = new TrackingOutboxStore(Array.Empty<Svrn7.Core.Models.OutboxRecord>());
+        var switchboard = CreateSwitchboard(inbox, outbox);
+
+        await switchboard.StartupAsync(CancellationToken.None);
+
+        switchboard.PendingOutboundCount.Should().Be(0);
+    }
+
+    // ── Helper ────────────────────────────────────────────────────────────────
+
+    private DIDCommMessageSwitchboard CreateSwitchboard(
+        IInboxStore inbox,
+        Svrn7.Core.Interfaces.IOutboxStore outbox,
+        TdaOptions? overrideOpts = null)
+    {
+        var tdaOpts = overrideOpts ?? new TdaOptions
+        {
+            SocietyDid                        = "did:drn:test.svrn7.net",
+            SocietyMessagingPrivateKeyEd25519 = Array.Empty<byte>(),
+            LobesConfigPath                   = Path.Combine(_lobeDir, "lobes.config.json"),
+            MaxMessageAgeSeconds              = 3600,
+            LobeInvocationTimeoutSeconds      = 30,
+        };
+
+        var cache = new Microsoft.Extensions.Caching.Memory.MemoryCache(
+            new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+        var ctx = new Svrn7RunspaceContext(
+            new NullSocietyDriver(), inbox, cache, new NullProcessedOrderStore(), 0);
+        var lobes = new LobeManager(
+            Options.Create(tdaOpts), ctx, NullLogger<LobeManager>.Instance);
+        var pool = new RunspacePoolManager(
+            Options.Create(tdaOpts), lobes, ctx, NullLogger<RunspacePoolManager>.Instance);
+
+        return new DIDCommMessageSwitchboard(
+            ctx, pool, inbox, outbox, lobes,
+            new NullHttpClientFactory(),
+            Options.Create(tdaOpts),
+            NullLogger<DIDCommMessageSwitchboard>.Instance);
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_lobeDir, recursive: true); } catch { }
+    }
+}
+
+// ── KestrelListenerService Rate Limit Tests ───────────────────────────────────
+
+public sealed class KestrelListenerRateLimitTests : IAsyncLifetime
+{
+    private readonly KestrelListenerService _listener;
+    private readonly int                   _port;
+
+    public KestrelListenerRateLimitTests()
+    {
+        _port = FindFreePort();
+
+        _listener = new KestrelListenerService(
+            Options.Create(new TdaOptions
+            {
+                SocietyDid                        = "did:drn:test.svrn7.net",
+                SocietyMessagingPrivateKeyEd25519 = Array.Empty<byte>(),
+                ListenPort                        = _port,
+                TlsCertificatePath                = null,
+                RequireMutualTls                  = false,
+                RateLimitRequestsPerSecond        = 1, // only 1 request per second allowed
+            }),
+            new StubDIDCommService("test/1.0/msg", "{}"),
+            new RecordingInboxStore(),
+            NullLogger<KestrelListenerService>.Instance);
+    }
+
+    public Task InitializeAsync() => _listener.StartAsync(CancellationToken.None);
+
+    public async Task DisposeAsync()
+    {
+        await _listener.StopAsync(CancellationToken.None);
+        await _listener.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Second_Request_In_Same_Window_Returns_429()
+    {
+        AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+        using var handler = new SocketsHttpHandler();
+        using var client  = new HttpClient(handler)
+        {
+            BaseAddress           = new Uri($"http://localhost:{_port}"),
+            DefaultRequestVersion = new Version(2, 0),
+            DefaultVersionPolicy  = HttpVersionPolicy.RequestVersionOrHigher,
+        };
+
+        // First request — within the 1-req/sec permit limit.
+        var first = await client.PostAsync("/didcomm",
+            new StringContent("packed-body", System.Text.Encoding.UTF8, "application/didcomm+json"));
+        first.StatusCode.Should().Be(HttpStatusCode.Accepted,
+            because: "the first request in the rate-limit window should be accepted");
+
+        // Second request — immediately after, same window, limit exceeded.
+        var second = await client.PostAsync("/didcomm",
+            new StringContent("packed-body", System.Text.Encoding.UTF8, "application/didcomm+json"));
+        second.StatusCode.Should().Be(HttpStatusCode.TooManyRequests,
+            because: "a second request within the same 1-second window should be rejected");
+    }
+
+    [Fact]
+    public async Task RateLimit_Disabled_When_Zero_Allows_Many_Requests()
+    {
+        // Spin up a separate listener with rate limiting disabled.
+        var port      = FindFreePort();
+        var noLimit   = new KestrelListenerService(
+            Options.Create(new TdaOptions
+            {
+                SocietyDid                        = "did:drn:test.svrn7.net",
+                SocietyMessagingPrivateKeyEd25519 = Array.Empty<byte>(),
+                ListenPort                        = port,
+                TlsCertificatePath                = null,
+                RequireMutualTls                  = false,
+                RateLimitRequestsPerSecond        = 0, // disabled
+            }),
+            new StubDIDCommService("test/1.0/msg", "{}"),
+            new RecordingInboxStore(),
+            NullLogger<KestrelListenerService>.Instance);
+
+        await noLimit.StartAsync(CancellationToken.None);
+        try
+        {
+            AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+            using var handler = new SocketsHttpHandler();
+            using var client  = new HttpClient(handler)
+            {
+                BaseAddress           = new Uri($"http://localhost:{port}"),
+                DefaultRequestVersion = new Version(2, 0),
+                DefaultVersionPolicy  = HttpVersionPolicy.RequestVersionOrHigher,
+            };
+
+            // Send 5 requests — all should succeed.
+            for (int i = 0; i < 5; i++)
+            {
+                var resp = await client.PostAsync("/didcomm",
+                    new StringContent("packed-body",
+                        System.Text.Encoding.UTF8, "application/didcomm+json"));
+                resp.StatusCode.Should().Be(HttpStatusCode.Accepted,
+                    because: $"request {i + 1} should succeed when rate limiting is disabled");
+            }
+        }
+        finally
+        {
+            await noLimit.StopAsync(CancellationToken.None);
+            await noLimit.DisposeAsync();
+        }
+    }
+
+    private static int FindFreePort()
+    {
+        using var listener = new TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
+}
+
+// ── Additional stubs ──────────────────────────────────────────────────────────
+
+/// <summary>IInboxStore stub that tracks whether ResetStuckMessagesAsync was called.</summary>
+internal sealed class TrackingInboxStore : IInboxStore
+{
+    public bool ResetStuckCalled { get; private set; }
+
+    public Task EnqueueAsync(string t, string p, string? fromDid = null, string? wireId = null, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<InboxMessage?> GetByIdAsync(string id, CancellationToken ct = default) => Task.FromResult<InboxMessage?>(null);
+    public Task<IReadOnlyList<InboxMessage>> DequeueBatchAsync(int b = 20, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<InboxMessage>>(Array.Empty<InboxMessage>());
+    public Task MarkProcessedAsync(string id, CancellationToken ct = default) => Task.CompletedTask;
+    public Task MarkFailedAsync(string id, string err, bool retry = true, int maxAttempts = Svrn7Constants.InboxMaxAttempts, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<IReadOnlyDictionary<InboxMessageStatus, int>> GetStatusCountsAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyDictionary<InboxMessageStatus, int>>(new Dictionary<InboxMessageStatus, int>());
+    public Task ResetStuckMessagesAsync(CancellationToken ct = default)
+    {
+        ResetStuckCalled = true;
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>IOutboxStore stub: returns a pre-configured list of pending records; tracks whether GetPendingAsync was called.</summary>
+internal sealed class TrackingOutboxStore : Svrn7.Core.Interfaces.IOutboxStore
+{
+    private readonly IReadOnlyList<Svrn7.Core.Models.OutboxRecord> _pending;
+    public bool GetPendingCalled { get; private set; }
+
+    public TrackingOutboxStore(IEnumerable<Svrn7.Core.Models.OutboxRecord> pending)
+        => _pending = pending.ToList();
+
+    public Task EnqueueAsync(Svrn7.Core.Models.OutboxRecord record, CancellationToken ct = default)
+        => Task.CompletedTask;
+
+    public Task<IReadOnlyList<Svrn7.Core.Models.OutboxRecord>> GetPendingAsync(CancellationToken ct = default)
+    {
+        GetPendingCalled = true;
+        return Task.FromResult(_pending);
+    }
+
+    public Task MarkRetriedAsync(string id, CancellationToken ct = default)
+        => Task.CompletedTask;
+}
+
+/// <summary>IInboxStore stub: ResetStuckMessagesAsync throws to simulate a failed store.</summary>
+internal sealed class ThrowingResetInboxStore : IInboxStore
+{
+    public Task EnqueueAsync(string t, string p, string? fromDid = null, string? wireId = null, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<InboxMessage?> GetByIdAsync(string id, CancellationToken ct = default) => Task.FromResult<InboxMessage?>(null);
+    public Task<IReadOnlyList<InboxMessage>> DequeueBatchAsync(int b = 20, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<InboxMessage>>(Array.Empty<InboxMessage>());
+    public Task MarkProcessedAsync(string id, CancellationToken ct = default) => Task.CompletedTask;
+    public Task MarkFailedAsync(string id, string err, bool retry = true, int maxAttempts = Svrn7Constants.InboxMaxAttempts, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<IReadOnlyDictionary<InboxMessageStatus, int>> GetStatusCountsAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyDictionary<InboxMessageStatus, int>>(new Dictionary<InboxMessageStatus, int>());
+    public Task ResetStuckMessagesAsync(CancellationToken ct = default)
+        => throw new InvalidOperationException("Simulated inbox store failure on reset.");
+}
+
+/// <summary>IHttpClientFactory stub: returns a plain HttpClient (no real connections in tests that use it).</summary>
+internal sealed class NullHttpClientFactory : System.Net.Http.IHttpClientFactory
+{
+    public HttpClient CreateClient(string name) => new HttpClient();
 }

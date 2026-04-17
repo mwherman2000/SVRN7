@@ -289,7 +289,7 @@ public interface IInboxStore
     /// AttemptCount is below <paramref name="maxAttempts"/>.
     /// </summary>
     Task MarkFailedAsync(string messageId, string error,
-        bool retry = true, int maxAttempts = 3, CancellationToken ct = default);
+        bool retry = true, int maxAttempts = Svrn7Constants.InboxMaxAttempts, CancellationToken ct = default);
 
     /// <summary>
     /// Resets any messages stuck in Processing back to Pending.

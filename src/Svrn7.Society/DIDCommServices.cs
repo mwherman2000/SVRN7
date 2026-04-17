@@ -180,7 +180,7 @@ public sealed class DIDCommTransferHandler : IDIDCommTransferHandler
 /// Reliability:
 ///   • On startup, ResetStuckMessagesAsync recovers any messages left in
 ///     Processing state by an unclean prior shutdown.
-///   • Failed messages are retried up to MaxAttempts (default 3) times before
+///   • Failed messages are retried up to MaxAttempts (Svrn7Constants.InboxMaxAttempts) times before
 ///     being moved to the Failed dead-letter state for operator inspection.
 ///   • The inbox database (svrn7-inbox.db) is separate from svrn7.db so inbox
 ///     I/O never contends with wallet or identity operations.
@@ -193,7 +193,7 @@ public sealed class DIDCommMessageProcessorService : BackgroundService
     private readonly ILogger<DIDCommMessageProcessorService> _log;
 
     private const int BatchSize   = 20;
-    private const int MaxAttempts = 3;
+    private const int MaxAttempts = Svrn7.Core.Svrn7Constants.InboxMaxAttempts;
 
     public DIDCommMessageProcessorService(
         IServiceScopeFactory scopeFactory,

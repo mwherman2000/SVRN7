@@ -21,7 +21,7 @@ Related:        draft-herman-parchment-programming-00
 This document specifies the LOBE (Logic-Oriented Behaviour Extension) descriptor format
 and runtime registry for Web 7.0 Trusted Digital Assistants (TDAs). A LOBE is a
 PowerShell Module that implements one or more DIDComm protocol message handlers within
-a TDA's PowerShell Runspace Pool. Each LOBE ships a JSON descriptor file
+a TDA's isolated PowerShell runspace (one `IsolatedPipeline` per dispatch). Each LOBE ships a JSON descriptor file
 (`{module-name}.lobe.json`) that declares its identity, DIDComm protocol registrations,
 exported cmdlets with typed input/output schemas, AI legibility metadata, and inter-LOBE
 dependencies. The TDA LOBE Registry is an in-process registry populated at startup from
@@ -38,8 +38,9 @@ directory without restarting the TDA host process.
 The Web 7.0 Trusted Digital Assistant (TDA) is a sovereign, DID-native, DIDComm-native
 runtime agent for citizens and Societies within a VTC7 (Verifiable Trust Circle)
 federation [WEB70-ARCH]. A TDA receives inbound DIDComm V2 messages on a single
-HTTP/2 + mTLS endpoint (`POST /didcomm`), processes them through a PowerShell Runspace
-Pool, and delivers outbound DIDComm messages to peer TDAs via HttpClient.
+HTTP/2 + mTLS endpoint (`POST /didcomm`), processes them sequentially through per-invocation
+isolated PowerShell runspaces (`IsolatedPipeline`), and delivers outbound DIDComm messages
+to peer TDAs via HttpClient.
 
 The extensibility mechanism for TDA message handling is the LOBE — a PowerShell Module
 (`.psm1`) that implements the entry-point cmdlets for one or more DIDComm protocol
@@ -388,16 +389,24 @@ idempotency check BEFORE routing; the LOBE entry-point cmdlet does not perform i
 At TDA Host startup, the `LobeManager` performs the following sequence:
 
 1. Read `lobes.config.json` to obtain the eager and JIT LOBE module paths.
+   `LobeManager` scans all `*.lobe.json` files using `SearchOption.AllDirectories` to
+   support per-LOBE subfolders (e.g. `lobes/Svrn7.Common/`).
 2. For each module path, locate the corresponding `.lobe.json` descriptor (same
    directory, same base name).
 3. Parse each descriptor into a `LobeDescriptor` object.
 4. Call `Switchboard.TryRegisterProtocol()` for each `protocols[]` entry in every
    descriptor. Epoch-gated protocols are registered but flagged with their
    `epochRequired` value.
-5. Build the `InitialSessionState` with eager LOBE modules imported.
-6. Inject `$SVRN7` (Svrn7RunspaceContext) and `$SVRN7_JIT_LOBES` session variables.
-7. Open the `RunspacePool`.
+5. Build the `InitialSessionState` (ISS) with eager LOBE modules imported.
+   The ISS is built once at startup and shared read-only as a template.
+6. Inject `$SVRN7` (Svrn7RunspaceContext) and `$SVRN7_JIT_LOBES` session variables
+   into the ISS. `$SVRN7` is shared but thread-safe.
+7. Call `IInboxStore.ResetStuckMessagesAsync()` to recover messages left in Processing
+   state from an unclean shutdown, and `IOutboxStore.GetPendingAsync()` to re-enqueue
+   dead-lettered outbound messages from the prior session.
 8. Start the `FileSystemWatcher` on the LOBE directory (see Section 8.2).
+   The FSW uses `SearchOption.AllDirectories`; `OnDescriptorChanged` uses
+   `Task.Run(async () => { await Task.Delay(200); ... })` (non-blocking).
 
 ### 8.2 FileSystemWatcher — Hot-Drop Loading
 
@@ -411,6 +420,9 @@ The `LobeManager` MUST watch the LOBE directory for new `*.lobe.json` files usin
 4. Call `Switchboard.TryRegisterProtocol()` for each `protocols[]` entry.
 5. Add the module path to the JIT registry (do NOT import the module yet — import
    happens on first message).
+   If the newly detected LOBE descriptor declares a module that was originally configured
+   as eager (in `lobes.config.json`), it MUST run as JIT for the current session. A
+   warning MUST be logged. A full restart is required for eager loading of the new LOBE.
 
 This sequence enables the following zero-downtime hot-drop workflow for third-party
 LOBE deployment:
@@ -433,9 +445,11 @@ immediately. On the first call, it executes `Import-Module {path}` within the ru
 pool context.
 
 Because PowerShell's `Import-Module` imports a module into the calling runspace (not
-into the shared `InitialSessionState`, which is frozen once the pool opens), a JIT LOBE
-is available in the runspace that imported it. If multiple runspaces are open, each must
-import independently on first use. The import cost is incurred once per runspace.
+into the shared `InitialSessionState`, which is frozen after startup), a JIT LOBE
+is available only in the `IsolatedPipeline` runspace that imported it. Because each
+dispatch opens a fresh runspace from the ISS template via `RunspacePoolManager.CreateIsolatedPipeline()`,
+a JIT LOBE is imported once per `IsolatedPipeline` invocation. The import cost is
+therefore incurred on every dispatch for JIT LOBEs.
 
 ### 8.4 Dependency Resolution
 
@@ -450,34 +464,53 @@ reported as a startup error.
 
 ### 9.1 Dispatch Flow
 
+The Switchboard processes inbound messages **sequentially** — one at a time, using a
+`foreach` loop rather than `Task.WhenAll`. This is a deliberate correctness-over-throughput
+tradeoff: the Switchboard cannot know whether two concurrent messages target the same
+society/credential, and parallel dispatch risks read-modify-write races on shared financial
+state.
+
+Each dispatch runs in its own `IsolatedPipeline` (a fresh `Runspace` opened from the
+shared `InitialSessionState`). A crash or runaway in one pipeline cannot affect any other
+dispatch. The `IsolatedPipeline` is disposed after the dispatch completes.
+
 For each inbound DIDComm message dequeued from `IInboxStore`, the Switchboard performs
 the following dispatch protocol:
 
 ```
 1. Read msg.Id (TDA resource DID URL), msg.MessageType (@type URI).
 
-2. EPOCH GATE:
+2. TTL CHECK:
+   If TdaOptions.MaxMessageAgeSeconds > 0 and
+      (UtcNow - msg.ReceivedAt).TotalSeconds > MaxMessageAgeSeconds:
+     Mark Failed ("message TTL exceeded").
+     Return. (Dead-lettered — not retried.)
+
+3. EPOCH GATE:
    Lookup registration by @type URI (Section 6).
    If registration.EpochRequired > CurrentEpoch:
      Mark Failed ("epoch {n} required for {type}").
      Return.
 
-3. OPTION A CHECK (transfer/1.0/order only):
+4. OPTION A CHECK (transfer/1.0/order only):
    If @type == "did:drn:svrn7.net/protocols/transfer/1.0/order":
      Check IProcessedOrderStore.GetReceiptAsync(msg.Id).
      If receipt found: Mark Processed. Return.
 
-4. REGISTRY LOOKUP:
+5. REGISTRY LOOKUP:
    Lookup registration by @type URI (exact match first, then prefix).
    If not found: Mark Failed ("no LOBE registered for {type}"). Return.
 
-5. JIT IMPORT:
+6. JIT IMPORT:
    Call LobeManager.EnsureLoadedAsync(registration.ModuleName).
 
-6. PIPELINE INVOCATION:
-   Open PS pipeline from RunspacePool.
-   Execute: Get-Web7Message -Did $msg.Id | {registration.Entrypoint} | Send-Web7Message
+7. PIPELINE INVOCATION:
+   Call RunspacePoolManager.CreateIsolatedPipeline() to open a fresh Runspace from the
+   shared ISS template. Execute within the IsolatedPipeline:
+     Get-Web7Message -Did $msg.Id | {registration.Entrypoint} | Send-Web7Message
    (Pass-by-reference: msg.Id is the DID URL, not the payload.)
+   The IsolatedPipeline is disposed after the invocation completes or times out.
+   Invocation timeout: TdaOptions.LobeInvocationTimeoutSeconds (default 30s); exceeded → ps.Stop().
 
 7. OUTBOUND DELIVERY:
    For each OutboundMessage returned by the pipeline:
@@ -487,8 +520,15 @@ the following dispatch protocol:
 8. MARK PROCESSED:
    Call IInboxStore.MarkProcessedAsync(msg.Id).
 
-9. ON ERROR (after Polly retry exhaustion):
-   Call IInboxStore.MarkFailedAsync(msg.Id, error, retry: true, maxAttempts: 3).
+9. ON ERROR:
+   Transactional protocols (Svrn7Constants.TransactionalProtocols):
+     Call IInboxStore.MarkFailedAsync(msg.Id, error, retry: false, maxAttempts: 1).
+     (No retry — double-spend risk.)
+   Non-transactional protocols (DID resolution, onboarding, etc.):
+     Call IInboxStore.MarkFailedAsync(msg.Id, error, retry: true,
+       maxAttempts: Svrn7Constants.InboxNonTransactionalMaxAttempts /* = 3 */).
+   Note: Polly is NOT used for inbox retry. Retry policy is enforced by the Switchboard
+   based on AttemptCount and the transactional/non-transactional classification.
 ```
 
 ### 9.2 Pass-by-Reference Pattern
@@ -532,8 +572,9 @@ A third-party LOBE developer MUST:
    is responsible for cryptographic operations.
 
 4. **Declare `idempotent: true` only if genuinely safe**. The Switchboard may retry
-   failed messages up to `maxAttempts` times. A LOBE that declares `idempotent: true`
-   but is not actually idempotent may produce duplicate state.
+   failed non-transactional messages up to `InboxNonTransactionalMaxAttempts` (3) times.
+   Transactional messages are never retried (`maxAttempts: 1`). A LOBE that declares
+   `idempotent: true` but is not actually idempotent may produce duplicate state.
 
 ### 10.2 Recommended Practices
 
@@ -835,8 +876,10 @@ hypothetical health domain extension developed by an independent third party.
 ## 13a. Dead-Letter Outbox
 
 Failed outbound DIDComm messages — those for which HttpClient delivery fails after
-Polly retry exhaustion — MUST be persisted to the `IOutboxStore` dead-letter outbox
-rather than silently discarded.
+all retry attempts (up to 3, with exponential backoff: 500ms, 1000ms, 2000ms) —
+MUST be persisted to the `IOutboxStore` dead-letter outbox rather than silently discarded.
+On TDA startup, `DIDCommMessageSwitchboard.StartupAsync` calls `IOutboxStore.GetPendingAsync()`
+and re-enqueues pending records from the prior session.
 
 The outbox is backed by `svrn7-inbox.db` (the same LiteDB file as the inbox, shared
 via `InboxLiteContext`). Records are stored in an `Outbox` collection:
@@ -910,12 +953,19 @@ intercepting SVRN7 standard protocol messages. The Switchboard MUST reject any
 registration attempt whose URI begins with a reserved namespace prefix unless the
 registering LOBE is a standard SVRN7 LOBE (identified by `lobe.id` prefix `svrn7.`).
 
-### 14.3 RunspacePool Isolation
+### 14.3 IsolatedPipeline Isolation
 
-PowerShell runspaces in the pool do not share session state between runspaces. A LOBE
-running in one runspace cannot access the `$SVRN7` session variable of another runspace
-directly. All shared state access MUST go through `$SVRN7.Driver`, `$SVRN7.Inbox`,
+Each LOBE dispatch runs in its own `IsolatedPipeline` — a fresh `Runspace` opened from
+the shared `InitialSessionState` template via `RunspacePoolManager.CreateIsolatedPipeline()`.
+The `IsolatedPipeline` is disposed after each dispatch. This provides complete blast-radius
+isolation: a crash or runaway in one dispatch cannot affect any other.
+
+PowerShell runspaces do not share session state. A LOBE running in one `IsolatedPipeline`
+cannot access the `$SVRN7` session variable of another runspace directly.
+All shared state access MUST go through `$SVRN7.Driver`, `$SVRN7.Inbox`,
 `$SVRN7.Cache`, or `$SVRN7.ProcessedOrders`, which are thread-safe.
+The `InitialSessionState` itself is shared read-only; `$SVRN7` (Svrn7RunspaceContext)
+is shared but thread-safe.
 
 ### 14.4 Citizen Private Key Protection
 

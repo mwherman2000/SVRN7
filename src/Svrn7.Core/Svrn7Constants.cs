@@ -35,6 +35,43 @@ public static class Svrn7Constants
     /// <summary>Maximum transfers allowed in a single batch.</summary>
     public const int MaxBatchSize = 100;
 
+    // ── Inbox reliability ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Maximum processing attempts for transactional inbox messages before
+    /// permanent dead-lettering (Status = Failed).
+    /// Set to 1: transactional messages (transfers, invoices, overdrafts) are
+    /// idempotency-keyed — a second attempt risks a double-spend, not a safe retry.
+    /// </summary>
+    public const int InboxMaxAttempts = 1;
+
+    /// <summary>
+    /// Maximum processing attempts for non-transactional inbox messages
+    /// (DID resolution, onboarding queries) before permanent dead-lettering.
+    /// These carry no financial state so retrying on transient failure is safe.
+    /// </summary>
+    public const int InboxNonTransactionalMaxAttempts = 3;
+
+    /// <summary>
+    /// Protocol @type URIs that carry financial or supply state and must never
+    /// be retried on failure. A second execution risks a double-spend.
+    /// All other protocol types may retry up to <see cref="InboxNonTransactionalMaxAttempts"/>.
+    /// </summary>
+    public static readonly IReadOnlySet<string> TransactionalProtocols =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            Protocols.TransferRequest,
+            Protocols.TransferReceipt,
+            Protocols.TransferOrder,
+            Protocols.TransferOrderReceipt,
+            Protocols.OverdraftDrawRequest,
+            Protocols.OverdraftDrawReceipt,
+            Protocols.EndowmentTopUp,
+            Protocols.SupplyUpdate,
+            Protocols.InvoiceRequest,
+            Protocols.InvoiceReceipt,
+        };
+
     /// <summary>Maximum age of a Merkle tree head before health check reports Degraded.</summary>
     public static readonly TimeSpan MaxTreeHeadAge = TimeSpan.FromHours(24);
 

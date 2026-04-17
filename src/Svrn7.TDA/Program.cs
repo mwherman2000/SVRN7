@@ -1,9 +1,11 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Svrn7.Society;
 using Svrn7.TDA;
 
@@ -81,8 +83,9 @@ var host = Host.CreateDefaultBuilder(args)
 
 // ── Startup banner ────────────────────────────────────────────────────────────
 {
-    var cfg     = host.Services.GetRequiredService<IConfiguration>();
-    var driver  = host.Services.GetRequiredService<Svrn7.Society.ISvrn7SocietyDriver>();
+    var cfg      = host.Services.GetRequiredService<IConfiguration>();
+    var driver   = host.Services.GetRequiredService<Svrn7.Society.ISvrn7SocietyDriver>();
+    var tdaOpts  = host.Services.GetRequiredService<IOptions<TdaOptions>>().Value;
 
     var rawVersion = typeof(Program).Assembly
                          .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
@@ -92,7 +95,25 @@ var host = Host.CreateDefaultBuilder(args)
     // Strip SemVer build metadata (git commit hash appended by the .NET SDK: "0.8.0+e542da3...")
     var version = rawVersion.Contains('+') ? rawVersion[..rawVersion.IndexOf('+')] : rawVersion;
 
-    // Federation and society data — may be null on first run before initialisation.
+    // ── LOBE / cmdlet counts (read descriptors directly — LobeManager not started yet) ──
+    var lobesConfigPath = tdaOpts.LobesConfigPath;
+    var lobeDir         = Path.GetDirectoryName(Path.GetFullPath(lobesConfigPath)) ?? AppContext.BaseDirectory;
+    var lobeConfig      = File.Exists(lobesConfigPath)
+        ? JsonSerializer.Deserialize<LobeConfig>(
+              File.ReadAllText(lobesConfigPath),
+              new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+          ?? new LobeConfig()
+        : new LobeConfig();
+    var descriptors = Directory.Exists(lobeDir)
+        ? Directory.GetFiles(lobeDir, "*.lobe.json", SearchOption.AllDirectories)
+              .Select(LobeDescriptor.LoadFromFile)
+              .Where(d => d is not null)
+              .Cast<LobeDescriptor>()
+              .ToList()
+        : new List<LobeDescriptor>();
+    var totalProtocols = descriptors.Sum(d => d.Protocols.Count);
+    var totalCmdlets   = descriptors.Sum(d => d.Cmdlets.Count);
+
     var federation = await driver.GetFederationAsync();
     var societies  = await driver.GetAllSocietiesAsync();
     var activeSocietyCount = societies.Count(s => s.IsActive);
@@ -109,7 +130,23 @@ var host = Host.CreateDefaultBuilder(args)
     Console.WriteLine(hr);
     Console.WriteLine($"  Society DID : {cfg["Svrn7:SocietyDid"] ?? cfg["Tda:SocietyDid"] ?? "(not configured)"}");
     Console.WriteLine($"  Listen port : {cfg["Tda:ListenPort"] ?? "8443"}");
-    Console.WriteLine($"  LOBEs       : {cfg["Tda:LobesConfigPath"] ?? "./lobes/lobes.config.json"}");
+    Console.WriteLine($"  LOBEs       : {lobeConfig.Eager.Length} eager  {lobeConfig.Jit.Length} JIT  ({totalProtocols} protocols  {totalCmdlets} cmdlets)");
+    // Print eager LOBE names, then JIT LOBE names, each on one indented line.
+    var lobeNameOf = descriptors.ToDictionary(d => d.Lobe.Name, d => d);
+    if (lobeConfig.Eager.Length > 0)
+    {
+        var eagerNames = lobeConfig.Eager
+            .Select(f => Path.GetFileNameWithoutExtension(f))
+            .Select(n => lobeNameOf.TryGetValue(n, out var d) ? d.Lobe.Name : n);
+        Console.WriteLine($"    Eager     : {string.Join("  ", eagerNames)}");
+    }
+    if (lobeConfig.Jit.Length > 0)
+    {
+        var jitNames = lobeConfig.Jit
+            .Select(f => Path.GetFileNameWithoutExtension(f))
+            .Select(n => lobeNameOf.TryGetValue(n, out var d) ? d.Lobe.Name : n);
+        Console.WriteLine($"    JIT       : {string.Join("  ", jitNames)}");
+    }
     Console.WriteLine(hr);
     if (federation is not null)
     {
@@ -120,8 +157,8 @@ var host = Host.CreateDefaultBuilder(args)
     }
     else
     {
-        Console.WriteLine($"  Federation  : (not yet initialised — POST federation/1.0/init to :{cfg["Tda:ListenPort"] ?? "8443"}/didcomm  |  see DEBUG.md §E.0)");
-        Console.WriteLine($"  Societies   : (not yet initialised)");
+        Console.WriteLine($"  Federation  : (not yet initialised — see DEBUG.md §E.0 to generate keys and POST federation/1.0/init to :{cfg["Tda:ListenPort"] ?? "8443"}/didcomm)");
+        Console.WriteLine($"  Societies   : (not yet initialised — see DEBUG.md §B.1 to onboard the first society)");
     }
     Console.WriteLine(hr);
     Console.WriteLine();

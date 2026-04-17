@@ -211,7 +211,7 @@ public sealed class LiteInboxStore : IInboxStore
     /// <inheritdoc/>
     public Task MarkFailedAsync(
         string messageId, string error,
-        bool retry = true, int maxAttempts = 3, CancellationToken ct = default)
+        bool retry = true, int maxAttempts = Svrn7.Core.Svrn7Constants.InboxMaxAttempts, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
 
