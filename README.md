@@ -5,21 +5,30 @@
 
 [![License: MIT](https://img.shields.io/badge/Code-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![License: CC BY-SA 4.0](https://img.shields.io/badge/Docs-CC--BY--SA--4.0-lightgrey.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
 
-The Web 7.0 Decentralized System Architecture (DSA) is a sovereign, DID-native, DIDComm-native
-runtime for digital participation. Every participant in the Web 7.0 ecosystem operates a
-**Trusted Digital Assistant (TDA)** — a personal or institutional software agent that holds
-identity, manages value, communicates exclusively over end-to-end encrypted DIDComm channels,
-and participates in **Verifiable Trust Circles (VTC7)** — federated peer meshes in which
-identity and trust are cryptographic properties, not institutional ones.
+The Web 7.0 Decentralized System Architecture (DSA) is a sovereign, DID-native, DIDComm-native runtime for digital participation. Every participant in the Web 7.0 ecosystem operates a **Trusted Digital Assistant (TDA)** — a personal or institutional software agent that holds identity, manages value, communicates exclusively over end-to-end encrypted DIDComm channels, and participates in **Verifiable Trust Circles (VTC7)** — federated peer meshes in which identity and trust are cryptographic properties, not institutional ones.
 
-This repository is the Epoch 0 (Endowment Phase) reference implementation of the Web 7.0 DSA,
-specified by the DSA 0.24 diagram using the Parchment Programming Modeling Language (PPML).
-It includes the TDA Host runtime, all eleven standard LOBE modules, the SOVRONA (SVRN7)
-Shared Reserve Currency (SRC) library, and fifteen IETF Internet-Drafts.
+This repository is the Epoch 0 (Endowment Phase) reference implementation of the Web 7.0 DSA, specified by the DSA 0.24 diagram using the Parchment Programming Modeling Language (PPML). It includes the TDA Host runtime, all eleven standard LOBE modules, the SOVRONA (SVRN7) Shared Reserve Currency (SRC) library, and fifteen IETF draft specifications.
 
 ![Web 7.0 Societal Architecture](./docs/images/Web%207.0%20DSA-SocietyArch%200.26.png)
 
 ![Web 7.0 DSA](./docs/images/Web%207.0%20DSA-TDA%200.25.png)
+
+---
+
+Excerpt from April 17, 2026 memo: Web 7.0: Killer Application for the Internet:
+
+> With every passing second, a new autonomous digital agent comes online. A new decentralized identity (DID) is generated every few minutes. In 2025, more than 300 books appeared on the topic of AI agents, sovereign identity, and decentralized trust — and over 14,000 technical articles flooded arXiv, GitHub, and the standards bodies. You cannot attend a technology conference without encountering the phrase “agent economy.” 
+J. [Allard], more than 32 years have passed since you wrote the _Windows: The Next Killer Application on the Internet memo (January 25, 1994)_. Now, the Internet is experiencing a revolutionary tidal wave: Web 7.0, a replacement for the World Wide Web (and Windows) that is open, sovereign, secure, and decentralized.
+
+>> Rule Change 1: Web 7.0 is profoundly aligned with the oldest promise of the Internet: secure, trusted, universal access to information, services, and liquidity—for every human and digital agent on the planet—with no gatekeepers or overlords.
+
+> This memo summarizes the core technologies, identifies the strategic opportunity, and describes what it will take to make Web 7.0 the killer application for the Internet. The three fundamental building blocks of Web 7.0 include:
+> • sovereign identity, 
+> • cryptographically verifiable authenticity, and
+> • secure, trusted, autonomous communication.
+> Collectively, I refer to these pillars as Web 7.0 Decentralized Library Operating System (Web 7.0 DIDLibOS™) or simply, Web 7.0™. 
+
+>> Rule Change 2: Whoever succeeds in establishing the global Decentralized System Architecture (DSA) standards and reference implementations will occupy the same position Microsoft occupied in 1994 relative to the Internet — except this time, the platform is open, the identity is sovereign, and the shared reserve currency is governed by (non-blockchain) cryptographic proof.
 
 ---
 
