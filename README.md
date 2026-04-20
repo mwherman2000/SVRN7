@@ -20,13 +20,13 @@ Excerpt from April 17, 2026 memo: Web 7.0: Killer Application for the Internet:
 > With every passing second, a new autonomous digital agent comes online. A new decentralized identity (DID) is generated every few minutes. In 2025, more than 300 books appeared on the topic of AI agents, sovereign identity, and decentralized trust — and over 14,000 technical articles flooded arXiv, GitHub, and the standards bodies. You cannot attend a technology conference without encountering the phrase “agent economy.” 
 J. [Allard], more than 32 years have passed since you wrote the _Windows: The Next Killer Application on the Internet memo (January 25, 1994)_. Now, the Internet is experiencing a revolutionary tidal wave: Web 7.0, a replacement for the World Wide Web (and Windows) that is open, sovereign, secure, and decentralized.
 
->> Rule Change 1: Web 7.0 is profoundly aligned with the oldest promise of the Internet: secure, trusted, universal access to information, services, and liquidity—for every human and digital agent on the planet—with no gatekeepers or overlords.
+>> _Rule Change 1: Web 7.0 is profoundly aligned with the oldest promise of the Internet: secure, trusted, universal access to information, services, and liquidity—for every human and digital agent on the planet—with no gatekeepers or overlords._
 
-> This memo summarizes the core technologies, identifies the strategic opportunity, and describes what it will take to make Web 7.0 the killer application for the Internet. The three fundamental building blocks of Web 7.0 include:
+> _This memo summarizes the core technologies, identifies the strategic opportunity, and describes what it will take to make Web 7.0 the killer application for the Internet. The three fundamental building blocks of Web 7.0 include:
 > - sovereign identity, 
 > - cryptographically verifiable authenticity, and
 > - secure, trusted, autonomous communication.
-> Collectively, I refer to these pillars as Web 7.0 Decentralized Library Operating System (Web 7.0 DIDLibOS™) or simply, Web 7.0™. 
+> Collectively, I refer to these pillars as Web 7.0 Decentralized Library Operating System (Web 7.0 DIDLibOS™) or simply, Web 7.0™._
 
 >> Rule Change 2: Whoever succeeds in establishing the global Decentralized System Architecture (DSA) standards and reference implementations will occupy the same position Microsoft occupied in 1994 relative to the Internet — except this time, the platform is open, the identity is sovereign, and the shared reserve currency is governed by (non-blockchain) cryptographic proof.
 
