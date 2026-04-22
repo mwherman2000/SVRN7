@@ -375,7 +375,7 @@ Federation wallet  (1,000,000,000 SVRN7 at genesis)
     |
     +-- RegisterSocietyAsync()       --> Society wallet  (EndowmentPerSocietyGrana)
             |
-            +-- RegisterCitizenAsync() --> Citizen wallet (1,000 SVRN7)
+            +-- RegisterCitizenAsync() --> Citizen wallet (1,000 grana)
 ```
 
 Supply conservation is an invariant: total circulating supply always equals
@@ -590,7 +590,7 @@ await driver.RegisterCitizenInSocietyAsync(new RegisterCitizenInSocietyRequest
     PrivateKeyBytes = citizenKey.PrivateKeyBytes,
     SocietyDid      = "did:drn:sovronia.svrn7.net",
 });
-// Alice's wallet now contains 1,000 SVRN7 (CitizenEndowmentGrana)
+// Alice's wallet now contains 1,000 grana (CitizenEndowmentGrana)
 ```
 
 ---
