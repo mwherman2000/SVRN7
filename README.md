@@ -15,7 +15,7 @@ This repository is the Epoch 0 (Endowment Phase) reference implementation of the
 
 ---
 
-## Excerpt from April 17, 2026 memo: _Web 7.0: Killer Application for the Internet_:
+## Excerpt from April 17, 2026 memo: _Web 7.0: Killer Application for the Internet_ (the _Blue Memo_):
 
 > With every passing second, a new autonomous digital agent comes online. A new decentralized identity (DID) is generated every few minutes. In 2025, more than 300 books appeared on the topic of AI agents, sovereign identity, and decentralized trust — and over 14,000 technical articles flooded arXiv, GitHub, and the standards bodies. You cannot attend a technology conference without encountering the phrase “agent economy.” 
 >
