@@ -27,6 +27,7 @@ This repository is the Epoch 0 (Endowment Phase) reference implementation of the
 > - sovereign identity, 
 > - cryptographically verifiable authenticity, and
 > - secure, trusted, autonomous communication.
+
 > Collectively, I refer to these pillars as Web 7.0 Decentralized Library Operating System (Web 7.0 DIDLibOS™) or simply, Web 7.0™.
 
 >> _Rule Change 2: Whoever succeeds in establishing the global Decentralized System Architecture (DSA) standards and reference implementations will occupy the same position Microsoft occupied in 1994 relative to the Internet — except this time, the platform is open, the identity is sovereign, and the shared reserve currency is governed by (non-blockchain) cryptographic proof._
