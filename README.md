@@ -99,8 +99,7 @@ between sovereign agents.
 
 ## 2. The Trusted Digital Assistant (TDA)
 
-A TDA is a sovereign runtime — a .NET 8 console application (Generic Host + Kestrel HTTP/2
-+ mTLS) that acts on behalf of a citizen or a Society. It has exactly one inbound surface:
+A TDA is a sovereign runtime — a .NET 8 console application (Generic Host + Kestrel HTTP/2 + mTLS) that acts on behalf of a citizen or a Society. It has exactly one inbound surface:
 
 ```
 POST /didcomm   (HTTP/2 + mTLS, DIDComm V2 SignThenEncrypt)
