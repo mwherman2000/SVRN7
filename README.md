@@ -105,8 +105,9 @@ A TDA is a sovereign runtime — a .NET 8 console application (Generic Host + Ke
 POST /didcomm   (HTTP/2 + mTLS, DIDComm V2 SignThenEncrypt)
 ```
 
-All TDA-to-TDA communication is DIDComm. No SMTP, no CalDAV, no gRPC, no public REST API.
+All TDA-to-TDA communication is DIDComm. 
 The TDA is the boundary of trust: only packed, authenticated DIDComm messages enter or leave.
+No SMTP, no CalDAV, no gRPC, no public REST API.
 
 Internally, the TDA is structured around the PPML Legend 0.25 element types:
 
