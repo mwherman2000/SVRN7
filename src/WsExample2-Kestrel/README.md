@@ -1,12 +1,21 @@
-# WsExample1
+# WsExample2 (Kestrel) — Preferred Design
 
-A .NET 8 WebSocket server/client example demonstrating production-quality patterns using only
-the .NET standard library — `System.Net.WebSockets` and `System.Net.HttpListener`. No NuGet packages.
+> **Preferred design over WsExample1.** Uses Kestrel (`Microsoft.NET.Sdk.Web`) instead of
+> `HttpListener`: cross-platform, declarative routing, integrated shutdown lifecycle, and
+> Kestrel-native WebSocket options (`AllowedOrigins`, aligned `ShutdownTimeout`).
+> See [WsExample1](../WsExample1-HTTP/README.md) for the `HttpListener` reference design.
+
+A .NET 8 WebSocket server/client example demonstrating production-quality patterns using Kestrel
+and `System.Net.WebSockets`. No third-party NuGet packages.
 
 ## Features
 
 **Server (WSServer1)**
-- HTTP upgrade to WebSocket via `HttpListener`
+- HTTP upgrade to WebSocket via Kestrel (`Microsoft.NET.Sdk.Web`)
+- Declarative routing via `app.Map` / `app.MapGet` — no manual accept loop
+- WebSocket ping/pong frames (RFC 6455 §5.5.2): `KeepAliveInterval` 10 s via `WebSocketOptions`
+- `AllowedOrigins` restricts browser WebSocket clients to same-origin (`http://{host}:{port}`)
+- Host `ShutdownTimeout` 15 s aligned with 10 s cleanup budget
 - Connection registry: `Dictionary<Guid, WebSocket>` keyed by per-connection GUID
 - Echo: replies to every message with `>>> {original text}`
 - Idle timeout (15 s): sends `{"type":"timeout",...}` then performs a graceful WebSocket close
@@ -91,9 +100,6 @@ curl http://localhost:7443/health
 }
 ```
 
-The health endpoint lives on the same port as the WebSocket endpoint. Any non-WebSocket request
-to a path other than `/health` receives HTTP 400.
-
 ## Message Protocol
 
 All protocol messages are UTF-8 JSON text frames.
@@ -140,7 +146,7 @@ Same fields as `attach` with `"type": "detach"`.
 ## Project Layout
 
 ```
-WsExample1.sln
+WsExample2.sln
 WSServer1/
   WSServer1.csproj
   Program.cs
@@ -148,7 +154,7 @@ WSClient1/
   WSClient1.csproj
   Program.cs
 docs/
-  ARCHITECTURE.md     ← concurrency model, connection lifecycle, all best practices
+  ARCHITECTURE.md     ← concurrency model, connection lifecycle, all 15 best practices
 CLAUDE.md             ← build commands and conventions for Claude Code
 README.md
 llms.txt

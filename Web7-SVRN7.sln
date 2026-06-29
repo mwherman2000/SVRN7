@@ -61,9 +61,9 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PandoMail", "src\Web7.SVRN7
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PandoBoard", "src\Web7.SVRN7.Apps.PandoBoard\PandoBoard\PandoBoard.csproj", "{A13813C4-5806-D99D-84A1-04947F2BEE39}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WSClient1", "src\WsExample1\WSClient1\WSClient1.csproj", "{F74CA015-D188-5C0E-A8DE-F61697AA5BC0}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WSClient1", "src\WsExample2-Kestrel\WSClient1\WSClient1.csproj", "{F74CA015-D188-5C0E-A8DE-F61697AA5BC0}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WSServer1", "src\WsExample1\WSServer1\WSServer1.csproj", "{B209693E-6844-0243-BC63-85B17519315A}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WSServer1", "src\WsExample2-Kestrel\WSServer1\WSServer1.csproj", "{B209693E-6844-0243-BC63-85B17519315A}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

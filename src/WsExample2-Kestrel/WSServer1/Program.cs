@@ -1,20 +1,23 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Net;
 using System.Net.WebSockets;
 using System.Reflection;
 using System.Text;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 class Program // WSServer
 {
     static readonly Dictionary<Guid, WebSocket> _connections = new();
     static readonly object _lock = new();
 
-    // #4 graceful shutdown: track active client tasks
     static readonly HashSet<Task> _clientTasks = new();
     static readonly object _taskLock = new();
 
@@ -72,65 +75,56 @@ class Program // WSServer
             }
         }
 
-        string prefix       = $"http://{host}:{port}{path}/";
-        string healthPrefix = $"http://{host}:{port}/health/";
-        Console.WriteLine($"{Ts()} WSServer1 listening on {prefix}");
-        Console.WriteLine($"{Ts()} Health check:         {healthPrefix}");
+        WebApplicationBuilder builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseUrls($"http://{host}:{port}");
+        builder.Logging.SetMinimumLevel(LogLevel.Warning);
+        builder.Services.Configure<HostOptions>(opts =>
+            opts.ShutdownTimeout = TimeSpan.FromSeconds(15));
 
-        using var listener = new HttpListener();
-        listener.Prefixes.Add(prefix);
-        listener.Prefixes.Add(healthPrefix);
-        listener.Start();
+        WebApplication app = builder.Build();
 
-        using var cts = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
-
-        Console.WriteLine($"{Ts()} Waiting for connections... (Ctrl+C to stop)");
-        try
+        WebSocketOptions wsOptions = new()
         {
-            while (!cts.Token.IsCancellationRequested)
-            {
-                HttpListenerContext context = await listener.GetContextAsync().WaitAsync(cts.Token);
-                if (context.Request.IsWebSocketRequest)
-                {
-                    if (ConnectionCount() >= MaxConnections)
-                    {
-                        Console.WriteLine($"{Ts()} Connection rejected — max connections ({MaxConnections}) reached");
-                        context.Response.StatusCode = 503;
-                        context.Response.Close();
-                    }
-                    else
-                    {
-                        // #4 track task for graceful shutdown
-                        Task clientTask = HandleClientAsync(context, cts.Token);
-                        lock (_taskLock) _clientTasks.Add(clientTask);
-                        _ = clientTask.ContinueWith(t => { lock (_taskLock) _clientTasks.Remove(t); });
-                    }
-                }
-                else
-                {
-                    string? reqPath = context.Request.Url?.AbsolutePath.TrimEnd('/');
-                    if (reqPath == "/health")
-                    {
-                        string healthJson = JsonSerializer.Serialize(new { status = "ok", connections = ConnectionCount(), maxConnections = MaxConnections, instanceId = _instanceId, appName = _appName, appVersion = _appVersion });
-                        byte[] healthBytes = Encoding.UTF8.GetBytes(healthJson);
-                        context.Response.StatusCode = 200;
-                        context.Response.ContentType = "application/json";
-                        context.Response.ContentLength64 = healthBytes.Length;
-                        await context.Response.OutputStream.WriteAsync(healthBytes, 0, healthBytes.Length, cts.Token);
-                        context.Response.Close();
-                    }
-                    else
-                    {
-                        context.Response.StatusCode = 400;
-                        context.Response.Close();
-                    }
-                }
-            }
-        }
-        catch (OperationCanceledException) { }
+            KeepAliveInterval = KeepAliveInterval,
+        };
+        wsOptions.AllowedOrigins.Add($"http://{host}:{port}");
+        app.UseWebSockets(wsOptions);
 
-        // #4 graceful shutdown: send close frames then wait for all client tasks
+        IHostApplicationLifetime lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
+
+        app.MapGet("/health", () =>
+        {
+            string json = $$"""{"status":"ok","connections":{{ConnectionCount()}},"maxConnections":{{MaxConnections}},"instanceId":"{{_instanceId}}","appName":"{{_appName}}","appVersion":"{{_appVersion}}"}""";
+            return Results.Content(json, "application/json");
+        });
+
+        app.Map(path, async (HttpContext context) =>
+        {
+            if (!context.WebSockets.IsWebSocketRequest)
+            {
+                context.Response.StatusCode = 400;
+                return;
+            }
+            if (ConnectionCount() >= MaxConnections)
+            {
+                Console.WriteLine($"{Ts()} Connection rejected — max connections ({MaxConnections}) reached");
+                context.Response.StatusCode = 503;
+                return;
+            }
+            WebSocket ws = await context.WebSockets.AcceptWebSocketAsync();
+            Task clientTask = HandleClientAsync(ws, lifetime.ApplicationStopping);
+            lock (_taskLock) _clientTasks.Add(clientTask);
+            _ = clientTask.ContinueWith(t => { lock (_taskLock) _clientTasks.Remove(t); });
+            await clientTask; // keeps Kestrel's request pipeline open for the connection lifetime
+        });
+
+        Console.WriteLine($"{Ts()} WSServer1 listening on http://{host}:{port}{path}");
+        Console.WriteLine($"{Ts()} Health check:         http://{host}:{port}/health");
+        Console.WriteLine($"{Ts()} Waiting for connections... (Ctrl+C to stop)");
+
+        await app.RunAsync();
+
+        // Graceful shutdown: close any remaining open sockets and wait for handlers
         WebSocket[] sockets;
         lock (_lock)
         {
@@ -168,14 +162,9 @@ class Program // WSServer
         return 0;
     }
 
-    static async Task HandleClientAsync(HttpListenerContext context, CancellationToken ct)
+    static async Task HandleClientAsync(WebSocket ws, CancellationToken ct)
     {
-        // #1 keepalive: built-in ping/pong via KeepAliveInterval
-        HttpListenerWebSocketContext wsContext = await context.AcceptWebSocketAsync(null, KeepAliveInterval);
-        WebSocket ws = wsContext.WebSocket;
         Guid id = Guid.NewGuid();
-
-        // #1 concurrent send safety: one send at a time per connection
         SemaphoreSlim sendLock = new(1, 1);
 
         lock (_lock)
@@ -183,7 +172,6 @@ class Program // WSServer
 
         Console.WriteLine($"{Ts()} [{id}] connected  ({ConnectionCount()} total)");
 
-        // #7 idle timeout: watchdog cancels idleCts if no message received within IdleTimeout
         DateTime lastReceived = DateTime.UtcNow;
         using CancellationTokenSource idleCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
@@ -198,19 +186,17 @@ class Program // WSServer
                     {
                         Console.WriteLine($"{Ts()} [{id}] idle timeout ({IdleTimeout.TotalSeconds}s), closing");
 
-                        string timeoutMsg = JsonSerializer.Serialize(new { type = "timeout", instanceId = _instanceId, appName = _appName, appFullName = _appFullName, mvid = _mvid, appVersion = _appVersion });
+                        string timeoutMsg = $$"""{"type":"timeout","instanceId":"{{_instanceId}}","appName":"{{_appName}}","appFullName":"{{_appFullName}}","mvid":"{{_mvid}}","appVersion":"{{_appVersion}}"}""";
                         using CancellationTokenSource sendCts = new(TimeSpan.FromSeconds(5));
                         await sendLock.WaitAsync(sendCts.Token);
                         try { await ws.SendAsync(Encoding.UTF8.GetBytes(timeoutMsg), WebSocketMessageType.Text, true, sendCts.Token); }
                         catch { }
                         finally { sendLock.Release(); }
 
-                        // graceful close: send close frame, let ReceiveAsync return naturally when client responds
                         using CancellationTokenSource closeCts = new(TimeSpan.FromSeconds(5));
                         try { await ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "idle timeout", closeCts.Token); }
                         catch { }
 
-                        // fallback: if client doesn't respond within 5s, abort the pending ReceiveAsync
                         try { await Task.Delay(TimeSpan.FromSeconds(5), idleCts.Token); }
                         catch (OperationCanceledException) { return; }
                         idleCts.Cancel();
@@ -225,7 +211,6 @@ class Program // WSServer
         {
             while (ws.State == WebSocketState.Open && !idleCts.Token.IsCancellationRequested)
             {
-                // #3 fragmented message reassembly: accumulate frames until EndOfMessage
                 using MemoryStream ms = new();
                 WebSocketReceiveResult result;
                 do
@@ -234,7 +219,6 @@ class Program // WSServer
                     if (result.MessageType != WebSocketMessageType.Close)
                         ms.Write(buffer, 0, result.Count);
 
-                    // #3 message size cap
                     if (ms.Length > MaxMessageBytes)
                     {
                         Console.Error.WriteLine($"{Ts()} [{id}] message too large ({ms.Length} bytes), closing");
@@ -247,9 +231,6 @@ class Program // WSServer
 
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
-                    // CloseReceived = client initiated; complete the handshake
-                    // Closed/CloseSent = server already sent close frame (e.g. idle timeout); skip
-                    // use independent CTS: ct may already be cancelled on server shutdown
                     if (ws.State == WebSocketState.CloseReceived)
                     {
                         using CancellationTokenSource closeCts = new(TimeSpan.FromSeconds(5));
@@ -261,10 +242,10 @@ class Program // WSServer
 
                 lastReceived = DateTime.UtcNow;
 
+                // ↓ application logic — replace with your message handler; keep sendLock guard
                 string text = Encoding.UTF8.GetString(ms.ToArray());
                 Console.WriteLine($"{Ts()} [{id}] recv: {text}");
 
-                // #1 send with lock to prevent concurrent sends from watchdog
                 byte[] reply = Encoding.UTF8.GetBytes($">>> {text}");
                 await sendLock.WaitAsync(ct);
                 try { await ws.SendAsync(reply, WebSocketMessageType.Text, true, ct); }
@@ -297,7 +278,6 @@ class Program // WSServer
 
             Console.WriteLine($"{Ts()} [{id}] disconnected ({ConnectionCount()} remaining)");
 
-            // #6 dispose WebSocket
             sendLock.Dispose();
             ws.Dispose();
         }

@@ -1,25 +1,27 @@
-# WsExample1
+# WsExample2 (Kestrel) — Preferred Design
 
-> .NET 8 WebSocket server/client pair using only the standard library — no NuGet packages.
+> **Preferred design over WsExample1.** Uses Kestrel (`Microsoft.NET.Sdk.Web`) instead of
+> `HttpListener`: cross-platform, declarative routing, integrated shutdown lifecycle, and
+> Kestrel-native WebSocket options. See WsExample1 for the `HttpListener` reference design.
 
-Two console app projects demonstrating production-quality WebSocket patterns with
-`System.Net.WebSockets` and `System.Net.HttpListener`. The code avoids framework abstractions
-so that every mechanism is visible and auditable.
+.NET 8 WebSocket server/client pair using Kestrel and `System.Net.WebSockets`. No NuGet packages.
 
 ## Source files
 
-- `WSServer1/Program.cs` — Single-class server. `HttpListener` accept loop, WebSocket upgrade,
-  per-connection idle watchdog, echo logic, health check endpoint (`/health`), graceful shutdown.
+- `WSServer1/Program.cs` — Single-class server. Kestrel with `app.UseWebSockets`, declarative
+  routing via `app.Map`/`app.MapGet`, per-connection idle watchdog, echo logic, health check
+  endpoint (`/health`), graceful shutdown with aligned host `ShutdownTimeout`.
 - `WSClient1/Program.cs` — Single-class client. Reconnecting loop with retry limit, attach/detach
   protocol, pending outbound queue, timeout message handling, connect timeout.
-- `WSServer1/WSServer1.csproj` — net8.0, ImplicitUsings disabled, Nullable enabled.
+- `WSServer1/WSServer1.csproj` — net8.0, `Microsoft.NET.Sdk.Web`, ImplicitUsings disabled, Nullable enabled.
 - `WSClient1/WSClient1.csproj` — net8.0, ImplicitUsings disabled, Nullable enabled.
 
 ## Documentation
 
 - `README.md` — Setup, configuration options, protocol reference, health check, project layout.
 - `docs/ARCHITECTURE.md` — ASCII diagrams, concurrency model, connection lifecycle,
-  all 13 best practices with rationale.
+  all 15 best practices with rationale, and an "Adapting for a New Project" section covering
+  what to replace, constants to tune, and interdependent patterns.
 - `CLAUDE.md` — Build/run commands and coding conventions for Claude Code.
 
 ## Key design decisions
@@ -28,6 +30,18 @@ so that every mechanism is visible and auditable.
 - No top-level statements — explicit `static async Task<int> Main(string[] args)` in both projects
 - `<ImplicitUsings>disable</ImplicitUsings>` — all usings are explicit and alphabetically ordered
 - Server defaults: port 7443, WebSocket path `/didcommws`, health path `/health`
+- Kestrel routing: `app.Map(path, ...)` for WebSocket upgrade, `app.MapGet("/health", ...)` for health
+- `--host`/`--port`/`--path` parsed manually before `WebApplication.CreateBuilder` — `--host` is a
+  recognised ASP.NET Core config key and would conflict if passed through
+- WebSocket ping/pong via RFC 6455 §5.5.2 frames: `KeepAliveInterval` 10 s set once globally via
+  `WebSocketOptions`; `KeepAliveTimeout` is not available on server-side `WebSocketOptions` (only
+  on `ClientWebSocketOptions`) — dead peers are detected by the idle watchdog instead
+- `AllowedOrigins` set to `http://{host}:{port}` — restricts browser WebSocket clients to same-origin;
+  CLI clients (`ClientWebSocket`) send no `Origin` header and are unaffected
+- Host `ShutdownTimeout` 15 s — aligned with 10 s post-`RunAsync` cleanup budget so Kestrel does not
+  abort active handlers before the manual graceful shutdown completes
+- `IHostApplicationLifetime.ApplicationStopping` passed as `ct` to `HandleClientAsync` — integrated
+  shutdown signal, no manual `Console.CancelKeyPress` wiring on the server
 - Connection registry: `Dictionary<Guid, WebSocket>` guarded by `object _lock`
 - Per-connection `SemaphoreSlim(1,1)` serialises all sends (echo reply + watchdog timeout message)
 - Idle timeout 15 s: watchdog sends `{"type":"timeout",...}` then `CloseOutputAsync`,
@@ -39,7 +53,7 @@ so that every mechanism is visible and auditable.
 - Pending outbound `Queue<string>` preserves messages typed during a disconnect window
 - `Console.CancelKeyPress` registered once before the outer loop; targets `_cts` static field
 - Close operations inside `HandleClientAsync` always use an independent short-lived CTS,
-  never the outer `ct` which is cancelled during server shutdown before cleanup runs
+  never the outer `ct` (`ApplicationStopping`) which is cancelled during server shutdown before cleanup runs
 - `AssemblyInformationalVersion` in all protocol messages for build traceability
 - `typeof(Program).Module.ModuleVersionId` for MVID — portable across all .NET platforms
 

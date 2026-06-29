@@ -1,4 +1,9 @@
-# Architecture & Design — WsExample1
+# Architecture & Design — WsExample2 (Kestrel)
+
+> **Preferred design.** WsExample2 uses Kestrel (`Microsoft.NET.Sdk.Web`) instead of
+> `HttpListener`. Kestrel is cross-platform, actively developed, and eliminates the manual
+> accept loop, manual routing, and platform-specific prefix rules required by `HttpListener`.
+> See [WsExample1](../../WsExample1-HTTP/docs/ARCHITECTURE.md) for the `HttpListener` variant.
 
 ## System Overview
 
@@ -6,15 +11,13 @@
 ┌────────────────────────────────────────────────────────────────┐
 │                         WSServer1                              │
 │                                                                │
-│  HttpListener prefixes                                         │
-│  ├── http://localhost:7443/didcommws/   ← WebSocket upgrade    │
-│  └── http://localhost:7443/health/      ← HTTP GET             │
+│  Kestrel (WebApplication)                                      │
+│  ├── GET  /health    → 200 JSON          (app.MapGet)          │
+│  └── ANY  /didcommws → WebSocket upgrade (app.Map)             │
 │                                                                │
-│  Main (async accept loop)                                      │
-│  ├── IsWebSocketRequest → HandleClientAsync()  (fire-and-forget│
-│  └── else → /health → 200 JSON  |  other → 400                │
+│  app.RunAsync()  — Kestrel owns the accept loop                │
 │                                                                │
-│  HandleClientAsync (per connection)                            │
+│  HandleClientAsync (per connection, receives bare WebSocket)   │
 │  ├── receive loop   (main task context)                        │
 │  └── idle watchdog  (Task.Run)                                 │
 │                                                                │
@@ -39,27 +42,44 @@
 
 ## Server Architecture
 
-### Accept Loop
+### Routing and Accept Loop
 
-`Main` runs a `while (!cts.Token.IsCancellationRequested)` loop calling:
+Kestrel manages the accept loop internally. Routes are declared with minimal-API methods:
 
 ```csharp
-HttpListenerContext context = await listener.GetContextAsync().WaitAsync(cts.Token);
+WebSocketOptions wsOptions = new()
+{
+    KeepAliveInterval = KeepAliveInterval,
+};
+wsOptions.AllowedOrigins.Add($"http://{host}:{port}");
+app.UseWebSockets(wsOptions);
+
+app.MapGet("/health", () => Results.Content(json, "application/json"));
+
+app.Map(path, async (HttpContext context) =>
+{
+    WebSocket ws = await context.WebSockets.AcceptWebSocketAsync();
+    Task clientTask = HandleClientAsync(ws, lifetime.ApplicationStopping);
+    // track for graceful shutdown, then await to keep Kestrel's pipeline open
+    lock (_taskLock) _clientTasks.Add(clientTask);
+    _ = clientTask.ContinueWith(t => { lock (_taskLock) _clientTasks.Remove(t); });
+    await clientTask;
+});
 ```
 
-`WaitAsync(cts.Token)` cancels the wait on Ctrl+C without leaving `GetContextAsync` orphaned.
-Each WebSocket request is dispatched as a fire-and-forget `Task` immediately — the accept loop
-never blocks on individual connection handling.
+`await app.RunAsync()` starts Kestrel and blocks until shutdown is signalled (Ctrl+C or
+`IHostApplicationLifetime.StopApplication()`). There is no manual `GetContextAsync` loop and no
+manual routing switch — Kestrel dispatches by path before the handler is invoked.
 
 ### Per-Connection Handler (`HandleClientAsync`)
 
-Owns the full lifetime of one WebSocket connection:
+Owns the full lifetime of one WebSocket connection. Receives a bare `WebSocket` — the HTTP
+upgrade is already complete before the handler is called:
 
-1. `AcceptWebSocketAsync(subProtocol: null, keepAliveInterval: 10s)` — upgrades the HTTP request
-2. Registers `_connections[id] = ws` under `_lock`
-3. Starts the idle watchdog (`Task.Run`)
-4. Runs the receive loop until the socket closes or `idleCts` is cancelled
-5. `finally`: cancels watchdog, `await watchdog`, removes from registry, disposes socket and lock
+1. Registers `_connections[id] = ws` under `_lock`
+2. Starts the idle watchdog (`Task.Run`)
+3. Runs the receive loop until the socket closes or `idleCts` is cancelled
+4. `finally`: cancels watchdog, `await watchdog`, removes from registry, disposes socket and lock
 
 ### Idle Watchdog
 
@@ -121,8 +141,10 @@ the dictionary — it only sends and closes.
 ### Graceful Shutdown Sequence
 
 ```
-Ctrl+C → cts.Cancel()
-GetContextAsync().WaitAsync() throws OperationCanceledException → accept loop exits
+Ctrl+C → Kestrel signals IHostApplicationLifetime.ApplicationStopping
+→ lifetime.ApplicationStopping (passed as ct to HandleClientAsync) is cancelled
+→ Kestrel drains active route handlers (up to ShutdownTimeout: 15 s)
+→ await app.RunAsync() returns
 → snapshot _connections (under _lock)
 → foreach open socket: CloseOutputAsync (5 s budget, independent CTS)
 → snapshot _clientTasks (under _taskLock)
@@ -229,11 +251,15 @@ prints a human-readable message instead of displaying the raw JSON.
 
 `GET http://{host}:{port}/health`
 
-The endpoint shares the same `HttpListener` instance and accept loop as the WebSocket endpoint.
-Non-WebSocket requests are routed by `context.Request.Url?.AbsolutePath.TrimEnd('/')`:
+Registered as a minimal-API route — no manual header, content-length, or stream management:
 
-- `/health` → 200 `application/json`
-- anything else → 400
+```csharp
+app.MapGet("/health", () =>
+{
+    string json = $$"""{"status":"ok","connections":{{ConnectionCount()}},...}""";
+    return Results.Content(json, "application/json");
+});
+```
 
 Response body:
 
@@ -255,15 +281,21 @@ probes and monitoring dashboards.
 
 ## Best Practices
 
-### 1. TCP Keepalive / Ping-Pong
+### 1. WebSocket Ping/Pong
 
-`AcceptWebSocketAsync(null, TimeSpan.FromSeconds(10))` on the server and
-`ws.Options.KeepAliveInterval = TimeSpan.FromSeconds(30)` on the client enable the built-in
-WebSocket ping/pong mechanism. This keeps NAT mappings alive and detects dead peers without
-requiring application-level heartbeat messages.
+The WebSocket protocol (RFC 6455 §5.5.2) defines ping (opcode `0x9`) and pong (opcode `0xA`)
+control frames. These are WebSocket-level frames, not TCP keepalive packets. Kestrel sends ping
+frames automatically; the peer must reply with a pong frame.
 
-**Why server interval < client interval**: the server drives keepalive for connections it owns;
-the client's interval is a fallback for when the server is silent.
+`WebSocketOptions.KeepAliveInterval` (10 s) controls how often Kestrel sends a ping frame. It is
+set once for all connections via `app.UseWebSockets(wsOptions)`. The client sets
+`ws.Options.KeepAliveInterval = 30 s` as a fallback for when the server is silent.
+
+Note: `KeepAliveTimeout` (how long to wait for a pong before closing) is available on
+`ClientWebSocketOptions` but not on the server-side `WebSocketOptions`. Dead peers that ignore
+pings are detected at the application level by the idle watchdog after `IdleTimeout` (15 s).
+
+**Why server interval < client interval**: the server drives ping/pong for connections it owns.
 
 ### 2. Concurrent Send Safety
 
@@ -328,10 +360,10 @@ Inside `HandleClientAsync`, `CloseAsync`/`CloseOutputAsync` always use:
 using CancellationTokenSource closeCts = new(TimeSpan.FromSeconds(5));
 ```
 
-Never the outer `ct`. During server shutdown, `cts.Cancel()` fires before the cleanup code
-runs. Passing a cancelled token to `CloseAsync` causes it to throw immediately, skipping the
-close frame and leaving the client with a broken connection. An independent CTS gives each close
-operation its own 5 s budget regardless of server shutdown state.
+Never the outer `ct`. During server shutdown, `lifetime.ApplicationStopping` is cancelled before
+the cleanup code runs. Passing a cancelled token to `CloseAsync` causes it to throw immediately,
+skipping the close frame and leaving the client with a broken connection. An independent CTS gives
+each close operation its own 5 s budget regardless of server shutdown state.
 
 ### 11. CancelKeyPress — Single Handler Registration
 
@@ -347,12 +379,86 @@ Every protocol message includes `appVersion` from `AssemblyInformationalVersionA
 commit hash. Operators can correlate live connection logs to the exact deployed binary without
 maintaining a separate version-to-binary mapping.
 
-### 13. MVID for Build Identity
+### 13. Host Shutdown Timeout Aligned with Cleanup Budget
+
+Kestrel's default `HostOptions.ShutdownTimeout` is 5 seconds. The post-`RunAsync` cleanup code
+waits up to 10 seconds (`Task.WhenAll(...).WaitAsync(10s)`). If the shutdown timeout is shorter
+than the cleanup budget, Kestrel aborts active route handlers before `app.RunAsync()` returns,
+making the post-shutdown wait ineffective. Configured to 15 s to cover the 10 s budget with margin:
+
+```csharp
+builder.Services.Configure<HostOptions>(opts =>
+    opts.ShutdownTimeout = TimeSpan.FromSeconds(15));
+```
+
+### 14. AllowedOrigins Restricts Browser Clients
+
+`WebSocketOptions.AllowedOrigins` controls which `Origin` headers are accepted on WebSocket
+upgrade requests. Set to `http://{host}:{port}` (the server's own URL) so browser clients are
+restricted to same-origin connections. CLI clients (`ClientWebSocket`) do not send an `Origin`
+header and are unaffected — origin validation only applies when the header is present.
+
+### 15. MVID for Build Identity
 
 `typeof(Program).Module.ModuleVersionId` returns a `Guid` that is regenerated on every compile.
 It is portable across all .NET targets — including Android and iOS — without any
 platform-specific heuristics. It provides finer identity than a version string: two builds from
 the same source at the same declared version have different MVIDs.
+
+---
+
+## Adapting for a New Project
+
+### What to replace
+
+The only application-specific code in `HandleClientAsync` is the block marked
+`// ↓ application logic` — after `lastReceived = DateTime.UtcNow`:
+
+```csharp
+// ↓ application logic — replace with your message handler; keep sendLock guard
+string text = Encoding.UTF8.GetString(ms.ToArray());
+Console.WriteLine($"{Ts()} [{id}] recv: {text}");
+
+byte[] reply = Encoding.UTF8.GetBytes($">>> {text}");   // ← your logic here
+await sendLock.WaitAsync(ct);                            // ← keep
+try { await ws.SendAsync(reply, WebSocketMessageType.Text, true, ct); }
+finally { sendLock.Release(); }                          // ← keep
+```
+
+Everything else — the watchdog, `idleCts`, fragmented reassembly loop, close handshake, and
+dispose sequence — is infrastructure that should be kept unchanged.
+
+If your handler does not send a reply, you can remove the `sendLock`/`SendAsync` block, but keep
+the `sendLock` declaration and the watchdog's send path — the watchdog always sends a timeout
+message on idle close.
+
+### Constants to tune
+
+| Constant | What to adjust |
+|---|---|
+| `IdleTimeout` | How long before the server closes an idle connection |
+| `KeepAliveInterval` | How often to send WebSocket ping frames |
+| `MaxMessageBytes` | Maximum message size your application accepts |
+| `MaxConnections` | Server-wide connection cap |
+| `WatchdogInterval` | Idle detection poll frequency; keep ≤ `IdleTimeout / 2` |
+
+### Patterns that must be kept together
+
+**`sendLock` + watchdog**: the watchdog sends on the same `WebSocket` as the receive loop.
+Removing `sendLock` without removing the watchdog causes concurrent `SendAsync` calls which
+corrupt the frame stream.
+
+**`idleCts` as linked source**: must be `CreateLinkedTokenSource(ct)` so the watchdog stops on
+both idle timeout and server shutdown. Using `ct` directly prevents idle-only cancellation —
+shutdown would stop the watchdog but an idle connection would not.
+
+**Independent close CTS**: `CloseAsync`/`CloseOutputAsync` inside `HandleClientAsync` must never
+use the outer `ct` (`ApplicationStopping`). It is cancelled during shutdown before cleanup runs;
+passing it to `CloseAsync` throws immediately and skips the close frame.
+
+**`await clientTask` in the route handler**: this line keeps Kestrel's request pipeline open for
+the connection lifetime. Removing it causes Kestrel to close the HTTP response immediately,
+dropping the WebSocket connection.
 
 ---
 
@@ -372,9 +478,22 @@ The idle watchdog must stop both when the connection goes idle (`idleCts.Cancel(
 server shuts down (`ct` cancelled). A linked source responds to either without requiring the
 watchdog to check both tokens explicitly.
 
+**Why JSON is built with raw string literals instead of a serialiser**
+
+The dependency footprint is deliberately zero. Raw string literals (`$$"""..."""`) are readable,
+compile-time constant, and produce no allocations beyond the interpolated values. For the small
+fixed set of message types here, a serialiser adds complexity without benefit.
+
 **Why `_connections` uses `Guid` keys but connections are also identified by the same `id` in logs**
 
 The server-assigned GUID is generated fresh per connection (`Guid.NewGuid()`), not derived from
 the client. This means the server log and the client log use different identifiers for the same
 connection. The client identifies itself via `instanceId` in the attach message. This is
 intentional: the server GUID is purely an internal handle for the connection registry.
+
+**Why `--host` is parsed manually before `WebApplication.CreateBuilder(args)`**
+
+`--host` is a recognised ASP.NET Core configuration key. Passing it through `CreateBuilder(args)`
+would conflict with Kestrel's own host binding logic. All custom CLI arguments are parsed and
+stripped before the builder is called; the resolved host and port are applied via
+`builder.WebHost.UseUrls(...)`.

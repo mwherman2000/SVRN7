@@ -12,10 +12,9 @@ class Program // WSClient
 {
     static readonly Guid _instanceId = Guid.NewGuid();
 
-    // #2 CancelKeyPress registered once; points at the current session's CTS
+    // CancelKeyPress registered once; points at the current session's CTS
     static CancellationTokenSource? _cts;
 
-    // #3 message size cap
     const int MaxMessageBytes = 1 * 1024 * 1024;
 
     static readonly TimeSpan KeepAliveInterval = TimeSpan.FromSeconds(30);
@@ -46,7 +45,6 @@ class Program // WSClient
             }
         }
 
-        // #2 register handler once; cancels whatever the current session CTS is
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; _cts?.Cancel(); };
 
         while (true) {
@@ -64,7 +62,7 @@ class Program // WSClient
                 try
                 {
                     using ClientWebSocket ws = new();
-                    ws.Options.KeepAliveInterval = KeepAliveInterval;   // #1 keepalive
+                    ws.Options.KeepAliveInterval = KeepAliveInterval;
 
                     using CancellationTokenSource connectCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
                     connectCts.CancelAfter(TimeSpan.FromSeconds(5));
@@ -79,7 +77,7 @@ class Program // WSClient
                         .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
                         ?.InformationalVersion ?? "unknown";
 
-                    string attach = JsonSerializer.Serialize(new { type = "attach", instanceId = _instanceId, appName, appFullName, mvid, appVersion });
+                    string attach = $$"""{"type":"attach","instanceId":"{{_instanceId}}","appName":"{{appName}}","appFullName":"{{appFullName}}","mvid":"{{mvid}}","appVersion":"{{appVersion}}"}""";
                     await ws.SendAsync(Encoding.UTF8.GetBytes(attach), WebSocketMessageType.Text, true, cts.Token);
                     Console.WriteLine($"{Ts()} sent: {attach}");
 
@@ -108,7 +106,7 @@ class Program // WSClient
 
                         if (line == "bye")
                         {
-                            string detach = JsonSerializer.Serialize(new { type = "detach", instanceId = _instanceId, appName, appFullName, mvid, appVersion });
+                            string detach = $$"""{"type":"detach","instanceId":"{{_instanceId}}","appName":"{{appName}}","appFullName":"{{appFullName}}","mvid":"{{mvid}}","appVersion":"{{appVersion}}"}""";
                             await ws.SendAsync(Encoding.UTF8.GetBytes(detach), WebSocketMessageType.Text, true, cts.Token);
                             Console.WriteLine($"{Ts()} sent: {detach}");
                             break;
@@ -174,7 +172,6 @@ class Program // WSClient
         {
             while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
             {
-                // #3 fragmented message reassembly: accumulate frames until EndOfMessage
                 using MemoryStream ms = new();
                 WebSocketReceiveResult result;
                 do
@@ -183,7 +180,6 @@ class Program // WSClient
                     if (result.MessageType != WebSocketMessageType.Close)
                         ms.Write(buffer, 0, result.Count);
 
-                    // #3 message size cap
                     if (ms.Length > MaxMessageBytes)
                     {
                         Console.Error.WriteLine($"{Ts()} Received message too large ({ms.Length} bytes), closing.");
@@ -208,7 +204,7 @@ class Program // WSClient
                 catch { }
 
                 if (msgType == "timeout")
-                    Console.WriteLine($"{Ts()} Server closed connection due to inactivity - will reconnect.");
+                    Console.WriteLine($"{Ts()} Server closed connection due to inactivity - will reconnect.: {text}");
                 else
                     Console.WriteLine($"{Ts()} recv: {text}");
             }
