@@ -35,7 +35,8 @@ public class BoardForm : Form
         BackColor = Color.FromArgb(8, 12, 22);
         ForeColor = Color.FromArgb(232, 234, 240);
         Size = new Size(1400, 900);
-        MinimumSize = new Size(800, 600);
+        int minSpan = (int)(BoardColumn.ActiveWidth + 4 * BoardColumn.SpineWidth + 4 * 2f);
+        MinimumSize = new Size(minSpan, minSpan);
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Segoe UI", 9f);
 
