@@ -29,9 +29,9 @@ Open a GitHub Issue with:
 3. **New LOBEs** — provide a `.lobe.json` descriptor alongside `.psm1` and `.psd1`.
    See `lobes/Svrn7.Email.lobe.json` for the canonical format.
 4. **Protocol additions** — new DIDComm `@type` URIs must follow the Locator DID URL
-   convention: `did:drn:svrn7.net/protocols/{LobeName}/{major}.{minor}/{action}` for standard
+   convention: `did:drn:svrn7.net/protocols/{LobeName}.{major}.{minor}.{patch}/{action}` for standard
    SVRN7 protocols (e.g. `did:drn:svrn7.net/protocols/PandoMail.0.8.0/message`),
-   or `did:drn:{your-domain}/protocols/{LobeName}/{version}/{action}` for third-party LOBEs.
+   or `did:drn:{your-domain}/protocols/{LobeName}.{major}.{minor}.{patch}/{action}` for third-party LOBEs.
 
 ### Pull Requests
 

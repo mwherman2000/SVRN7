@@ -73,7 +73,7 @@ public static class SeedDataService
         var agentConversations = new[]
         {
             ("What LOBEs are currently registered in my Citizen TDA?",
-             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/lobe-list",
+             "did:drn:svrn7.net/protocols/TDAStatus.0.1.0/lobe-list",
              new[]{
                  "4 LOBEs active: Email-Notify/1.0, DID-Resolve/1.0, DeadLetter/1.0, PandoBoard-Relay/1.0.",
                  "Email-Notify routes inbound DIDComm V2 messages to Pando Board via encrypted relay.",
@@ -85,7 +85,7 @@ public static class SeedDataService
                  "The Switchboard uses a ConcurrentDictionary keyed on DIDComm @type URI prefix.",
                  "Unmatched @type URIs fall through to the DeadLetter LOBE automatically.",
                  "TDA always returns HTTP 202 regardless of LOBE execution outcome — per DSA 0.24.",
-                 "Run TDA-Status/1.0/pester to validate all 4 LOBEs against their Pester test suites."
+                 "Run TDAStatus.0.1.0/pester to validate all 4 LOBEs against their Pester test suites."
              }),
 
             ("Resolve did:drn:svrn7.net:jsnover",
@@ -170,7 +170,7 @@ public static class SeedDataService
              }),
 
             ("What IETF Internet-Drafts are currently active?",
-             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/drafts",
+             "did:drn:svrn7.net/protocols/TDAStatus.0.1.0/drafts",
              new[]{
                  "15 IETF Internet-Drafts tracked in this Citizen TDA.",
                  "draft-herman-did-w3c-drn-00 — active, Section 5a pending IETF CATALIST WG review.",
@@ -187,7 +187,7 @@ public static class SeedDataService
              }),
 
             ("Summarise today's VTC7 conversations",
-             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/summary",
+             "did:drn:svrn7.net/protocols/TDAStatus.0.1.0/summary",
              new[]{
                  "Today: 6 active DIDComm V2 thread groups across 4 VTC7 contacts.",
                  "Jeffrey Snover: drn.directory DNS TXT verified, key rotation draft ready to dispatch.",
@@ -220,7 +220,7 @@ public static class SeedDataService
              }),
 
             ("Run the full LOBE Pester test suite",
-             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/pester",
+             "did:drn:svrn7.net/protocols/TDAStatus.0.1.0/pester",
              new[]{
                  "Running 11 LOBE Pester test suites across Citizen TDA modules…",
                  "Email-Notify/1.0: 12/12 PASS. All inbound DIDComm V2 routing scenarios covered.",
@@ -231,7 +231,7 @@ public static class SeedDataService
                  "SVRN7-Wallet/1.0: 9/9 PASS. Balance, send, stake, unstake all validated.",
                  "Credential-Verify/1.0: 7/7 PASS. VTC7 proof set verify and revoke covered.",
                  "Chain/1.0: 5/5 PASS. Block height, validator status, tx pool all green.",
-                 "TDA-Status/1.0: 11/11 PASS. All admin and diagnostic endpoints validated.",
+                 "TDAStatus/1.0: 11/11 PASS. All admin and diagnostic endpoints validated.",
                  "FileSystemWatcher hot-reload: confirmed stable across 3 simulated LOBE updates.",
                  "Total: 97/97 PASS. TDA uptime: 99.97%. Recommended: commit and tag v0.24.1."
              }),
@@ -253,23 +253,23 @@ public static class SeedDataService
              }),
 
             ("Register the new Credential-Verify LOBE descriptor",
-             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/lobe-register",
+             "did:drn:svrn7.net/protocols/TDAStatus.0.1.0/lobe-register",
              new[]{
                  "Credential-Verify LOBE descriptor received — parsing lobe.json…",
                  "DIDComm @type URI: did:drn:svrn7.net/protocols/Credential-Verify.0.1.0.",
                  "Declared handlers: verify, revoke, status. All 3 handler scripts present.",
                  "PowerShell 7 execution policy: AllSigned — LOBE scripts are code-signed, check PASS.",
                  "FileSystemWatcher hot-reload: descriptor written to LOBEs/Credential-Verify/. Switchboard updated.",
-                 "ConcurrentDictionary key added: 'did:drn:svrn7.net/protocols/Credential-Verify/' → LOBE path.",
+                 "ConcurrentDictionary key added: 'did:drn:svrn7.net/protocols/Credential-Verify.0.1.0/' → LOBE path.",
                  "Pester scaffold generated: LOBEs/Credential-Verify/Tests/Credential-Verify.Tests.ps1.",
                  "7 test stubs created — cover verify, revoke, status, invalid-proof, expired, revoked, tampered.",
                  "LOBE registration complete. Active LOBE count: 5.",
-                 "Recommend running TDA-Status/1.0/pester to baseline the new test suite.",
+                 "Recommend running TDAStatus.0.1.0/pester to baseline the new test suite.",
                  "LOBE hot-reload event logged to TDA audit trail — SOVRONA block timestamp pending."
              }),
 
             ("Verify the incoming VTC7 proof set from Daniel Hardman",
-             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/vtc-verify",
+             "did:drn:svrn7.net/protocols/TDAStatus.0.1.0/vtc-verify",
              new[]{
                  "VTC7 proof set received from did:drn:svrn7.net:dhardman — verifying…",
                  "Proof type: Ed25519Signature2020. Verification method: did:drn:svrn7.net:dhardman#key-1.",
@@ -285,13 +285,13 @@ public static class SeedDataService
              }),
 
             ("Show the TDA Switchboard routing table",
-             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/routing-table",
+             "did:drn:svrn7.net/protocols/TDAStatus.0.1.0/routing-table",
              new[]{
                  "TDA Switchboard routing table — 5 active LOBE routes registered.",
-                 "did:drn:svrn7.net/protocols/Email-Notify/* → LOBEs/Email-Notify/Invoke-EmailNotify.ps1.",
-                 "did:drn:svrn7.net/protocols/DID-Resolve/* → LOBEs/DID-Resolve/Invoke-DIDResolve.ps1.",
-                 "did:drn:svrn7.net/protocols/PandoBoard-Relay/* → LOBEs/PandoBoard-Relay/Invoke-Relay.ps1.",
-                 "did:drn:svrn7.net/protocols/Credential-Verify/* → LOBEs/Credential-Verify/Invoke-Verify.ps1.",
+                 "did:drn:svrn7.net/protocols/Email-Notify.0.1.0/* → LOBEs/Email-Notify/Invoke-EmailNotify.ps1.",
+                 "did:drn:svrn7.net/protocols/DID-Resolve.0.1.0/* → LOBEs/DID-Resolve/Invoke-DIDResolve.ps1.",
+                 "did:drn:svrn7.net/protocols/PandoBoard-Relay.0.1.0/* → LOBEs/PandoBoard-Relay/Invoke-Relay.ps1.",
+                 "did:drn:svrn7.net/protocols/Credential-Verify.0.1.0/* → LOBEs/Credential-Verify/Invoke-Verify.ps1.",
                  "* (catch-all) → LOBEs/DeadLetter/Invoke-DeadLetter.ps1.",
                  "Routing uses prefix-match on the DIDComm @type URI header — longest prefix wins.",
                  "ConcurrentDictionary ensures thread-safe concurrent message routing.",
@@ -301,7 +301,7 @@ public static class SeedDataService
              }),
 
             ("Archive all TDA threads older than 30 days",
-             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/archive",
+             "did:drn:svrn7.net/protocols/TDAStatus.0.1.0/archive",
              new[]{
                  "Scanning Citizen TDA LiteDB for DIDComm V2 threads older than 30 days…",
                  "Found 12 archivable threads across 4 contacts. Total messages: 47.",
@@ -429,7 +429,7 @@ public static class SeedDataService
              }),
 
             ("Check IETF draft submission deadlines for the next 90 days",
-             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/draft-deadlines",
+             "did:drn:svrn7.net/protocols/TDAStatus.0.1.0/draft-deadlines",
              new[]{
                  "IETF Internet-Draft submission deadlines — next 90 days from 2026-06-23.",
                  "IETF 121 (Dublin) cutoff: 2026-07-14. Drafts due: -did-w3c-drn-00, -tda-architecture-00.",
@@ -445,7 +445,7 @@ public static class SeedDataService
              }),
 
             ("Generate a VTC7 proof set for the pending governance credential",
-             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/vtc-proof",
+             "did:drn:svrn7.net/protocols/TDAStatus.0.1.0/vtc-proof",
              new[]{
                  "Generating VTC7 proof set for pending Web 7.0 DSA governance credential…",
                  "Credential type: VTC7GovernanceCredential. Subject: did:drn:svrn7.net:michael.",
@@ -461,7 +461,7 @@ public static class SeedDataService
              }),
 
             ("Back up Citizen TDA state to the secure vault",
-             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/backup",
+             "did:drn:svrn7.net/protocols/TDAStatus.0.1.0/backup",
              new[]{
                  "Initiating Citizen TDA state backup — LiteDB, LOBE descriptors, DID Document, SVRN7 wallet.",
                  "LiteDB snapshot: 14.2 MB. 38 active threads, 14 contacts, 47 pending messages.",
@@ -676,7 +676,7 @@ public static class SeedDataService
                 "Encrypt the backup archive with X25519 ECDH-ES before writing to the offline vault.",
                 "Store the vault encryption key separately from the backup — air-gap the key material.",
                 "SOVRONA block timestamp the backup hash — gives tamper-evident auditability.",
-                "Automate via a TDA-Status/1.0/backup LOBE on a daily schedule — no manual steps.",
+                "Automate via a TDAStatus.0.1.0/backup LOBE on a daily schedule — no manual steps.",
                 "Test restore quarterly — a backup you haven't restored from is a backup you can't trust." }),
 
         ("Jeffrey, thoughts on the PandoBoard UI showing velocity scores?",
@@ -862,7 +862,7 @@ public static class SeedDataService
         ("Borko, how are you thinking about multi-tenant TDA architecture for your platform?",
          new[]{ "Each tenant gets a dedicated LiteDB instance — no shared storage, clean isolation.",
                 "The Switchboard routing table is per-tenant — LOBE descriptors scoped to tenant namespace.",
-                "Tenant DID Documents are separate: did:drn:tenant1.svrn7.net, did:drn:tenant2.svrn7.net.",
+                "Tenant DID Documents are separate: did:drn:societytest.svrn7.net, did:drn:societytest2.svrn7.net.",
                 "SOVRONA identity transactions are pooled at the platform level but billed per tenant.",
                 "Hot-reload FileSystemWatcher is scoped per-tenant directory — one tenant's LOBE update doesn't affect others.",
                 "I'm designing a tenant admin LOBE for provisioning — it publishes the DID Document on creation." }),
@@ -1086,7 +1086,7 @@ public static class SeedDataService
                 "Copy checkpoint file to Azure Blob Storage immediately after each checkpoint — versioned blobs.",
                 "Keep 48 hours of hourly checkpoints and 30 days of daily snapshots — standard retention.",
                 "Test restore monthly: spin up a recovery TDA, load latest checkpoint, verify thread count.",
-                "The TDA-Status/1.0/backup LOBE should trigger the checkpoint + upload atomically.",
+                "The TDAStatus.0.1.0/backup LOBE should trigger the checkpoint + upload atomically.",
                 "Alert if backup hasn't succeeded in >35 minutes — early warning before data loss window opens." }),
 
         ("Rolf, how should I handle DIDComm V2 load balancing across TDA instances?",
@@ -1747,7 +1747,7 @@ public static class SeedDataService
         ("Kaliya, how should personal data sovereignty be implemented in the TDA data model?",
          new[]{ "All personal data in the TDA is owned by the user — no third-party access without explicit grant.",
                 "The TDA vault key is held by the user — even the TDA host can't access the vault content.",
-                "Data portability: a TDA-Status/1.0/export LOBE bundles all user data as an encrypted archive.",
+                "Data portability: a TDAStatus.0.1.0/export LOBE bundles all user data as an encrypted archive.",
                 "Right to deletion: TDA deactivation publishes a did:drn tombstone and wipes the LiteDB store.",
                 "Data minimization: the TDA should only store what's needed for active threads — archive the rest.",
                 "The personal data inventory (what's stored, why, for how long) should be visible in Pando Board settings." }),

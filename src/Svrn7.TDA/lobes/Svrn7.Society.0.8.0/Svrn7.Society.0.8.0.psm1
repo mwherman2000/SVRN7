@@ -152,13 +152,13 @@ function Connect-Svrn7Society {
         PS> Initialize-Svrn7FederationDriver
         PS> Connect-Svrn7Society `
                 -SocietyDid    'did:sovronia:my-society' `
-                -FederationDid 'did:drn:the-federation' `
+                -FederationDid 'did:drn:federation.svrn7.net' `
                 -DidMethodNames @('sovronia')
 
     .EXAMPLE
         PS> Connect-Svrn7Society `
                 -SocietyDid                         'did:sovronia:my-society' `
-                -FederationDid                      'did:drn:the-federation' `
+                -FederationDid                      'did:drn:federation.svrn7.net' `
                 -DidMethodNames                     @('sovronia','sovroniamed') `
                 -SocietyMessagingKeyEd25519Hex      $myEd25519PrivHex `
                 -FederationMessagingPublicKeyEd25519Hex $fedEd25519PubHex

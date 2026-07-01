@@ -462,7 +462,7 @@ public class SocietyRegistrationTests : IAsyncLifetime
         var kp = _f.Crypto.GenerateSecp256k1KeyPair();
         var r  = await _f.Driver.RegisterSocietyAsync(new RegisterSocietyRequest
         {
-            DidDocument = _f.MakeDidDoc("did:drn:uniquesoc", kp, "uniquesoc"), PrivateKeyBytes = kp.PrivateKeyBytes,
+            DidDocument = _f.MakeDidDoc("did:drn:uniquesoc-test", kp, "uniquesoc"), PrivateKeyBytes = kp.PrivateKeyBytes,
             SocietyName = "Second Society", DrawAmountGrana = 0, OverdraftCeilingGrana = 0,
         });
         r.Success.Should().BeFalse();
@@ -486,7 +486,7 @@ public class TransferTests : IAsyncLifetime
         await _f.Driver.RegisterCitizenAsync(new RegisterCitizenRequest
             { DidDocument = _f.MakeDidDoc(payerDid, payerKp), PrivateKeyBytes = payerKp.PrivateKeyBytes });
         var socKp  = _f.Crypto.GenerateSecp256k1KeyPair();
-        var socDid = "did:drn:testsoc";
+        var socDid = "did:drn:testsoc-test";
         await _f.Driver.RegisterSocietyAsync(new RegisterSocietyRequest
         {
             DidDocument = _f.MakeDidDoc(socDid, socKp, "testsoc"), PrivateKeyBytes = socKp.PrivateKeyBytes,
