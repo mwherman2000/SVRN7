@@ -415,7 +415,7 @@ profiling shows inbox-store reads appearing under load.
 **Area:** `LobeManager.TryResolveProtocol`, `LobeProtocolRegistration`
 
 **Summary:** When a DIDComm message arrives with a version-less `@type` URI
-(e.g. `did:drn:svrn7.net/protocols/Svrn7.Email/signal-message` instead of
+(e.g. `did:drn:svrn7.net/protocols/PandoMail/signal-message` instead of
 `did:drn:svrn7.net/protocols/PandoMail.0.8.0/signal-message`), the
 Switchboard currently dead-letters it — no registration matches.  A possible
 convenience feature would add a third fallback tier to `TryResolveProtocol`
