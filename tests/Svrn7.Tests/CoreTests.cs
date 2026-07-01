@@ -976,7 +976,7 @@ public class TransferValidatorTests
         var (v, payer, kp, _, ctx) = await MakeAsync();
         using (ctx)
         {
-            var req = BuildRequest(payer, kp.PrivateKeyBytes, "did:drn:other.svrn7.net/citizen/1.0/x", 1);
+            var req = BuildRequest(payer, kp.PrivateKeyBytes, "did:drn:societyexample.svrn7.net/citizen/1.0/x", 1);
             var ex  = await Assert.ThrowsAsync<EpochViolationException>(() => v.ValidateAsync(req));
             ex.ViolationType.Should().Be("PayeeMustBeActiveSociety");
         }

@@ -406,7 +406,7 @@ public class SocietyTransferValidatorTests
         using (ctx)
         {
             var outsiderKp = _crypto.GenerateSecp256k1KeyPair();
-            var req = BuildRequest("did:drn:other.svrn7.net/citizen/1.0/bob", outsiderKp.PrivateKeyBytes, SocietyDid, 1);
+            var req = BuildRequest("did:drn:societyexample.svrn7.net/citizen/1.0/bob", outsiderKp.PrivateKeyBytes, SocietyDid, 1);
             var ex  = await Assert.ThrowsAsync<EpochViolationException>(() => v.ValidateAsync(req));
             ex.ViolationType.Should().Be("PayerNotMemberOfSociety");
         }
@@ -417,7 +417,7 @@ public class SocietyTransferValidatorTests
         var (v, payer, kp, ctx) = await MakeAsync();
         using (ctx)
         {
-            var req = BuildRequest(payer, kp.PrivateKeyBytes, "did:drn:other.svrn7.net/citizen/1.0/carol", 1);
+            var req = BuildRequest(payer, kp.PrivateKeyBytes, "did:drn:societyexample.svrn7.net/citizen/1.0/carol", 1);
             var ex  = await Assert.ThrowsAsync<EpochViolationException>(() => v.ValidateAsync(req));
             ex.ViolationType.Should().Be("EpochZeroPayeeRestriction");
         }
