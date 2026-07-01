@@ -606,9 +606,9 @@ public class TransferTests : IAsyncLifetime
         var kp1 = _f.Crypto.GenerateSecp256k1KeyPair();
         var kp2 = _f.Crypto.GenerateSecp256k1KeyPair();
         await _f.Driver.RegisterCitizenAsync(new RegisterCitizenRequest
-            { DidDocument = _f.MakeDidDoc("did:drn:stale-x", kp1), PrivateKeyBytes = kp1.PrivateKeyBytes });
+            { DidDocument = _f.MakeDidDoc("did:drn:stale-x-test", kp1), PrivateKeyBytes = kp1.PrivateKeyBytes });
         await _f.Driver.RegisterCitizenAsync(new RegisterCitizenRequest
-            { DidDocument = _f.MakeDidDoc("did:drn:stale-y", kp2), PrivateKeyBytes = kp2.PrivateKeyBytes });
+            { DidDocument = _f.MakeDidDoc("did:drn:stale-y-test", kp2), PrivateKeyBytes = kp2.PrivateKeyBytes });
 
         var validator = new TransferValidator(
             new LiteWalletStore(_f.Context),
@@ -621,7 +621,7 @@ public class TransferTests : IAsyncLifetime
         // Stale timestamp — step 4 fires before step 6 (signature)
         var req = new TransferRequest
         {
-            PayerDid = "did:drn:stale-x", PayeeDid = "did:drn:stale-y",
+            PayerDid = "did:drn:stale-x-test", PayeeDid = "did:drn:stale-y-test",
             AmountGrana = 1,
             Nonce       = Guid.NewGuid().ToString("N"),
             Timestamp   = DateTimeOffset.UtcNow.AddHours(-2),
