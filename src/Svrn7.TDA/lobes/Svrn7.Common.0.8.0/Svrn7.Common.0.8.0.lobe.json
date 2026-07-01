@@ -25,7 +25,7 @@
     },
     {
       "name": "Send-LocalDIDCommMessage",
-      "synopsis": "Sends a DIDComm plaintext envelope to a local TDA via WebSocket (/didcomm-notify).",
+      "synopsis": "Sends a DIDComm plaintext envelope to a local TDA via WebSocket (/didcomm-ws).",
       "parameters": [
         { "name": "Port", "type": "int",    "mandatory": false, "description": "TDA listen port. Defaults to 8443." },
         { "name": "Body", "type": "string", "mandatory": true,  "description": "DIDComm plaintext JSON envelope to send." }

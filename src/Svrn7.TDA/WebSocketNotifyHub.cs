@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace Svrn7.TDA;
 
 /// <summary>
-/// Hub for local-UI WebSocket connections on /didcomm-notify.
+/// Hub for local-UI WebSocket connections on /didcomm-ws.
 /// Supports multiple simultaneous clients (PandoMail, PS tooling, etc.).
 ///
 /// When a LOBE returns an OutboundMessage whose PeerEndpoint matches
@@ -20,7 +20,7 @@ public sealed class WebSocketNotifyHub
     /// Sentinel PeerEndpoint value: any OutboundMessage targeting this endpoint
     /// is delivered via WebSocket push rather than HTTP/2 POST.
     /// </summary>
-    public const string LocalEndpoint = "ws://local/didcomm-notify";
+    public const string LocalEndpoint = "ws://local/didcomm-ws";
 
     private readonly ILogger<WebSocketNotifyHub> _log;
     private readonly ConcurrentDictionary<Guid, WebSocket> _sockets = new();

@@ -132,7 +132,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         if (_opts.RateLimitRequestsPerSecond > 0)
             _app.UseRateLimiter();
 
-        // WebSocket support (RFC 8441 over HTTP/2 for the /didcomm-notify path).
+        // WebSocket support (RFC 8441 over HTTP/2 for the /didcomm-ws path).
         _app.UseWebSockets();
 
         // ── Single inbound route: POST /didcomm ───────────────────────────────
@@ -140,9 +140,9 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         if (_opts.RateLimitRequestsPerSecond > 0)
             route.RequireRateLimiting(rateLimitPolicy);
 
-        // ── Local UI push channel: /didcomm-notify (WebSocket, localhost only) ─
+        // ── Local UI push channel: /didcomm-ws (WebSocket, localhost only) ─
         // Not published in the TDA's DID Document; not rate-limited (local only).
-        _app.Map("/didcomm-notify", HandleWebSocketAsync);
+        _app.Map("/didcomm-ws", HandleWebSocketAsync);
 
         await _app.StartAsync(ct);
         _log.LogInformation(
@@ -150,7 +150,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
             _opts.ListenPort, _opts.RequireMutualTls);
         _log.LogDebug(
             "KestrelListenerService: POST /didcomm (HTTP/2 inbound) and " +
-            "GET /didcomm-notify (WebSocket RFC 8441) active on port {Port}.",
+            "GET /didcomm-ws (WebSocket RFC 8441) active on port {Port}.",
             _opts.ListenPort);
     }
 
@@ -195,7 +195,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
                 "POST /didcomm requires Content-Type: application/didcomm-encrypted+json " +
                 "for general DIDComm messages. Plaintext (application/didcomm-plain+json) " +
                 "is accepted only for DID discovery protocols (did-resolve-request/response). " +
-                "For localhost plaintext use ws://…/didcomm-notify.",
+                "For localhost plaintext use ws://…/didcomm-ws.",
                 http.RequestAborted);
             return;
         }
@@ -298,10 +298,10 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         http.Response.StatusCode = StatusCodes.Status202Accepted;
     }
 
-    // ── /didcomm-notify WebSocket handler ────────────────────────────────────
+    // ── /didcomm-ws WebSocket handler ────────────────────────────────────
 
     /// <summary>
-    /// Accepts a WebSocket connection from local PandoMail on /didcomm-notify.
+    /// Accepts a WebSocket connection from local PandoMail on /didcomm-ws.
     /// Bidirectional: TDA pushes notifications; PandoMail sends requests (List-Emails,
     /// Enqueue-PandoMail). Incoming messages go through the same UnpackAsync + EnqueueAsync
     /// pipeline as POST /didcomm — the Switchboard routes them by @type to LOBEs.
@@ -320,7 +320,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         using var ws = await http.WebSockets.AcceptWebSocketAsync();
         var clientId = _hub.Attach(ws);
         _log.LogInformation(
-            "KestrelListenerService: local-UI WebSocket attached on /didcomm-notify (id={Id}).", clientId);
+            "KestrelListenerService: local-UI WebSocket attached on /didcomm-ws (id={Id}).", clientId);
 
         try
         {

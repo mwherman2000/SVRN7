@@ -450,12 +450,12 @@ multiple versions installed.
 
 ---
 
-## TDA-009 — WebSocket /didcomm-notify channel encryption (PandoMail ↔ Citizen TDA) ✓ RESOLVED BY POLICY
+## TDA-009 — WebSocket /didcomm-ws channel encryption (PandoMail ↔ Citizen TDA) ✓ RESOLVED BY POLICY
 
 **Area:** `WebSocketNotifyHub`, `KestrelListenerService`, `TdaMailClient`, `DIDCommPackingService`
 
 **Policy decision (2026-06-19):** All WebSocket messages, inbound or outbound, use
-plaintext DIDComm (`application/didcomm-plain+json`).  The `/didcomm-notify` channel
+plaintext DIDComm (`application/didcomm-plain+json`).  The `/didcomm-ws` channel
 is localhost-only, PandoMail holds no key material, and PandoMail shares the Citizen
 TDA's DID — it is a local UI attachment, not a DIDComm peer.  This is the permanent
 design, not a temporary gap.
@@ -495,52 +495,95 @@ Changes made:
 
 **Summary:** `WebSocketNotifyHub` currently broadcasts every push notification to all
 connected clients. This is correct when only one app is connected, but breaks with
-multiple simultaneous local-UI apps (e.g. PandoMail + PandoCRM, or two PandoMail
-instances). PandoCRM would receive Email-Notify messages it cannot handle; two
-PandoMail instances would both update their UI on the same notification.
+multiple simultaneous local-UI apps (e.g. PandoMail + PandoBoard, or two PandoMail
+instances). PandoBoard would receive Email-Notify messages it cannot handle; two
+PandoMail instances would both update their UI on the same notification. It also
+breaks request/reply correctness: today a reply to one client's `List-Emails` (etc.)
+is broadcast to every connected socket, not routed back to the requester alone — invisible
+today only because just one app connects at a time in practice.
 
-**Proposed design — subscription-based routing:**
+**Finalized v1 design (2026-07-01) — static subscriptions declared at Hello:**
 
-Each client declares its `@type` subscriptions on connect by sending a plaintext
-DIDComm message through the WebSocket before any other traffic:
+Each client sends a `Hello` envelope immediately after `ConnectAsync()` succeeds, before
+any other traffic — modeled on the `attach`/`detach` pattern in
+`src/WsExample2-Kestrel` (see that project's `docs/ARCHITECTURE.md` for the reference
+implementation this borrows from):
 
 ```json
 {
-  "type": "did:drn:svrn7.net/protocols/LocalUI.0.1.0/subscribe",
+  "typ": "application/didcomm-plain+json",
+  "id": "did:drn:svrn7.net/didcomm/msg/<guid>",
+  "type": "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Hello",
+  "from": "<TDA's own DID>",
+  "to": ["<TDA's own DID>"],
   "body": {
-    "protocols": [
-      "did:drn:svrn7.net/protocols/Email-Notify.0.1.0/"
+    "app": "PandoMail",
+    "appVersion": "0.8.0",
+    "appFullName": "<Assembly.GetName().FullName>",
+    "instanceId": "<client-generated guid, stable across reconnects>",
+    "mvid": "<Module.ModuleVersionId, regenerated every compile>",
+    "subscriptions": [
+      { "uri": "did:drn:svrn7.net/protocols/Email-Notify.0.1.0/", "match": "prefix" },
+      { "uri": "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Notify-FolderCounts", "match": "exact" }
     ]
   }
 }
 ```
 
-The Hub's receive loop intercepts `LocalUI/1.0/subscribe` before passing the frame to
-`ProcessWebSocketMessageAsync` — it registers the declared prefixes against the client's
-`Guid` and does not enqueue. All subsequent messages from that client flow through the
-normal `UnpackAsync + EnqueueAsync` pipeline as today.
+The `{ uri, match }` subscription entries deliberately reuse the same
+`match: "exact"|"prefix"` shape already used in `.lobe.json` protocol registrations, so
+the hub can reuse `LobeManager`'s existing longest-prefix-wins matcher instead of a
+second implementation. `mvid`/`appFullName`/`instanceId` are adopted from
+`WsExample2-Kestrel`'s `attach` message — they let operators correlate a live connection
+to the exact deployed binary, and distinguish two windows of the same app.
 
-`PushAsync` resolves delivery by matching the outgoing message's `@type` against each
-registered client's subscription list using the same exact/prefix logic as
-`LobeManager.TryResolveProtocol`. Only matching clients receive each push.
+The hub replies with an ack:
+
+```json
+{ "type": "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Subscribed", "body": { "subscriptions": [ /* echoed back */ ] } }
+```
+
+A symmetric `Goodbye` (mirroring WsExample2's `detach`) is sent by the client before a
+clean disconnect, for clean server-side logging — not relied upon for correctness (the
+WS close frame is authoritative).
+
+**Fail-closed, no grace period (resolves the "decision deferred" note from the original
+draft of this entry):** A socket with no recorded subscription receives nothing — no
+timers, no "unfiltered until Hello arrives" fallback. This is safe specifically because
+`Hello` is sent by client code we control (`TdaMailClient.ConnectAsync`) as its own last
+step before returning, never left to a caller to remember.
+
+**Hello is intercepted below the Switchboard, not routed through it:** LOBE cmdlets only
+ever see `$SVRN7` and a message DID — they have no notion of *which socket* a message
+arrived on, so subscription bookkeeping cannot be a LOBE-registered protocol. `Hello` (and
+`Goodbye`) must be intercepted directly in `KestrelListenerService.ReceiveWebSocketLoopAsync`
+using the `clientId` already returned by `_hub.Attach(ws)`, and never forwarded to
+`_inbox.EnqueueAsync`/the Switchboard at all. This is the reusable part of the pattern:
+subscription bookkeeping lives entirely in shared TDA infrastructure, decoupled from any
+app's business protocol — PandoBoard (or any future local-UI app) gets it for free by
+sending one `Hello` frame, no per-app server code required.
+
+**Two distinct traffic categories on this channel (surfaced during design, not yet
+resolved):** Topic subscriptions solve *broadcast notifications* (`Email-Notify`,
+`Notify-FolderCounts`). They do **not** solve *request/reply* correctness
+(`List-Emails`→`Get-PandoMails`, `Query-TdaDid`→`Reply-TdaDid`, etc.), which need
+correlation-based unicast routing back to the requesting socket specifically — a separate
+mechanism (`correlationId → socketId` tracking) from topic subscriptions. Tracked as a
+follow-up; not designed in detail yet.
 
 **Multiple instances of the same app:** Two PandoMail instances both subscribe to
 `Email-Notify`. Both receive the push (fan-out). Because the payload is a LiteDB
 ObjectId reference, not a copy of the message body, reading the same record twice is
 safe — no duplication risk.
 
-**Clients with no subscription declared:** Treated as "unfiltered" (receive all pushes,
-current behaviour) for backwards compatibility during the transition, or rejected with a
-close frame if a strict handshake is preferred. Decision deferred.
-
-**Inbound flow is unchanged:** The subscription model only governs outbound push routing
-(TDA → clients). Every inbound frame from a local client — except the `LocalUI/1.0/subscribe`
-handshake itself — follows the existing path unchanged:
+**Inbound flow is unchanged for everything except Hello/Goodbye:** every other inbound
+frame from a local client follows the existing path unchanged:
 
 ```
 WebSocket frame received
   └── ReceiveWebSocketLoopAsync assembles complete message
-        └── ProcessWebSocketMessageAsync
+        ├── if type == Svrn7.LocalUI.0.1.0/Hello|Goodbye → handled directly by the hub, not enqueued
+        └── else → ProcessWebSocketMessageAsync
               ├── UnpackAsync  (plaintext — extracts @type, From, Body)
               └── EnqueueAsync → svrn7-msg.db
                     └── Switchboard drain loop
@@ -552,19 +595,60 @@ WebSocket frame received
                                                         └── routed to subscribed clients only
 ```
 
-The `LocalUI/1.0/subscribe` frame is intercepted in `ReceiveWebSocketLoopAsync` before
-reaching `ProcessWebSocketMessageAsync` — it registers the client's subscriptions in the
-hub and is not enqueued. That is the only exception.
-
 **What needs to change:**
-- `WebSocketNotifyHub`: add `Dictionary<Guid, List<string>> _subscriptions`; update
-  `Attach`/`Detach` to manage subscriptions; update `PushAsync` to route by `@type`.
-- `KestrelListenerService.ReceiveWebSocketLoopAsync`: intercept `LocalUI/1.0/subscribe`
-  frames before forwarding to `ProcessWebSocketMessageAsync`.
-- LOBEs: **no change** — they return `OutboundMessage` with
+- `WebSocketNotifyHub`: add `Dictionary<Guid, List<(string Uri, string Match)>> _subscriptions`;
+  update `Attach`/`Detach` to manage subscriptions; update `PushAsync` to route by `@type`
+  using `LobeManager`'s exact/prefix matcher.
+- `KestrelListenerService.ReceiveWebSocketLoopAsync`: intercept `Svrn7.LocalUI.0.1.0/Hello`
+  and `.../Goodbye` frames before forwarding to `ProcessWebSocketMessageAsync`.
+- `TdaMailClient.ConnectAsync`: send `Hello` as its own last step after the WS connects,
+  with PandoMail's subscription list; send `Goodbye` on graceful disconnect.
+- LOBEs: **no change** — they still return `OutboundMessage` with
   `PeerEndpoint = WebSocketNotifyHub.LocalEndpoint` as before.
-- `Send-LocalDIDCommMessage`: **no change** — the subscription handshake is optional for
+- `Send-LocalDIDCommMessage`: **no change** — the Hello handshake is optional for
   tool/PS use; tools receive no pushes anyway (they connect, send, and disconnect).
+
+**No code change required now** — tracked here for design continuity.
+
+---
+
+## TDA-013 — /didcomm-ws WebSocket hardening (idle watchdog, message cap, per-connection send lock)
+
+**Area:** `WebSocketNotifyHub`, `KestrelListenerService`
+
+**Summary:** Surfaced by reading `src/WsExample2-Kestrel` (a reference WebSocket
+server/client pair) while designing TDA-011. That example treats three things as
+non-negotiable for a production WS server; our `/didcomm-ws` channel currently has
+none of them:
+
+1. **No idle watchdog.** A PandoMail client that crashes without closing cleanly (no
+   WS close frame sent) stays in `WebSocketNotifyHub`'s `_sockets` dictionary
+   indefinitely — `PushAsync` will keep attempting sends to a dead socket until the
+   TCP layer eventually notices. WsExample2's server watchdog (`Task.Run` polling every
+   `WatchdogInterval`, default 5s) detects `DateTime.UtcNow - lastReceived > IdleTimeout`
+   (15s), sends a `{"type":"timeout"}` notice, then does a graceful `CloseOutputAsync`
+   half-close before falling back to a hard cancel if the client doesn't respond within 5s.
+
+2. **No message size cap.** `KestrelListenerService`'s WS receive loop
+   (`ReceiveWebSocketLoopAsync`) has no equivalent of the HTTP side's
+   `kestrel.Limits.MaxRequestBodySize = 2 * 1024 * 1024` — an oversized or malformed
+   frame accumulates in the `MemoryStream` reassembly buffer without bound. WsExample2
+   checks `ms.Length > MaxMessageBytes` (1 MB) inside the reassembly loop and closes
+   with `WebSocketCloseStatus.MessageTooBig` if exceeded.
+
+3. **Global send lock, not per-connection.** `WebSocketNotifyHub._sendLock` is a single
+   `SemaphoreSlim(1,1)` shared across *all* connected sockets — a broadcast to N clients
+   serializes all N sends behind one lock, so one slow/stalled client's send blocks
+   delivery to every other connected client. WsExample2 scopes the lock per-connection
+   (`SemaphoreSlim sendLock` local to `HandleClientAsync`) specifically to avoid this;
+   only sends *to the same socket* (echo reply vs. watchdog timeout message) need to be
+   serialized against each other, not sends to different sockets.
+
+**Why not fixed now:** Discovered as a byproduct of researching TDA-011's design, not
+requested work. Currently low real-world impact — this channel serves a small,
+first-party set of localhost apps (PandoMail today), not untrusted or high-volume
+clients — but worth doing before more local-UI apps (PandoBoard, Calendar, Presence)
+connect concurrently.
 
 **No code change required now** — tracked here for design continuity.
 

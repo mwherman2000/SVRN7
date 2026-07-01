@@ -75,7 +75,7 @@ The TDA's public inbound surface is HTTP/2-only (no HTTP/1.1 fallback). Reasons:
 
 **Why not gRPC directly?** gRPC framing (Protobuf + length-prefixed binary) adds schema complexity for third-party LOBE authors and clients that only need to POST a JSON envelope. Raw HTTP/2 POST keeps the wire format simple.
 
-**Local UI clients (PandoMail):** PandoMail is on .NET 8. `TdaMailClient.Send()` uses `HttpClient` with HTTP/2 + mTLS directly for `POST /didcomm`. The `/didcomm-notify` push channel uses RFC 8441 (WebSocket over HTTP/2 extended CONNECT) — a deliberate design choice for server-push, not a .NET limitation.
+**Local UI clients (PandoMail):** PandoMail is on .NET 8. `TdaMailClient.Send()` uses `HttpClient` with HTTP/2 + mTLS directly for `POST /didcomm`. The `/didcomm-ws` push channel uses RFC 8441 (WebSocket over HTTP/2 extended CONNECT) — a deliberate design choice for server-push, not a .NET limitation.
 
 ---
 
@@ -91,8 +91,8 @@ The TDA's public inbound surface is HTTP/2-only (no HTTP/1.1 fallback). Reasons:
 | HTTP (`POST /didcomm`) — TDA-to-TDA | outbound | DID discovery | Plaintext (`application/didcomm-plain+json`) | Switchboard `IsPlaintextDiscoveryMessage` → skip `PackOutboundAsync` |
 | HTTP (`POST /didcomm`) — TDA-to-TDA | inbound | General | SignThenEncrypt required | `KestrelListenerService` rejects non-encrypted with 415 |
 | HTTP (`POST /didcomm`) — TDA-to-TDA | inbound | DID discovery | Plaintext accepted | `KestrelListenerService` admits `application/didcomm-plain+json` only for `PlaintextDiscoveryProtocols`; rejects other plaintext with 403 |
-| WebSocket (`/didcomm-notify`) — TDA-to-local-UI | outbound | All | Plaintext (`application/didcomm-plain+json`) | Switchboard (PeerEndpoint starts with `ws://`) |
-| WebSocket (`/didcomm-notify`) — local-UI/tool-to-TDA | inbound | All | Plaintext accepted | localhost-only; no content-type gate |
+| WebSocket (`/didcomm-ws`) — TDA-to-local-UI | outbound | All | Plaintext (`application/didcomm-plain+json`) | Switchboard (PeerEndpoint starts with `ws://`) |
+| WebSocket (`/didcomm-ws`) — local-UI/tool-to-TDA | inbound | All | Plaintext accepted | localhost-only; no content-type gate |
 
 **DID discovery plaintext whitelist** (`Svrn7Constants.PlaintextDiscoveryProtocols`):
 - `did:drn:svrn7.net/protocols/Svrn7.Identity.0.8.0/did-resolve-request`
@@ -100,7 +100,7 @@ The TDA's public inbound surface is HTTP/2-only (no HTTP/1.1 fallback). Reasons:
 
 **Why plaintext for DID resolution?** DID resolution is an open discovery service — any TDA may query any other TDA's DID Documents (own, Citizens, Societies) freely, without a prior relationship. Encryption is structurally impossible on this path: you cannot encrypt to a peer whose DID Document you have not yet resolved, which is exactly what the query is for. The plaintext permission is scoped strictly to `PlaintextDiscoveryProtocols`; any other plaintext on `POST /didcomm` is rejected 403.
 
-**Why plaintext for WebSocket?** The `/didcomm-notify` channel is localhost-only. PandoMail holds no key material and shares the Citizen TDA's DID. Encryption would require giving PandoMail long-lived private keys — that contradicts the shared-identity design and would expand the attack surface unnecessarily.
+**Why plaintext for WebSocket?** The `/didcomm-ws` channel is localhost-only. PandoMail holds no key material and shares the Citizen TDA's DID. Encryption would require giving PandoMail long-lived private keys — that contradicts the shared-identity design and would expand the attack surface unnecessarily.
 
 **Symmetric design:** This is the outbound counterpart of the decrypt-at-boundary pattern on the inbound side. `KestrelListenerService` unpacks every inbound message at the HTTP boundary before anything enters the inbox; `DIDCommMessageSwitchboard.PackOutboundAsync` packs every outbound HTTP message at the delivery boundary before anything leaves the process (DID discovery protocols excepted).
 
@@ -311,7 +311,7 @@ On startup with an empty DID registry the TDA auto-generates a Wanderer identity
 - `Set-StrictMode -Version Latest` is active in all LOBEs — never access `PSCustomObject` properties without guards (`Assert-BodyFields` / `Get-BodyField`).
 - Dot-sourcing `.psm1` files in PS 7 applies module-context scoping. Use `[scriptblock]::Create([System.IO.File]::ReadAllText($path)).Invoke()` for dynamic loading outside the LOBE runtime.
 - `Initialize-Svrn7Assemblies -ModuleRoot $PSScriptRoot` must be called before accessing any `Svrn7.*` .NET types in a standalone PS session (outside a TDA runspace). It is called automatically by `New-Svrn7KeyPair`, `New-Svrn7Did`, etc. if the driver is not already initialised.
-- `Send-LocalDIDCommMessage` (in `Svrn7.Common`) connects to a local TDA's `/didcomm-notify` WebSocket and sends a plaintext DIDComm message. `POST /didcomm` enforces `application/didcomm-encrypted+json` (SignThenEncrypt) and rejects plaintext. A running TDA is required to receive DIDComm replies.
+- `Send-LocalDIDCommMessage` (in `Svrn7.Common`) connects to a local TDA's `/didcomm-ws` WebSocket and sends a plaintext DIDComm message. `POST /didcomm` enforces `application/didcomm-encrypted+json` (SignThenEncrypt) and rejects plaintext. A running TDA is required to receive DIDComm replies.
 
 ---
 
@@ -355,7 +355,7 @@ The notification channel is a **localhost-only WebSocket endpoint** on the TDA,
 on the **same port** as `POST /didcomm`:
 
 ```
-ws://localhost:{port}/didcomm-notify
+ws://localhost:{port}/didcomm-ws
 ```
 
 Single port serves both surfaces:
@@ -363,10 +363,10 @@ Single port serves both surfaces:
 | Path | Protocol | Direction |
 |---|---|---|
 | `/didcomm` | HTTP/2 (`POST`) | Inbound DIDComm from remote TDAs |
-| `/didcomm-notify` | WebSocket (RFC 8441 — HTTP/2 extended CONNECT) | Outbound push to local UI clients |
+| `/didcomm-ws` | WebSocket (RFC 8441 — HTTP/2 extended CONNECT) | Outbound push to local UI clients |
 
 **Kestrel uses `HttpProtocols.Http2` only.** RFC 8441 enables WebSocket over HTTP/2
-on `/didcomm-notify` without enabling HTTP/1.1 on the listener. PandoMail is on .NET 8
+on `/didcomm-ws` without enabling HTTP/1.1 on the listener. PandoMail is on .NET 8
 and `HttpClient` supports RFC 8441, so no `HttpProtocols.Http1AndHttp2` workaround
 is needed and no HTTP/1.1 attack surface is introduced.
 
@@ -391,7 +391,7 @@ Sender TDA (remote)
                           └── Svrn7.Email LOBE (.psm1)
                                 ├── Persist to LiteDB (Long-Term Message Memory)
                                 ├── Decode SMTP-over-DIDComm payload
-                                └── OutboundMessage (plaintext) → ws://localhost:{port}/didcomm-notify
+                                └── OutboundMessage (plaintext) → ws://localhost:{port}/didcomm-ws
                                       └── TdaMailClient (PandoMail background thread)
                                             ├── DIDComm unpack (plaintext — no decrypt/verify)
                                             ├── Dispatch on @type
@@ -464,10 +464,10 @@ Protocol URIs use `svrn7.net` (not `svrn7.io`).
 ### Architecture Constraints
 
 - PandoMail targets **.NET 8** (Windows only). `TdaMailClient.Send()` uses `HttpClient`
-  with HTTP/2 + mTLS directly for `POST /didcomm`. The `/didcomm-notify` push channel
+  with HTTP/2 + mTLS directly for `POST /didcomm`. The `/didcomm-ws` push channel
   uses RFC 8441 (WebSocket over HTTP/2 extended CONNECT) — both Kestrel and `HttpClient`
   support it at .NET 8.
-- Both `/didcomm` and `/didcomm-notify` are on the **same port** for a given TDA.
+- Both `/didcomm` and `/didcomm-ws` are on the **same port** for a given TDA.
   Kestrel uses `HttpProtocols.Http2` only — RFC 8441 carries the WebSocket upgrade
   over HTTP/2 streams, so no HTTP/1.1 is needed and no second port is opened.
 - The TDA's public inbound surface remains **`POST /didcomm` only** (Kestrel,

@@ -36,7 +36,7 @@ namespace Web7.SVRN7.Apps
 		{
 			_store = MessageStore.GetMessageStore();
 
-			this.Text = BaseTitle + $" - ws://localhost:{Program.TdaPort}/didcomm-notify" + " - Not connected";
+			this.Text = BaseTitle + $" - ws://localhost:{Program.TdaPort}/didcomm-ws" + " - Not connected";
 
 			// Show "0 Items" immediately; RefreshInboxAsync updates it after TDA connects.
 			this.itemCountLabel.Text = String.Format(this.itemCountLabel.Text, 0);
@@ -156,6 +156,7 @@ namespace Web7.SVRN7.Apps
 				List<MailMessage> messages = MapToMailMessages(summaries);
 				_store.ReplaceAll(messages, folderName);
 				this.itemCountLabel.Text = messages.Count + " Items";
+				leftSpine1.SelectFolder(folderName);
 				await UpdateTitleAsync();
 			}
 			catch (Exception ex)

@@ -144,7 +144,7 @@ All outbound DIDComm messages follow this rule:
 | Transport | Pack mode | Rationale |
 |---|---|---|
 | HTTP (`POST /didcomm`) | SignThenEncrypt (secp256k1 JWS inside X25519 JWE) | Peer authentication + confidentiality required for all TDA-to-TDA traffic |
-| WebSocket (`/didcomm-notify`) | Plaintext | Localhost-only UI attachment; PandoMail holds no key material and shares the Citizen TDA's DID |
+| WebSocket (`/didcomm-ws`) | Plaintext | Localhost-only UI attachment; PandoMail holds no key material and shares the Citizen TDA's DID |
 
 **HTTP enforcement point:** `DIDCommMessageSwitchboard.PackOutboundAsync`.  LOBEs construct
 plaintext envelopes and return `OutboundMessage`; the Switchboard applies SignThenEncrypt
@@ -157,7 +157,7 @@ plaintext.  This is a degraded mode; the correct fix is to ensure the recipient 
 was bootstrapped with an X25519 key pair (all TDAs bootstrapped with this codebase
 include the key by default).
 
-**WebSocket rule is permanent:** The `/didcomm-notify` channel is a localhost-only
+**WebSocket rule is permanent:** The `/didcomm-ws` channel is a localhost-only
 UI attachment point.  Encryption would require giving PandoMail long-lived key
 material, which contradicts P-003 (no public APIs) and the shared-DID design.
 If PandoMail ever runs on a separate host, this rule must be revisited.
