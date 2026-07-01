@@ -86,7 +86,7 @@ own exactly one URI segment (its own name):
 
 - **`Svrn7.Society`** owns `transfer/1.0/*` in addition to `society/1.0/*`.
   Transfer protocols must move to a new `Svrn7.Transfer` LOBE and be renamed
-  `did:drn:svrn7.net/protocols/Svrn7.Transfer/0.8/*`.
+  `did:drn:svrn7.net/protocols/Svrn7.Transfer.0.8.0/*`.
 
 ---
 
