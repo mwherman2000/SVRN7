@@ -108,7 +108,7 @@ did:drn:foundation
 did:drn:foundation.svrn7.net
 did:drn:foundation.svrn7.net/main/society/societytest.svrn7.net
 did:drn:health.example.org/protocols/prescription.0.1.0/request
-did:drn:issuer
+did:drn:issuer-test
 did:drn:nobody
 did:drn:nonce-test
 did:drn:other.svrn7.net/citizen/1.0/bob
@@ -181,7 +181,7 @@ did:drn:sovronia.svrn7.net/citizen/alice
 did:drn:sovronia.svrn7.net/citizen/bob
 did:drn:stale-x-test
 did:drn:stale-y-test
-did:drn:subject
+did:drn:subject-test
 did:drn:svrn7.net
 did:drn:svrn7.net:{didKey}
 did:drn:svrn7.net:borkod
