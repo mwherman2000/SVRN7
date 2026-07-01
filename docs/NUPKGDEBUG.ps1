@@ -155,8 +155,8 @@ $msg = @{
     typ  = 'application/didcomm-plain+json'
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = 'did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/date-query'
-    from = 'did:drn:solo.svrn7.net'
-    to   = @('did:drn:solo.svrn7.net')
+    from = 'did:drn:societytest.svrn7.net'
+    to   = @('did:drn:societytest.svrn7.net')
     body = '{}'
 } | ConvertTo-Json
 
@@ -229,8 +229,8 @@ $msg = @{
     typ  = 'application/didcomm-plain+json'
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = 'did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/date-query'
-    from = 'did:drn:solo.svrn7.net'
-    to   = @('did:drn:solo.svrn7.net')
+    from = 'did:drn:societytest.svrn7.net'
+    to   = @('did:drn:societytest.svrn7.net')
     body = '{}'
 } | ConvertTo-Json
 
@@ -276,8 +276,8 @@ $msg = @{
     typ  = 'application/didcomm-plain+json'
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = 'did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/date-query'
-    from = 'did:drn:solo.svrn7.net'
-    to   = @('did:drn:solo.svrn7.net')
+    from = 'did:drn:societytest.svrn7.net'
+    to   = @('did:drn:societytest.svrn7.net')
     body = '{}'
 } | ConvertTo-Json
 

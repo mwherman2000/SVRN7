@@ -192,7 +192,7 @@ Send-LocalDIDCommMessage -Port 8446 -Body $msg
 #       Switchboard: processing 1 inbound message(s).
 #
 # info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       Switchboard: routing did:drn:solo.svrn7.net/inbox/msg/<id>
+#       Switchboard: routing did:drn:societytest.svrn7.net/inbox/msg/<id>
 #           (type=did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/Query-TOD)
 #           → Invoke-PandoDiagnosticsDateQuery [Pando.Diagnostics]
 #

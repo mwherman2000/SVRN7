@@ -112,7 +112,7 @@ Write-Host "Public key : $($federationKp.PublicKeyHex)"
 
 Write-Host "--- Step 4.2 — Initialise the federation ---"
 $body = @{
-    federationDid        = "did:drn:solo.svrn7.net"
+    federationDid        = "did:drn:societytest.svrn7.net"
     federationName       = "Web 7.0 SOVRON Foundation"
     publicKeyHex         = $federationKp.PublicKeyHex
     primaryDidMethodName = "drn"
@@ -122,14 +122,14 @@ $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/Svrn7.Federation.0.8.0/initialize-federation"
-    from = "did:drn:solo.svrn7.net"
-    to   = @("did:drn:solo.svrn7.net")
+    from = "did:drn:societytest.svrn7.net"
+    to   = @("did:drn:societytest.svrn7.net")
     body = $body
 } | ConvertTo-Json
 
 Send-LocalDIDCommMessage -Body $msg
 
-# Expected TDA log: Federation initialised: did:drn:solo.svrn7.net
+# Expected TDA log: Federation initialised: did:drn:societytest.svrn7.net
 #
 # 4.3 — Verify the federation was created
 
@@ -138,20 +138,20 @@ $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/Svrn7.Federation.0.8.0/federation-query"
-    from = "did:drn:solo.svrn7.net"
-    to   = @("did:drn:solo.svrn7.net")
+    from = "did:drn:societytest.svrn7.net"
+    to   = @("did:drn:societytest.svrn7.net")
     body = "{}"
 } | ConvertTo-Json
 
 Send-LocalDIDCommMessage -Body $msg
 
 # Expected TDA log:
-# Invoke-Web7FederationQuery: replying to did:drn:solo.svrn7.net
+# Invoke-Web7FederationQuery: replying to did:drn:societytest.svrn7.net
 #
 # Expected reply body (delivered back to the local TDA inbox and logged):
 # {
 #   "found": true,
-#   "federationDid": "did:drn:solo.svrn7.net",
+#   "federationDid": "did:drn:societytest.svrn7.net",
 #   "federationName": "Web 7.0 SOVRON Foundation",
 #   "primaryDidMethodName": "drn",
 #   "totalSupplyGrana": ...,
@@ -180,8 +180,8 @@ $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/Svrn7.Federation.0.8.0/register-society"
-    from = "did:drn:solo.svrn7.net"
-    to   = @("did:drn:solo.svrn7.net")
+    from = "did:drn:societytest.svrn7.net"
+    to   = @("did:drn:societytest.svrn7.net")
     body = $body
 } | ConvertTo-Json
 
@@ -202,8 +202,8 @@ $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/Svrn7.Federation.0.8.0/society-list"
-    from = "did:drn:solo.svrn7.net"
-    to   = @("did:drn:solo.svrn7.net")
+    from = "did:drn:societytest.svrn7.net"
+    to   = @("did:drn:societytest.svrn7.net")
     body = $body
 } | ConvertTo-Json
 
@@ -244,8 +244,8 @@ $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/Query-TOD"
-    from = "did:drn:solo.svrn7.net"
-    to   = @("did:drn:solo.svrn7.net")
+    from = "did:drn:societytest.svrn7.net"
+    to   = @("did:drn:societytest.svrn7.net")
     body = "{}"
 } | ConvertTo-Json
 
@@ -255,7 +255,7 @@ Send-LocalDIDCommMessage -Body $msg
 #
 # Expected TDA log:
 #
-# info:  Switchboard: routing did:drn:solo.svrn7.net/inbox/msg/<id>
+# info:  Switchboard: routing did:drn:societytest.svrn7.net/inbox/msg/<id>
 #            (type=did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/Query-TOD)
 #            → Invoke-PandoDiagnosticsDateQuery [Pando.Diagnostics]
 # info:    [PS Info] Pando.Diagnostics: serverUtc=2026-05-30T... epoch=0
@@ -279,8 +279,8 @@ $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/Query-TOD"
-    from = "did:drn:solo.svrn7.net"
-    to   = @("did:drn:solo.svrn7.net")
+    from = "did:drn:societytest.svrn7.net"
+    to   = @("did:drn:societytest.svrn7.net")
     body = $body
 } | ConvertTo-Json
 
