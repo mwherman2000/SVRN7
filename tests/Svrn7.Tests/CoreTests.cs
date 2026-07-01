@@ -482,7 +482,7 @@ public class TransferTests : IAsyncLifetime
     {
         // Register payer and society
         var payerKp  = _f.Crypto.GenerateSecp256k1KeyPair();
-        var payerDid = "did:drn:payer-e0";
+        var payerDid = "did:drn:payer-e0-test";
         await _f.Driver.RegisterCitizenAsync(new RegisterCitizenRequest
             { DidDocument = _f.MakeDidDoc(payerDid, payerKp), PrivateKeyBytes = payerKp.PrivateKeyBytes });
         var socKp  = _f.Crypto.GenerateSecp256k1KeyPair();
@@ -548,7 +548,7 @@ public class TransferTests : IAsyncLifetime
         // Step 7 (balance) is checked after step 6 (signature) — signature will fail first
         // So we build a real signature for a request that will fail balance check
         var payerKp   = _f.Crypto.GenerateSecp256k1KeyPair();
-        var payerDid2 = "did:drn:richtest";
+        var payerDid2 = "did:drn:richtest-test";
         await _f.Driver.RegisterCitizenAsync(new RegisterCitizenRequest
             { DidDocument = _f.MakeDidDoc(payerDid2, payerKp), PrivateKeyBytes = payerKp.PrivateKeyBytes });
 
@@ -634,8 +634,8 @@ public class TransferTests : IAsyncLifetime
     [Fact] public async Task BatchTransfer_ExecutesAll()
     {
         var payerKp  = _f.Crypto.GenerateSecp256k1KeyPair();
-        var payerDid = "did:drn:batch-payer";
-        var payeeDid = "did:drn:batch-payee";
+        var payerDid = "did:drn:batch-payer-test";
+        var payeeDid = "did:drn:batch-payee-test";
         await _f.Driver.RegisterCitizenAsync(new RegisterCitizenRequest
             { DidDocument = _f.MakeDidDoc(payerDid, payerKp), PrivateKeyBytes = payerKp.PrivateKeyBytes });
         var socKp = _f.Crypto.GenerateSecp256k1KeyPair();
@@ -765,7 +765,7 @@ public class DidDocumentRegistryTests : IAsyncLifetime
     [Fact] public async Task Did_FindByPublicKey_ReturnsCorrectDid()
     {
         var kp  = _f.Crypto.GenerateSecp256k1KeyPair();
-        var did = "did:drn:bypk1";
+        var did = "did:drn:bypk1-test";
         await _f.Driver.RegisterCitizenAsync(new RegisterCitizenRequest
             { DidDocument = _f.MakeDidDoc(did, kp), PrivateKeyBytes = kp.PrivateKeyBytes });
         var found = await _f.Driver.FindDidByPublicKeyAsync(kp.PublicKeyHex);
@@ -892,9 +892,9 @@ public class BalanceTests : IAsyncLifetime
     [Fact] public async Task Balance_AfterTransfer_Decrements()
     {
         var payerKp  = _f.Crypto.GenerateSecp256k1KeyPair();
-        var payerDid = "did:drn:bal-payer";
+        var payerDid = "did:drn:bal-payer-test";
         var socKp    = _f.Crypto.GenerateSecp256k1KeyPair();
-        var socDid   = "did:drn:balsoc";
+        var socDid   = "did:drn:balsoc-test";
         await _f.Driver.RegisterCitizenAsync(new RegisterCitizenRequest
             { DidDocument = _f.MakeDidDoc(payerDid, payerKp), PrivateKeyBytes = payerKp.PrivateKeyBytes });
         await _f.Driver.RegisterSocietyAsync(new RegisterSocietyRequest
@@ -965,7 +965,7 @@ public class TransferValidatorTests
         using (ctx)
         {
             var unknownKp = _crypto.GenerateSecp256k1KeyPair();
-            var req = BuildRequest("did:drn:nobody", unknownKp.PrivateKeyBytes, soc, 1);
+            var req = BuildRequest("did:drn:nobody-test", unknownKp.PrivateKeyBytes, soc, 1);
             var ex  = await Assert.ThrowsAsync<EpochViolationException>(() => v.ValidateAsync(req));
             ex.ViolationType.Should().Be("PayerMustBeCitizen");
         }
@@ -990,7 +990,7 @@ public class TransferValidatorTests
             var v         = new TransferValidator(new LiteWalletStore(ctx), new LiteIdentityRegistry(ctx),
                 new PassthroughSanctionsChecker(), _crypto, new InMemoryTransferNonceStore(), 1);
             var unknownKp = _crypto.GenerateSecp256k1KeyPair();
-            var req       = BuildRequest("did:drn:nobody", unknownKp.PrivateKeyBytes, "did:drn:soc", 1);
+            var req       = BuildRequest("did:drn:nobody-test", unknownKp.PrivateKeyBytes, "did:drn:soc-test", 1);
             var ex        = await Assert.ThrowsAsync<EpochViolationException>(() => v.ValidateAsync(req));
             ex.ViolationType.Should().Be("PayerMustBeCitizen");
         }
