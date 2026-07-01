@@ -104,7 +104,6 @@ did:drn:federation.svrn7.net/federation/1.0/abc123
 did:drn:federation.svrn7.net/federation/1.0/fed
 did:drn:federation.svrn7.net/federation/1.0/unknown
 did:drn:federation.svrn7.net/sovronia/1.0/soc
-did:drn:foundation
 did:drn:foundation.svrn7.net
 did:drn:foundation.svrn7.net/main/society/societytest.svrn7.net
 did:drn:health.example.org/protocols/prescription.0.1.0/request
