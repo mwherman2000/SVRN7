@@ -114,11 +114,11 @@ did:drn:nonce-test
 did:drn:other.svrn7.net/citizen/1.0/bob
 did:drn:other.svrn7.net/citizen/1.0/carol
 did:drn:other.svrn7.net/citizen/1.0/x
-did:drn:p
-did:drn:payee
-did:drn:payer
+did:drn:p-test
+did:drn:payee-test
 did:drn:payer-e0-test
-did:drn:q
+did:drn:payer-test
+did:drn:q-test
 did:drn:registry.svrn7.net
 did:drn:richtest-test
 did:drn:soc-test
