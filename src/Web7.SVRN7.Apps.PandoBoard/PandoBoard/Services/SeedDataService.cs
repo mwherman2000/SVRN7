@@ -862,7 +862,7 @@ public static class SeedDataService
         ("Borko, how are you thinking about multi-tenant TDA architecture for your platform?",
          new[]{ "Each tenant gets a dedicated LiteDB instance — no shared storage, clean isolation.",
                 "The Switchboard routing table is per-tenant — LOBE descriptors scoped to tenant namespace.",
-                "Tenant DID Documents are separate: did:drn:societytest.svrn7.net, did:drn:societytest2.svrn7.net.",
+                "Tenant DID Documents are separate: did:drn:society1.svrn7.net, did:drn:society2.svrn7.net.",
                 "SOVRONA identity transactions are pooled at the platform level but billed per tenant.",
                 "Hot-reload FileSystemWatcher is scoped per-tenant directory — one tenant's LOBE update doesn't affect others.",
                 "I'm designing a tenant admin LOBE for provisioning — it publishes the DID Document on creation." }),
