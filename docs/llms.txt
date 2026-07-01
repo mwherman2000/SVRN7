@@ -256,8 +256,8 @@ Federation deployment:
 Society deployment (self-contained, do NOT also call AddSvrn7Federation):
   services.AddSvrn7Society(opts => {
       opts.FoundationPublicKeyHex = "02...";
-      opts.SocietyDid    = "did:drn:socalpha";
-      opts.FederationDid = "did:drn:federation";
+      opts.SocietyDid    = "did:drn:societytest.svrn7.net";
+      opts.FederationDid = "did:drn:federation.svrn7.net";
       opts.DidMethodNames = new List<string> { "socalpha" };
       opts.SocietyMessagingPrivateKeyEd25519   = societyEd25519PrivKey;
       opts.FederationMessagingPublicKeyEd25519 = fedEd25519PubKey;
