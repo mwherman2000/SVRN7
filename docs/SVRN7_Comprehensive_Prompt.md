@@ -590,7 +590,7 @@ src/Svrn7.TDA/
 
 ### InboxMessage.Id — TDA Resource DID URL
 InboxMessage.Id is generated as a full TDA resource DID URL (not a UUID):
-  `did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678`
+  `did:drn:societytest.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678`
 Generated in LiteInboxStore.EnqueueAsync() via TdaResourceId.InboxMessage().
 The Switchboard passes this DID URL by reference to LOBE cmdlet pipelines.
 GetMessageAsync() accepts the DID URL, uses it as IMemoryCache key directly.
@@ -619,7 +619,7 @@ New in DSA 0.24. Conditional: only instantiated by AddSvrn7Society().
 - ISchemaRegistry   → LiteSchemaRegistry  (register, getByName, deactivate)
 - ISchemaResolver   → LiteSchemaResolver  (resolveByName, resolveByDidUrl)
 - DID URL key type: Named (common name) — e.g., CitizenEndowmentCredential
-- Example: `did:drn:alpha.svrn7.net/schemas/schema/CitizenEndowmentCredential`
+- Example: `did:drn:societytest.svrn7.net/schemas/schema/CitizenEndowmentCredential`
 
 ### LOBE Modules (lobes/)
 All new LOBEs have both .psm1 and .psd1 manifests.

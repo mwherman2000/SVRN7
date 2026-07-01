@@ -102,7 +102,7 @@ function Dequeue-Svrn7Message {
         Retrieves an InboxMessageView from the TDA inbox by its DID URL.
         Requires a TDA runspace ($SVRN7 must be set).
     .PARAMETER Did
-        The inbox message DID URL (e.g. did:drn:alpha.svrn7.net/inbox/msg/<id>).
+        The inbox message DID URL (e.g. did:drn:societytest.svrn7.net/inbox/msg/<id>).
     #>
     [CmdletBinding()]
     [OutputType([object])]

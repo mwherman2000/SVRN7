@@ -188,11 +188,11 @@ form with `/` path delimiter. They differ only in the path segments:
 
 ```
 did:drn:svrn7.net/protocols/Svrn7.Society.0.8.0/transfer-request    ← Protocol definition locator
-did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1...        ← Data record locator
+did:drn:societytest.svrn7.net/inbox/msg/5f43a2b1...        ← Data record locator
 ```
 
 The protocol namespace uses `svrn7.net` (the canonical network identifier) rather than
-a Society-specific identifier such as `alpha.svrn7.net`, because protocol definitions
+a Society-specific identifier such as `societytest.svrn7.net`, because protocol definitions
 are global to the SVRN7 ecosystem and not owned by any particular Society.
 
 ### 3a.3 Third-Party Protocol URIs
@@ -253,7 +253,7 @@ did:drn:{network-id}/{db}/{type}/{key}
 
 Where:
 
-- `{network-id}` — The network identifier of the owning TDA (e.g., `alpha.svrn7.net`,
+- `{network-id}` — The network identifier of the owning TDA (e.g., `societytest.svrn7.net`,
   `foundation.svrn7.net`). Identical to the method-specific identifier of the owning
   TDA's `did:drn` DID.
 
@@ -272,7 +272,7 @@ A conformant parser MUST split the DID URL on `/` to extract segments:
 
 ```
 parts    = didUrl.split('/')
-authority = parts[0]           // "did:drn:alpha.svrn7.net"
+authority = parts[0]           // "did:drn:societytest.svrn7.net"
 db        = parts[1]           // "main"
 type      = parts[2]           // "citizen"
 key       = parts[3]           // natural key string
@@ -285,12 +285,12 @@ alphanumeric, `.`, `-`).
 ### 4.3 Examples
 
 ```
-did:drn:alpha.svrn7.net/citizen/alice
-did:drn:alpha.svrn7.net/main/logentry/a3f9b2c1d4e5f67890ab1234cd5678ef90ab12cd34ef5678
-did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678
-did:drn:alpha.svrn7.net/vcs/vc/vc-3fa85f64-5717-4562-b3fc-2c963f66afa6
-did:drn:foundation.svrn7.net/main/society/alpha.svrn7.net
-did:drn:alpha.svrn7.net/schemas/schema/CitizenEndowmentCredential
+did:drn:societytest.svrn7.net/citizen/alice
+did:drn:societytest.svrn7.net/main/logentry/a3f9b2c1d4e5f67890ab1234cd5678ef90ab12cd34ef5678
+did:drn:societytest.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678
+did:drn:societytest.svrn7.net/vcs/vc/vc-3fa85f64-5717-4562-b3fc-2c963f66afa6
+did:drn:foundation.svrn7.net/main/society/societytest.svrn7.net
+did:drn:societytest.svrn7.net/schemas/schema/CitizenEndowmentCredential
 ```
 
 ---
@@ -377,7 +377,7 @@ Citizens are identified by Locator DID URLs using a 2-segment path. The natural 
 the citizen's local identifier within the society (e.g., `alice`), NOT a DID suffix.
 
 ```
-Citizen Locator DID URL:  did:drn:alpha.svrn7.net/citizen/alice
+Citizen Locator DID URL:  did:drn:societytest.svrn7.net/citizen/alice
 Natural key:              alice
 Path segments:            /citizen/alice   (2 segments; database = "main" implied)
 ```
@@ -391,9 +391,9 @@ suffix as the natural key. The DID suffix is the method-specific identifier — 
 portion of the DID after `did:drn:`.
 
 ```
-Society DID:    did:drn:alpha.svrn7.net
-DID suffix:     alpha.svrn7.net
-DID URL:        did:drn:foundation.svrn7.net/main/society/alpha.svrn7.net
+Society DID:    did:drn:societytest.svrn7.net
+DID suffix:     societytest.svrn7.net
+DID URL:        did:drn:foundation.svrn7.net/main/society/societytest.svrn7.net
 ```
 
 This rule applies to: `society`, `overdraft`, `keybak`, `wallet` (when owner is a society),
@@ -406,7 +406,7 @@ their canonical byte representation as the natural key.
 
 ```
 Blake3 hash:    a3f9b2c1d4e5f67890ab1234cd5678ef90ab12cd34ef5678ab90cd12ef345678
-DID URL:        did:drn:alpha.svrn7.net/main/logentry/a3f9b2c1d4e5f67890ab1234cd5678ef90ab12cd34ef5678ab90cd12ef345678
+DID URL:        did:drn:societytest.svrn7.net/main/logentry/a3f9b2c1d4e5f67890ab1234cd5678ef90ab12cd34ef5678ab90cd12ef345678
 ```
 
 The canonical byte representation for each content-addressed type:
@@ -440,8 +440,8 @@ Records with no natural domain key or content-addressed key use a surrogate key:
   the standard 8-4-4-4-12 hyphenated lowercase string.
 
 ```
-ObjectId DID URL:  did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678
-UUID DID URL:      did:drn:alpha.svrn7.net/vcs/vc/vc-3fa85f64-5717-4562-b3fc-2c963f66afa6
+ObjectId DID URL:  did:drn:societytest.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678
+UUID DID URL:      did:drn:societytest.svrn7.net/vcs/vc/vc-3fa85f64-5717-4562-b3fc-2c963f66afa6
 ```
 
 This rule applies to: `msg`, `processedorder`, `nonce`, `revocation`, `schema`, `vc`.
@@ -454,7 +454,7 @@ collection for a given TDA.
 
 ```
 Schema name:    CitizenEndowmentCredential
-DID URL:        did:drn:alpha.svrn7.net/schemas/schema/CitizenEndowmentCredential
+DID URL:        did:drn:societytest.svrn7.net/schemas/schema/CitizenEndowmentCredential
 ```
 
 The common name MUST satisfy the following constraints:
@@ -470,10 +470,10 @@ The common name MUST satisfy the following constraints:
 Example schema DID URLs:
 
 ```
-did:drn:alpha.svrn7.net/schemas/schema/CitizenEndowmentCredential
-did:drn:alpha.svrn7.net/schemas/schema/TransferReceiptCredential
-did:drn:alpha.svrn7.net/schemas/schema/Svrn7VtcCredential
-did:drn:alpha.svrn7.net/schemas/schema/CitizenEndowmentCredential-v2
+did:drn:societytest.svrn7.net/schemas/schema/CitizenEndowmentCredential
+did:drn:societytest.svrn7.net/schemas/schema/TransferReceiptCredential
+did:drn:societytest.svrn7.net/schemas/schema/Svrn7VtcCredential
+did:drn:societytest.svrn7.net/schemas/schema/CitizenEndowmentCredential-v2
 ```
 
 This rule applies to: `schema` type segment only.
@@ -555,22 +555,22 @@ in an Epoch 0 TDA deployment.
 
 | Record Type         | Database | Collection        | Key Type       | Example DID URL                                                        |
 |---------------------|----------|-------------------|----------------|------------------------------------------------------------------------|
-| Citizen             | main*    | Citizens          | Local id       | `did:drn:alpha.svrn7.net/citizen/alice`                                |
-| Wallet (citizen)    | main     | Wallets           | Local id       | `did:drn:alpha.svrn7.net/main/wallet/alice`                            |
-| UTXO                | main     | UTXOs             | Blake3         | `did:drn:alpha.svrn7.net/main/utxo/a3f9b2c1...`                        |
-| Society             | main     | Societies         | DID suffix     | `did:drn:foundation.svrn7.net/main/society/alpha.svrn7.net`            |
-| Membership          | main     | Memberships       | Local id       | `did:drn:alpha.svrn7.net/main/membership/alice`                        |
-| Merkle log entry    | main     | LogEntries        | Blake3         | `did:drn:alpha.svrn7.net/main/logentry/a3f9b2c1...`                    |
-| Merkle tree head    | main     | TreeHeads         | Blake3         | `did:drn:alpha.svrn7.net/main/treehead/a3f9b2c1...`                    |
-| Nonce               | main     | Nonces            | ObjectId       | `did:drn:alpha.svrn7.net/main/nonce/5f43a2b1c8e9d7f012345678`          |
-| Overdraft record    | main     | Overdrafts        | DID suffix     | `did:drn:alpha.svrn7.net/main/overdraft/alpha.svrn7.net`               |
-| Key backup          | main     | KeyBackups        | Local id       | `did:drn:alpha.svrn7.net/main/keybak/alice`                            |
-| Inbox message       | inbox    | InboxMessages     | ObjectId       | `did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678`           |
-| Processed order     | inbox    | ProcessedOrders   | ObjectId       | `did:drn:alpha.svrn7.net/inbox/processedorder/5f43a2b1c8e9d7f012345678`|
-| DID Document        | dids     | DIDDocuments      | DID suffix     | `did:drn:alpha.svrn7.net/dids/doc/alpha.svrn7.net`                     |
-| VC record           | vcs      | VcRecords         | VC UUID        | `did:drn:alpha.svrn7.net/vcs/vc/vc-3fa85f64-5717-4562-b3fc-2c963f66afa6` |
-| Revocation event    | vcs      | RevocationEvents  | ObjectId       | `did:drn:alpha.svrn7.net/vcs/revocation/5f43a2b1c8e9d7f012345678`      |
-| Schema              | schemas  | Schemas           | Named          | `did:drn:alpha.svrn7.net/schemas/schema/CitizenEndowmentCredential`    |
+| Citizen             | main*    | Citizens          | Local id       | `did:drn:societytest.svrn7.net/citizen/alice`                                |
+| Wallet (citizen)    | main     | Wallets           | Local id       | `did:drn:societytest.svrn7.net/main/wallet/alice`                            |
+| UTXO                | main     | UTXOs             | Blake3         | `did:drn:societytest.svrn7.net/main/utxo/a3f9b2c1...`                        |
+| Society             | main     | Societies         | DID suffix     | `did:drn:foundation.svrn7.net/main/society/societytest.svrn7.net`            |
+| Membership          | main     | Memberships       | Local id       | `did:drn:societytest.svrn7.net/main/membership/alice`                        |
+| Merkle log entry    | main     | LogEntries        | Blake3         | `did:drn:societytest.svrn7.net/main/logentry/a3f9b2c1...`                    |
+| Merkle tree head    | main     | TreeHeads         | Blake3         | `did:drn:societytest.svrn7.net/main/treehead/a3f9b2c1...`                    |
+| Nonce               | main     | Nonces            | ObjectId       | `did:drn:societytest.svrn7.net/main/nonce/5f43a2b1c8e9d7f012345678`          |
+| Overdraft record    | main     | Overdrafts        | DID suffix     | `did:drn:societytest.svrn7.net/main/overdraft/societytest.svrn7.net`               |
+| Key backup          | main     | KeyBackups        | Local id       | `did:drn:societytest.svrn7.net/main/keybak/alice`                            |
+| Inbox message       | inbox    | InboxMessages     | ObjectId       | `did:drn:societytest.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678`           |
+| Processed order     | inbox    | ProcessedOrders   | ObjectId       | `did:drn:societytest.svrn7.net/inbox/processedorder/5f43a2b1c8e9d7f012345678`|
+| DID Document        | dids     | DIDDocuments      | DID suffix     | `did:drn:societytest.svrn7.net/dids/doc/societytest.svrn7.net`                     |
+| VC record           | vcs      | VcRecords         | VC UUID        | `did:drn:societytest.svrn7.net/vcs/vc/vc-3fa85f64-5717-4562-b3fc-2c963f66afa6` |
+| Revocation event    | vcs      | RevocationEvents  | ObjectId       | `did:drn:societytest.svrn7.net/vcs/revocation/5f43a2b1c8e9d7f012345678`      |
+| Schema              | schemas  | Schemas           | Named          | `did:drn:societytest.svrn7.net/schemas/schema/CitizenEndowmentCredential`    |
 
 \* Citizen records use a 2-segment Locator DID URL (`/citizen/{localId}`); the `main`
 database is implied. All other record types use the explicit 3-segment form (`/{db}/{type}/{key}`).
@@ -592,7 +592,7 @@ future specification:
 
 ```
 key = Blake3Hex(UTF8(citizenPrimaryDid))
-did:drn:alpha.svrn7.net/main/citizen/a3f9b2c1d4e5f67890...
+did:drn:societytest.svrn7.net/main/citizen/a3f9b2c1d4e5f67890...
 ```
 
 Properties:
@@ -606,7 +606,7 @@ Properties:
 
 ```
 key = Blake3Hex(UTF8(citizenPrimaryDid) || UTF8(societyDid))
-did:drn:alpha.svrn7.net/main/citizen/b7e2a9f1...
+did:drn:societytest.svrn7.net/main/citizen/b7e2a9f1...
 ```
 
 Properties:
@@ -618,7 +618,7 @@ Properties:
 
 ```
 key = Guid.NewGuid().ToString("N")  // assigned once at registration, stored
-did:drn:alpha.svrn7.net/main/citizen/550e8400e29b41d4a716446655440000
+did:drn:societytest.svrn7.net/main/citizen/550e8400e29b41d4a716446655440000
 ```
 
 Properties:

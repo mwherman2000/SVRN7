@@ -357,7 +357,7 @@ Every inbound message is assigned a TDA resource DID URL at ingestion:
 did:drn:{networkId}/inbox/msg/{objectId}
 ```
 
-Example: `did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678`
+Example: `did:drn:societytest.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678`
 
 The Switchboard passes this DID URL — not the payload — to the LOBE cmdlet pipeline.
 LOBEs call `$SVRN7.GetMessageAsync($MessageDid)` to resolve the payload on demand.
@@ -541,8 +541,8 @@ Formalised in `draft-herman-did-w3c-drn-00` Section 5a (W3C DID Core Section 3.2
 
 | Form               | Delimiter | Example                                              | DID Document? |
 |--------------------|-----------|------------------------------------------------------|---------------|
-| Identity DID       | `:`       | `did:drn:alpha.svrn7.net` (society/federation only)  | Yes           |
-| Locator DID URL    | `/`       | `did:drn:alpha.svrn7.net/citizen/alice`         | No            |
+| Identity DID       | `:`       | `did:drn:societytest.svrn7.net` (society/federation only)  | Yes           |
+| Locator DID URL    | `/`       | `did:drn:societytest.svrn7.net/citizen/alice`         | No            |
 
 Identity DIDs identify subjects. Locator DID URLs address resources. The `:` vs `/` choice
 reflects W3C DID Core structural semantics, made explicit as a design principle.
@@ -626,8 +626,8 @@ dotnet run
 ```json
 {
   "Tda": {
-    "SocietyDid":      "did:drn:alpha.svrn7.net",
-    "NetworkId":       "alpha.svrn7.net",
+    "SocietyDid":      "did:drn:societytest.svrn7.net",
+    "NetworkId":       "societytest.svrn7.net",
     "LobesConfigPath": "lobes/lobes.config.json",
     "LobeDirectory":   "lobes/",
     "InboxDbPath":     "data/svrn7-msg.db",

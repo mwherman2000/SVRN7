@@ -399,7 +399,7 @@ TdaResourceId (Svrn7.Core — zero dependencies):
   Build(networkId, db, type, key)    → generic builder
 
 InboxMessage fields (Svrn7.Core.Models):
-  Id            — TDA resource DID URL (e.g. did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1...)
+  Id            — TDA resource DID URL (e.g. did:drn:societytest.svrn7.net/inbox/msg/5f43a2b1...)
   MessageType   — DIDComm @type URI
   PackedPayload — unpacked DIDComm body (plaintext JSON string)
   FromDid       — sender DID from DIDComm envelope (nullable; threaded from KestrelListenerService via unpacked.From)
@@ -436,7 +436,7 @@ Schema Registry (Society TDA Only — DSA 0.24 Conditional Component):
   SchemaLiteContext.cs    — svrn7-schemas.db
   ISchemaRegistry         → LiteSchemaRegistry
   ISchemaResolver         → LiteSchemaResolver
-  DID URL: did:drn:alpha.svrn7.net/schemas/schema/{schemaName}
+  DID URL: did:drn:societytest.svrn7.net/schemas/schema/{schemaName}
   Key type: Named (common name, e.g., CitizenEndowmentCredential)
 
 ## LOBE Registry (Dynamic Dispatch — DSA 0.24 Epoch 0)

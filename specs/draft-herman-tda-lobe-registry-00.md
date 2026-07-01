@@ -538,7 +538,7 @@ the LOBE entry-point cmdlet, not the message payload. This is the pass-by-refere
 pattern mandated by DSA 0.24:
 
 ```powershell
-Dequeue-Svrn7Message -Did "did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678" |
+Dequeue-Svrn7Message -Did "did:drn:societytest.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678" |
     Dequeue-PandoMail |
     Enqueue-Svrn7Message
 ```

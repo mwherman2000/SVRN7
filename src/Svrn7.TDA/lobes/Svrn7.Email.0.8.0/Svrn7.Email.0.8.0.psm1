@@ -48,7 +48,7 @@ function Dequeue-PandoMail {
         EmailRecord — the stored email record, or $null if processing failed.
 
     .EXAMPLE
-        Dequeue-PandoMail -MessageDid "did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678"
+        Dequeue-PandoMail -MessageDid "did:drn:societytest.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678"
 
     .NOTES
         The From header in the RFC 5322 payload is treated as display metadata only.

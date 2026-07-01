@@ -48,7 +48,7 @@ function Invoke-Web7Notification {
         Hashtable — the alert record.
 
     .EXAMPLE
-        Invoke-Web7Notification -MessageDid "did:drn:alpha.svrn7.net/inbox/msg/5f43a2..."
+        Invoke-Web7Notification -MessageDid "did:drn:societytest.svrn7.net/inbox/msg/5f43a2..."
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -101,7 +101,7 @@ function Send-Web7Alert {
         OutboundMessage — packed DIDComm message ready for Switchboard delivery.
 
     .EXAMPLE
-        Send-Web7Alert -RecipientDid "did:drn:alpha.svrn7.net/citizen/alice" `
+        Send-Web7Alert -RecipientDid "did:drn:societytest.svrn7.net/citizen/alice" `
                       -AlertType BalanceChange -Severity Info `
                       -Message "Your balance changed by 500 grana."
     #>

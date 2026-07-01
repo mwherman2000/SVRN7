@@ -18,7 +18,7 @@ namespace Svrn7.TDA.Tests;
 
 public class TdaResourceIdTests
 {
-    private const string Network = "alpha.svrn7.net";
+    private const string Network = "societytest.svrn7.net";
 
     // ── Build / parse round-trips ─────────────────────────────────────────────
 
@@ -82,9 +82,9 @@ public class TdaResourceIdTests
     // ── NetworkIdFromDid ──────────────────────────────────────────────────────
 
     [Theory]
-    [InlineData("did:drn:alpha.svrn7.net",      "alpha.svrn7.net")]
+    [InlineData("did:drn:societytest.svrn7.net",      "societytest.svrn7.net")]
     [InlineData("did:drn:foundation.svrn7.net", "foundation.svrn7.net")]
-    [InlineData("alpha.svrn7.net",              "alpha.svrn7.net")]   // passthrough
+    [InlineData("societytest.svrn7.net",              "societytest.svrn7.net")]   // passthrough
     public void NetworkIdFromDid_Strips_Prefix(string input, string expected)
     {
         TdaResourceId.NetworkIdFromDid(input).Should().Be(expected);
@@ -95,7 +95,7 @@ public class TdaResourceIdTests
     [Fact]
     public void ParseKey_Returns_Null_For_Bare_Did()
     {
-        TdaResourceId.ParseKey("did:drn:alpha.svrn7.net").Should().BeNull();
+        TdaResourceId.ParseKey("did:drn:societytest.svrn7.net").Should().BeNull();
     }
 
     [Fact]
@@ -116,7 +116,7 @@ public class TdaResourceIdTests
     public void ParseNetworkId_Returns_Null_For_Bare_Did()
     {
         // Bare DID has no slash — no path
-        TdaResourceId.ParseNetworkId("did:drn:alpha.svrn7.net").Should().BeNull();
+        TdaResourceId.ParseNetworkId("did:drn:societytest.svrn7.net").Should().BeNull();
     }
 
     // ── Build ─────────────────────────────────────────────────────────────────
@@ -124,8 +124,8 @@ public class TdaResourceIdTests
     [Fact]
     public void Build_Produces_Correct_Form()
     {
-        var result = TdaResourceId.Build("alpha.svrn7.net", "inbox", "msg", "abc123");
-        result.Should().Be("did:drn:alpha.svrn7.net/inbox/msg/abc123");
+        var result = TdaResourceId.Build("societytest.svrn7.net", "inbox", "msg", "abc123");
+        result.Should().Be("did:drn:societytest.svrn7.net/inbox/msg/abc123");
     }
 
     [Fact]
@@ -137,7 +137,7 @@ public class TdaResourceIdTests
             TdaResourceId.Citizen(Network, "alice"),
             TdaResourceId.Wallet(Network, "alice"),
             TdaResourceId.Utxo(Network, new string('a', 64)),
-            TdaResourceId.Society(Network, "alpha.svrn7.net"),
+            TdaResourceId.Society(Network, "societytest.svrn7.net"),
             TdaResourceId.Membership(Network, "alice"),
             TdaResourceId.LogEntry(Network, new string('b', 64)),
             TdaResourceId.TreeHead(Network, new string('c', 64)),
@@ -158,7 +158,7 @@ public class LiteInboxStoreDIDUrlTests : IDisposable
 {
     private readonly MsgLiteContext   _ctx;
     private readonly LiteInboxStore     _store;
-    private const string                SocietyDid = "did:drn:alpha.svrn7.net";
+    private const string                SocietyDid = "did:drn:societytest.svrn7.net";
 
     public LiteInboxStoreDIDUrlTests()
     {
@@ -179,9 +179,9 @@ public class LiteInboxStoreDIDUrlTests : IDisposable
         batch.Should().HaveCount(1);
 
         var id = batch[0].Id;
-        id.Should().StartWith("did:drn:alpha.svrn7.net/inbox/msg/");
+        id.Should().StartWith("did:drn:societytest.svrn7.net/inbox/msg/");
         TdaResourceId.ParseKey(id).Should().HaveLength(24); // ObjectId hex
-        TdaResourceId.ParseNetworkId(id).Should().Be("alpha.svrn7.net");
+        TdaResourceId.ParseNetworkId(id).Should().Be("societytest.svrn7.net");
     }
 
     [Fact]
@@ -200,7 +200,7 @@ public class LiteInboxStoreDIDUrlTests : IDisposable
     [Fact]
     public async Task GetByIdAsync_Returns_Null_For_Unknown_DID_URL()
     {
-        var unknown = TdaResourceId.InboundMessage("alpha.svrn7.net",
+        var unknown = TdaResourceId.InboundMessage("societytest.svrn7.net",
             ObjectId.NewObjectId().ToString());
         var result  = await _store.GetByIdAsync(unknown);
         result.Should().BeNull();
@@ -327,7 +327,7 @@ public class SchemaRegistryTests : IDisposable
             SchemaJson = """{"type":"object"}""",
         });
 
-        var didUrl = "did:drn:alpha.svrn7.net/schemas/schema/CitizenEndowmentCredential";
+        var didUrl = "did:drn:societytest.svrn7.net/schemas/schema/CitizenEndowmentCredential";
         var result = await _resolver.ResolveByDidUrlAsync(didUrl);
         result.Should().Be("""{"type":"object"}""");
     }
@@ -335,7 +335,7 @@ public class SchemaRegistryTests : IDisposable
     [Fact]
     public async Task ResolveByDidUrl_Returns_Null_For_Unknown()
     {
-        var didUrl = "did:drn:alpha.svrn7.net/schemas/schema/NonExistent";
+        var didUrl = "did:drn:societytest.svrn7.net/schemas/schema/NonExistent";
         var result = await _resolver.ResolveByDidUrlAsync(didUrl);
         result.Should().BeNull();
     }
@@ -564,7 +564,7 @@ public class LobeManagerRegistryTests : IDisposable
 
         _tdaOpts = new TdaOptions
         {
-            SocietyDid = "did:drn:alpha.svrn7.net",
+            SocietyDid = "did:drn:societytest.svrn7.net",
             SocietyMessagingPrivateKeyEd25519 = Array.Empty<byte>(),
             LobesConfigPath = Path.Combine(_tmpDir, "lobes.config.json"),
         };
@@ -845,7 +845,7 @@ internal sealed class NullSocietyDriver : Svrn7.Society.ISvrn7SocietyDriver
     // All methods throw NotImplementedException — tests do not call them.
 
     // ── ISvrn7SocietyDriver members ────────────────────────────────────────────
-    public string SocietyDid => "did:drn:alpha.svrn7.net";
+    public string SocietyDid => "did:drn:societytest.svrn7.net";
     public Task<Svrn7.Core.Models.OperationResult> RegisterCitizenInSocietyAsync(Svrn7.Core.Models.RegisterCitizenInSocietyRequest r, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<bool> IsMemberAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<System.Collections.Generic.IReadOnlyList<string>> GetMemberCitizenDidsAsync(CancellationToken ct = default) => throw new NotImplementedException();
@@ -1217,7 +1217,7 @@ public class LiteInboxStoreStuckMessageTests : IDisposable
 {
     private readonly MsgLiteContext   _ctx;
     private readonly LiteInboxStore     _store;
-    private const string                SocietyDid = "did:drn:alpha.svrn7.net";
+    private const string                SocietyDid = "did:drn:societytest.svrn7.net";
 
     public LiteInboxStoreStuckMessageTests()
     {

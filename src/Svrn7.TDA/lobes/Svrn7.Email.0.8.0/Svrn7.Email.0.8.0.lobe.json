@@ -181,7 +181,7 @@
         }
       },
       "pipelineExample": "Dequeue-Svrn7Message -Did $MessageDid | Dequeue-PandoMail",
-      "example": "Dequeue-PandoMail -MessageDid \"did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678\""
+      "example": "Dequeue-PandoMail -MessageDid \"did:drn:societytest.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678\""
     },
     {
       "name": "Enqueue-PandoMail",

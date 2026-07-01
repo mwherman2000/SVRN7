@@ -50,7 +50,7 @@ public enum InboundMessageStatus { Pending, Processing, Processed, Failed }
 public record InboundMessage
 {
     public required string             Id            { get; set; }  // TDA resource DID URL
-                                                                      // e.g. did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678
+                                                                      // e.g. did:drn:societytest.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678
     public required string             MessageType   { get; set; }  // Protocol URI
     public required string             PackedPayload { get; set; }  // Unpacked DIDComm body (plaintext)
     public string?                     JweEnvelope   { get; set; }  // Original JWE wire payload — preserved for auditability and non-repudiation

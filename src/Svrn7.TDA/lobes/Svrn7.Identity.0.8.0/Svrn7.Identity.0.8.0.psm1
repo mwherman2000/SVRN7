@@ -180,7 +180,7 @@ function Get-Svrn7VcById {
         Hashtable — OutboundMessage with VC resolution response.
 
     .EXAMPLE
-        Get-Svrn7VcById -MessageDid "did:drn:alpha.svrn7.net/inbox/msg/5f43a2..."
+        Get-Svrn7VcById -MessageDid "did:drn:societytest.svrn7.net/inbox/msg/5f43a2..."
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -250,7 +250,7 @@ function Resolve-Svrn7CitizenIdentity {
         or $null if citizen not found.
 
     .EXAMPLE
-        $identity = Resolve-Svrn7CitizenIdentity -CitizenDid "did:drn:alpha.svrn7.net/citizen/alice"
+        $identity = Resolve-Svrn7CitizenIdentity -CitizenDid "did:drn:societytest.svrn7.net/citizen/alice"
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -289,13 +289,13 @@ function Get-DIDDocument {
         object or $null when not found. Does not produce a DIDComm response.
 
     .PARAMETER Did
-        The DID to resolve (e.g. "did:drn:alpha.svrn7.net/citizen/alice").
+        The DID to resolve (e.g. "did:drn:societytest.svrn7.net/citizen/alice").
 
     .OUTPUTS
         Svrn7.Core.Models.DidDocument or $null.
 
     .EXAMPLE
-        $doc = Get-DIDDocument -Did "did:drn:alpha.svrn7.net/citizen/alice"
+        $doc = Get-DIDDocument -Did "did:drn:societytest.svrn7.net/citizen/alice"
     #>
     [CmdletBinding()]
     [OutputType([object])]

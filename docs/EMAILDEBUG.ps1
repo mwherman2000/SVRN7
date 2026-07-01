@@ -188,7 +188,7 @@ Send-LocalDIDCommMessage -Body $msg
 #
 # | Field        | Value                                                              |
 # |--------------|--------------------------------------------------------------------|
-# | MessageDid   | TDA resource DID URL — did:drn:alpha.svrn7.net/inbox/msg/{objectId} |
+# | MessageDid   | TDA resource DID URL — did:drn:societytest.svrn7.net/inbox/msg/{objectId} |
 # | MessageId    | LiteDB ObjectId hex of the inbox record                            |
 # | SenderDid    | from field of the DIDComm body (application-level sender, not envelope) |
 # | ReceivedAt   | ISO 8601 UTC timestamp                                             |
@@ -226,7 +226,7 @@ Send-LocalDIDCommMessage -Body $msg
 
 # Expected TDA log:
 #
-# warn: ...   [PS Warning] Email LOBE: message did:drn:alpha.svrn7.net/inbox/msg/<id> has no rfc5322Body field.
+# warn: ...   [PS Warning] Email LOBE: message did:drn:societytest.svrn7.net/inbox/msg/<id> has no rfc5322Body field.
 #
 # The message is marked Processed (not failed) — the handler returns $null rather
 # than throwing, so the Switchboard considers it a clean completion.

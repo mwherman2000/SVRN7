@@ -74,7 +74,7 @@ The `did:pnl` method is designed to satisfy the following goals:
 ### 1.3 Relationship to Other DID Methods
 
 A `did:pnl` DID identifies a **role profile**, not an agent instance. Individual agent
-instances are identified by their own DIDs (e.g., `did:drn:agentY.alpha.svrn7.net`,
+instances are identified by their own DIDs (e.g., `did:drn:agentY.societytest.svrn7.net`,
 `did:key:z6Mk...`, `did:web:example.com:agents:agentY`). An agent instance CLAIMS
 membership in a PNL Role Profile via a Verifiable Credential whose `credentialSubject`
 references the agent's own DID, and whose `type` array includes `PnlRoleCredential`.
@@ -529,7 +529,7 @@ by a specific `did:pnl` Role Profile.
   "validFrom": "2026-04-13T00:00:00Z",
   "validUntil": "2027-04-13T00:00:00Z",
   "credentialSubject": {
-    "id": "did:drn:agenty.alpha.svrn7.net",
+    "id": "did:drn:agenty.societytest.svrn7.net",
     "pnlProfileDid": "did:pnl:AUT.FIN.PAYEXEC.3PVER.BROKER.ASVRN7.R4",
     "pnlExpression": "AUT.FIN.PAYEXEC.3PVER.BROKER.ASVRN7.R4",
     "capabilityClass": "AUT",
@@ -764,7 +764,7 @@ platform, authorized to execute payments, third-party verified, with Reputation 
 
 **`did:pnl` DID**: `did:pnl:AUT.FIN.PAYEXEC.3PVER.BROKER.ASVRN7.R4`
 
-**Agent instance DID**: `did:drn:agenty.alpha.svrn7.net`
+**Agent instance DID**: `did:drn:agenty.societytest.svrn7.net`
 
 **PnlRoleCredential** (abbreviated):
 ```json
@@ -772,7 +772,7 @@ platform, authorized to execute payments, third-party verified, with Reputation 
   "type": ["VerifiableCredential", "PnlRoleCredential"],
   "issuer": "did:drn:svrn7.net",
   "credentialSubject": {
-    "id": "did:drn:agenty.alpha.svrn7.net",
+    "id": "did:drn:agenty.societytest.svrn7.net",
     "pnlProfileDid": "did:pnl:AUT.FIN.PAYEXEC.3PVER.BROKER.ASVRN7.R4"
   }
 }

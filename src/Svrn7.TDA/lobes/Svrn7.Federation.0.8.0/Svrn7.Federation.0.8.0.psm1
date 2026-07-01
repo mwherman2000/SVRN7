@@ -407,7 +407,7 @@ function Initialize-Svrn7Citizen {
     secp256k1 [Svrn7.KeyPair] — provides PrivateKeyBytes for local key storage.
 .EXAMPLE
     $kp     = New-Svrn7KeyPair
-    $didDoc = New-Svrn7Did -KeyPair $kp -ServiceEndpointUrl 'https://alpha.svrn7.net:8443/didcomm'
+    $didDoc = New-Svrn7Did -KeyPair $kp -ServiceEndpointUrl 'https://societytest.svrn7.net:8443/didcomm'
     Initialize-Svrn7Citizen -DidDocument $didDoc -KeyPair $kp
 .OUTPUTS
     [PSCustomObject] Svrn7.CitizenRegistration

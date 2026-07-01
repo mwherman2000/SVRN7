@@ -164,7 +164,7 @@ public static class Svrn7Constants
 // layer including Svrn7.Core, Svrn7.Store, Svrn7.Society, and Svrn7.TDA.
 //
 // Network ID is the method-specific identifier of the owning TDA DID:
-//   SocietyDid = "did:drn:alpha.svrn7.net"  →  NetworkId = "alpha.svrn7.net"
+//   SocietyDid = "did:drn:societytest.svrn7.net"  →  NetworkId = "societytest.svrn7.net"
 
 /// <summary>
 /// Builds and parses TDA resource DID URL locators for Data Storage database records.
@@ -194,7 +194,7 @@ public static class TdaResourceId
     public static string Wallet(string networkId, string ownerKey)
         => $"did:drn:{networkId}/main/wallet/{ownerKey}";
 
-    /// <summary>Society record DID URL. Key = society DID suffix (e.g., "alpha.svrn7.net").</summary>
+    /// <summary>Society record DID URL. Key = society DID suffix (e.g., "societytest.svrn7.net").</summary>
     public static string Society(string networkId, string societyDidSuffix)
         => $"did:drn:{networkId}/main/society/{societyDidSuffix}";
 
@@ -238,7 +238,7 @@ public static class TdaResourceId
 
     /// <summary>
     /// Extracts the network ID from a TDA resource DID URL.
-    /// "did:drn:alpha.svrn7.net/inbox/msg/5f43..." → "alpha.svrn7.net"
+    /// "did:drn:societytest.svrn7.net/inbox/msg/5f43..." → "societytest.svrn7.net"
     /// </summary>
     public static string? ParseNetworkId(string didUrl)
     {
@@ -249,7 +249,7 @@ public static class TdaResourceId
 
     /// <summary>
     /// Extracts the natural key (final path segment) from a TDA resource DID URL.
-    /// "did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678" → "5f43a2b1c8e9d7f012345678"
+    /// "did:drn:societytest.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678" → "5f43a2b1c8e9d7f012345678"
     /// </summary>
     public static string? ParseKey(string didUrl)
     {
@@ -259,7 +259,7 @@ public static class TdaResourceId
 
     /// <summary>
     /// Extracts the network ID from a Society DID.
-    /// "did:drn:alpha.svrn7.net" → "alpha.svrn7.net"
+    /// "did:drn:societytest.svrn7.net" → "societytest.svrn7.net"
     /// </summary>
     public static string NetworkIdFromDid(string did)
         => did.StartsWith("did:drn:", StringComparison.Ordinal) ? did[8..] : did;

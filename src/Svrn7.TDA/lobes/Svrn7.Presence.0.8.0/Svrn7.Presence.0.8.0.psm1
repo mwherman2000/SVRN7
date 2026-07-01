@@ -45,7 +45,7 @@ function Update-Web7Presence {
         Hashtable — { Did, Status, Since, CachedUntil }
 
     .EXAMPLE
-        Update-Web7Presence -MessageDid "did:drn:alpha.svrn7.net/inbox/msg/5f43a2..."
+        Update-Web7Presence -MessageDid "did:drn:societytest.svrn7.net/inbox/msg/5f43a2..."
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -90,7 +90,7 @@ function Add-Web7PresenceSubscription {
         None. Subscriber is added to the subscription cache.
 
     .EXAMPLE
-        Add-Web7PresenceSubscription -MessageDid "did:drn:alpha.svrn7.net/inbox/msg/5f43a2..."
+        Add-Web7PresenceSubscription -MessageDid "did:drn:societytest.svrn7.net/inbox/msg/5f43a2..."
     #>
     [CmdletBinding()]
     param(
