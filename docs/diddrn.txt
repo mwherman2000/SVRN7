@@ -117,7 +117,6 @@ did:drn:payer-test
 did:drn:q-test
 did:drn:registry.svrn7.net
 did:drn:richtest-test
-did:drn:soc-test
 did:drn:society1.svrn7.net
 did:drn:society2.svrn7.net
 did:drn:societyexample.svrn7.net/citizen/1.0/bob
