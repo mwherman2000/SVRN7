@@ -110,9 +110,6 @@ did:drn:health.example.org/protocols/prescription.0.1.0/request
 did:drn:issuer-test
 did:drn:nobody-test
 did:drn:nonce-test
-did:drn:other.svrn7.net/citizen/1.0/bob
-did:drn:other.svrn7.net/citizen/1.0/carol
-did:drn:other.svrn7.net/citizen/1.0/x
 did:drn:p-test
 did:drn:payee-test
 did:drn:payer-e0-test
@@ -121,9 +118,11 @@ did:drn:q-test
 did:drn:registry.svrn7.net
 did:drn:richtest-test
 did:drn:soc-test
-did:drn:socalpha
 did:drn:society1.svrn7.net
 did:drn:society2.svrn7.net
+did:drn:societyexample.svrn7.net/citizen/1.0/bob
+did:drn:societyexample.svrn7.net/citizen/1.0/carol
+did:drn:societyexample.svrn7.net/citizen/1.0/x
 did:drn:societytest.svrn7.net
 did:drn:societytest.svrn7.net:citizen:alice
 did:drn:societytest.svrn7.net:citizen:mwherman
