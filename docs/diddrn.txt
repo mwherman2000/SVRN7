@@ -61,10 +61,10 @@ did:drn:abc...','did:drn:def...
 did:drn:abc#key-1
 did:drn:abc#svc-1
 did:drn:agentY.societytest.svrn7.net
-did:drn:bal-payer
-did:drn:balsoc
-did:drn:batch-payee
-did:drn:batch-payer
+did:drn:bal-payer-test
+did:drn:balsoc-test
+did:drn:batch-payee-test
+did:drn:batch-payer-test
 did:drn:beta
 did:drn:beta.svrn7.net
 did:drn:beta.svrn7.net/citizen/bob
@@ -77,7 +77,7 @@ did:drn:bindloss.svrn7.net/citizen/1.0/a3d4e5f6...c3d4
 did:drn:bindloss.svrn7.net/citizen/1.0/a3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4
 did:drn:bindloss.svrn7.net/inbox/msg/<id
 did:drn:borkod.svrn7.net/protocols/Cohere-Generate.0.1.0
-did:drn:bypk1
+did:drn:bypk1-test
 did:drn:doesnotexist
 did:drn:example
 did:drn:federation
@@ -109,7 +109,7 @@ did:drn:foundation.svrn7.net
 did:drn:foundation.svrn7.net/main/society/societytest.svrn7.net
 did:drn:health.example.org/protocols/prescription.0.1.0/request
 did:drn:issuer-test
-did:drn:nobody
+did:drn:nobody-test
 did:drn:nonce-test
 did:drn:other.svrn7.net/citizen/1.0/bob
 did:drn:other.svrn7.net/citizen/1.0/carol
@@ -117,11 +117,11 @@ did:drn:other.svrn7.net/citizen/1.0/x
 did:drn:p
 did:drn:payee
 did:drn:payer
-did:drn:payer-e0
+did:drn:payer-e0-test
 did:drn:q
 did:drn:registry.svrn7.net
-did:drn:richtest
-did:drn:soc
+did:drn:richtest-test
+did:drn:soc-test
 did:drn:socalpha
 did:drn:society1.svrn7.net
 did:drn:society2.svrn7.net

@@ -83,8 +83,8 @@ Describe 'Send-LocalDIDCommMessage exported by Svrn7.Society' {
 Describe 'Build-CanonicalTransferJson' {
     It 'produces fields in normative order (§5.2)' {
         $json = Build-CanonicalTransferJson `
-            -PayerDid    'did:drn:payer' `
-            -PayeeDid    'did:drn:payee' `
+            -PayerDid    'did:drn:payer-test' `
+            -PayeeDid    'did:drn:payee-test' `
             -AmountGrana 500 `
             -Nonce       'abc123' `
             -Timestamp   '2025-01-01T00:00:00Z' `
@@ -97,8 +97,8 @@ Describe 'Build-CanonicalTransferJson' {
 
     It 'serializes a non-null Memo correctly' {
         $json = Build-CanonicalTransferJson `
-            -PayerDid    'did:drn:p' `
-            -PayeeDid    'did:drn:q' `
+            -PayerDid    'did:drn:p-test' `
+            -PayeeDid    'did:drn:q-test' `
             -AmountGrana 1 `
             -Nonce       'n' `
             -Timestamp   't' `
@@ -111,8 +111,8 @@ Describe 'Build-CanonicalTransferJson' {
 
     It 'serializes a null Memo as JSON null (not absent)' {
         $json = Build-CanonicalTransferJson `
-            -PayerDid    'did:drn:p' `
-            -PayeeDid    'did:drn:q' `
+            -PayerDid    'did:drn:p-test' `
+            -PayeeDid    'did:drn:q-test' `
             -AmountGrana 1 `
             -Nonce       'n' `
             -Timestamp   't' `
@@ -125,8 +125,8 @@ Describe 'Build-CanonicalTransferJson' {
 
     It 'produces compact JSON with no line breaks' {
         $json = Build-CanonicalTransferJson `
-            -PayerDid    'did:drn:p' `
-            -PayeeDid    'did:drn:q' `
+            -PayerDid    'did:drn:p-test' `
+            -PayeeDid    'did:drn:q-test' `
             -AmountGrana 1 `
             -Nonce       'n' `
             -Timestamp   't' `
@@ -138,8 +138,8 @@ Describe 'Build-CanonicalTransferJson' {
 
     It 'encodes AmountGrana as a JSON number, not a string' {
         $json = Build-CanonicalTransferJson `
-            -PayerDid    'did:drn:p' `
-            -PayeeDid    'did:drn:q' `
+            -PayerDid    'did:drn:p-test' `
+            -PayeeDid    'did:drn:q-test' `
             -AmountGrana 12345 `
             -Nonce       'n' `
             -Timestamp   't' `
