@@ -684,7 +684,7 @@ await driver.InitialiseFederationAsync(new InitialiseFederationRequest
 builder.Services.AddSvrn7Society(opts =>
 {
     opts.SocietyDid    = "did:drn:sovronia";
-    opts.FederationDid = "did:drn:foundation";
+    opts.FederationDid = "did:drn:federation.svrn7.net";
     opts.DidMethodName  = "sovronia";
     opts.DrawAmountGrana         = 100_000 * Svrn7Constants.GranaPerSvrn7;
     opts.OverdraftCeilingGrana   = 1_000_000 * Svrn7Constants.GranaPerSvrn7;

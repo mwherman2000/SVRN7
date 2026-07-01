@@ -56,7 +56,7 @@ var keyPair = driver.GenerateSecp256k1KeyPair();
 
 await driver.InitialiseFederationAsync(new InitialiseFederationRequest
 {
-    Did                      = "did:drn:foundation",
+    Did                      = "did:drn:federation.svrn7.net",
     PublicKeyHex             = keyPair.PublicKeyHex,
     FederationName           = "Web 7.0 Foundation",
     PrimaryDidMethodName     = "drn",
