@@ -212,7 +212,7 @@ did:drn:svrn7.net/protocols/{LOBE}.{version}/{Verb-Noun}
 Examples:
 - `did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/Query-TOD`
 - `did:drn:svrn7.net/protocols/Svrn7.Federation.0.8.0/initialize-federation`
-- `did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/message`
+- `did:drn:svrn7.net/protocols/PandoMail.0.8.0/message`
 
 `svrn7.net` always (never `svrn7.io`). Verb-Noun uses PascalCase or kebab-case consistently within a LOBE.
 

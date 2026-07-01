@@ -242,7 +242,7 @@ public sealed class Svrn7RunspaceContext
         // Filter to the inbound email message type only — not protocol control messages
         // (List-Emails, Enqueue-PandoMail, etc.) which share the same LOBE prefix but
         // carry no rfc5322Body and must not appear in the inbox listing.
-        const string emailTypePrefix = "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Signal-PandoMail";
+        const string emailTypePrefix = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail";
         var messages = await _inbox.ListByTypeAsync(emailTypePrefix, limit, ct);
         return messages
             .Select(m => new InboundMessageView(m.Id, m.MessageType, m.PackedPayload, m.FromDid, m.AttemptCount, m.ReceivedAt))
@@ -257,7 +257,7 @@ public sealed class Svrn7RunspaceContext
     public async Task<IReadOnlyList<InboundMessageView>> ListSentEmailsAsync(
         int limit = 50, CancellationToken ct = default)
     {
-        const string sentTypePrefix = "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Enqueue-PandoMail";
+        const string sentTypePrefix = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Enqueue-PandoMail";
         var messages = await _inbox.ListByTypeAsync(sentTypePrefix, limit, ct);
         return messages
             .Select(m => new InboundMessageView(m.Id, m.MessageType, m.PackedPayload, m.FromDid, m.AttemptCount, m.ReceivedAt))
@@ -302,8 +302,8 @@ public sealed class Svrn7RunspaceContext
     /// </summary>
     public async Task<FolderCounts> CountEmailFoldersAsync(CancellationToken ct = default)
     {
-        const string inboxType = "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Signal-PandoMail";
-        const string sentType  = "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Enqueue-PandoMail";
+        const string inboxType = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail";
+        const string sentType  = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Enqueue-PandoMail";
         var inbox = await _inbox.ListByTypeAsync(inboxType, 5000, ct);
         var sent  = await _inbox.ListByTypeAsync(sentType,  5000, ct);
         var dead  = await _deadLetter.GetPendingAsync(ct);

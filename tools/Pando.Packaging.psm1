@@ -158,7 +158,7 @@ function Test-LOBEPackage {
 .OUTPUTS
     [bool] $true if all checks pass, $false if any FAIL.
 .EXAMPLE
-    Test-LOBEPackage -Path .\dist\Svrn7.Email.0.8.0.nupkg
+    Test-LOBEPackage -Path .\dist\PandoMail.0.8.0.nupkg
 .EXAMPLE
     Get-ChildItem .\dist -Filter *.nupkg | ForEach-Object { Test-LOBEPackage -Path $_.FullName }
 #>
@@ -383,7 +383,7 @@ function Install-LOBEPackage {
 .OUTPUTS
     [string] Path to the installed LOBE directory.
 .EXAMPLE
-    Install-LOBEPackage -Path .\dist\Svrn7.Email.0.8.0.nupkg -LobesDirectory .\src\Svrn7.TDA\lobes
+    Install-LOBEPackage -Path .\dist\PandoMail.0.8.0.nupkg -LobesDirectory .\src\Svrn7.TDA\lobes
 .EXAMPLE
     Install-LOBEPackage -Path .\dist\Svrn7.Common.0.8.0.nupkg -LobesDirectory .\src\Svrn7.TDA\lobes -LoadMode Eager
 .EXAMPLE
@@ -541,7 +541,7 @@ function Publish-LOBEPackage {
 .PARAMETER SkipDuplicate
     Skip without error if the version already exists on the feed.
 .EXAMPLE
-    Publish-LOBEPackage -Path .\dist\Svrn7.Email.0.8.0.nupkg `
+    Publish-LOBEPackage -Path .\dist\PandoMail.0.8.0.nupkg `
         -Source https://api.nuget.org/v3/index.json -ApiKey $env:NUGET_API_KEY
 .EXAMPLE
     Get-ChildItem .\dist -Filter *.nupkg | ForEach-Object {

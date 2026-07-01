@@ -4,7 +4,7 @@
     SVRN7 Email LOBE — DIDComm-native email using RFC 5322 tunneling.
 
 .DESCRIPTION
-    Implements the did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/* DIDComm protocol.
+    Implements the did:drn:svrn7.net/protocols/PandoMail.0.8.0/* DIDComm protocol.
     RFC 5322 email messages are tunneled verbatim inside DIDComm envelopes.
     No SMTP server is involved. All email communication is TDA-to-TDA via DIDComm.
 
@@ -12,8 +12,8 @@
 
 .NOTES
     Protocol URIs:
-        did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Signal-PandoMail   — inbound/outbound email
-        did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/issue-receipt   — delivery confirmation
+        did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail   — inbound/outbound email
+        did:drn:svrn7.net/protocols/PandoMail.0.8.0/issue-receipt   — delivery confirmation
 
     Key:
         From/To headers in the RFC 5322 payload use did: URIs, not SMTP addresses.
@@ -38,7 +38,7 @@ function Dequeue-PandoMail {
         record to the IInboxStore long-term memory.
 
         Derived from: Email LOBE (Agent 1 LOBE) — DSA 0.24 Epoch 0 (PPML).
-        Protocol: did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Signal-PandoMail
+        Protocol: did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail
 
     .PARAMETER MessageDid
         The TDA resource DID URL of the inbox message.
@@ -128,7 +128,7 @@ function Enqueue-PandoMail {
         message. Resolves the recipient's DID to their TDA endpoint and returns
         an OutboundMessage for the Switchboard to deliver.
 
-        Protocol: did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Signal-PandoMail
+        Protocol: did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail
 
     .PARAMETER RecipientDid
         The recipient citizen's did:drn DID.
@@ -183,7 +183,7 @@ $Body
             $deadEnvelope = [ordered]@{
                 typ  = 'application/didcomm-plain+json'
                 id   = [Svrn7.Core.TdaResourceId]::DIDCommMessage([Guid]::NewGuid().ToString('N'))
-                type = 'did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Signal-PandoMail'
+                type = 'did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail'
                 from = $SVRN7.LocalDid
                 to   = @($RecipientDid)
                 body = [ordered]@{
@@ -195,7 +195,7 @@ $Body
             $SVRN7.EnqueueDeadLetterAsync(
                 $RecipientDid,
                 $deadEnvelope,
-                'did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Signal-PandoMail',
+                'did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail',
                 "No DIDComm service endpoint found for recipient '$RecipientDid'"
             ).GetAwaiter().GetResult()
             New-FolderCountsNotification
@@ -205,7 +205,7 @@ $Body
         $envelope = [ordered]@{
             typ  = 'application/didcomm-plain+json'
             id   = [Svrn7.Core.TdaResourceId]::DIDCommMessage([Guid]::NewGuid().ToString('N'))
-            type = 'did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Signal-PandoMail'
+            type = 'did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail'
             from = $SVRN7.LocalDid
             to   = @($RecipientDid)
             body = [ordered]@{
@@ -232,8 +232,8 @@ function Invoke-PandoMailList {
         limit 50) and delivers a Get-PandoMails DIDComm message to the sender's
         DID Document endpoint.
 
-        Protocol (inbound):  did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/List-Emails
-        Protocol (outbound): did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Get-PandoMails
+        Protocol (inbound):  did:drn:svrn7.net/protocols/PandoMail.0.8.0/List-Emails
+        Protocol (outbound): did:drn:svrn7.net/protocols/PandoMail.0.8.0/Get-PandoMails
 
     .PARAMETER MessageDid
         The TDA resource DID URL of the inbox message.
@@ -281,7 +281,7 @@ function Invoke-PandoMailList {
         $envelope = [ordered]@{
             typ  = 'application/didcomm-plain+json'
             id   = [Svrn7.Core.TdaResourceId]::DIDCommMessage([Guid]::NewGuid().ToString('N'))
-            type = 'did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Get-PandoMails'
+            type = 'did:drn:svrn7.net/protocols/PandoMail.0.8.0/Get-PandoMails'
             from = $SVRN7.LocalDid
             to   = @($msg.FromDid)
             body = [ordered]@{
@@ -307,7 +307,7 @@ function Invoke-PandoMailSend {
         Accepts a DIDComm message from local PandoMail UI. Body: { recipientDid, subject, bodyText }.
         Builds an RFC 5322 message via Enqueue-PandoMail and returns an OutboundMessage for delivery.
 
-        Protocol (inbound): did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Enqueue-PandoMail
+        Protocol (inbound): did:drn:svrn7.net/protocols/PandoMail.0.8.0/Enqueue-PandoMail
 
     .PARAMETER MessageDid
         The TDA resource DID URL of the inbox message.
@@ -359,8 +359,8 @@ function Get-TdaDid {
         Handles a Query-TdaDid request from TdaMailClient. Replies with the
         TDA's LocalDid over the WebSocket push channel.
 
-        Protocol (inbound):  did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Query-TdaDid
-        Protocol (outbound): did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Reply-TdaDid
+        Protocol (inbound):  did:drn:svrn7.net/protocols/PandoMail.0.8.0/Query-TdaDid
+        Protocol (outbound): did:drn:svrn7.net/protocols/PandoMail.0.8.0/Reply-TdaDid
 
     .PARAMETER MessageDid
         The TDA resource DID URL of the inbox message.
@@ -398,7 +398,7 @@ function Get-TdaDid {
         $envelope = [ordered]@{
             typ  = 'application/didcomm-plain+json'
             id   = [Svrn7.Core.TdaResourceId]::DIDCommMessage([Guid]::NewGuid().ToString('N'))
-            type = 'did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Reply-TdaDid'
+            type = 'did:drn:svrn7.net/protocols/PandoMail.0.8.0/Reply-TdaDid'
             from = $SVRN7.LocalDid
             to   = @($SVRN7.LocalDid)
             body = [ordered]@{
@@ -424,8 +424,8 @@ function Invoke-Svrn7EmailGetEmailBody {
         email in the inbox by its DID, extracts the RFC 5322 body and plain-text
         content, and replies via the WebSocket push channel.
 
-        Protocol (inbound):  did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Get-EmailBody
-        Protocol (outbound): did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Reply-EmailBody
+        Protocol (inbound):  did:drn:svrn7.net/protocols/PandoMail.0.8.0/Get-EmailBody
+        Protocol (outbound): did:drn:svrn7.net/protocols/PandoMail.0.8.0/Reply-EmailBody
 
     .PARAMETER MessageDid
         The TDA resource DID URL of the inbox message containing the request.
@@ -476,7 +476,7 @@ function Invoke-Svrn7EmailGetEmailBody {
         $envelope = [ordered]@{
             typ  = 'application/didcomm-plain+json'
             id   = [Svrn7.Core.TdaResourceId]::DIDCommMessage([Guid]::NewGuid().ToString('N'))
-            type = 'did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Reply-EmailBody'
+            type = 'did:drn:svrn7.net/protocols/PandoMail.0.8.0/Reply-EmailBody'
             from = $SVRN7.LocalDid
             to   = @($SVRN7.LocalDid)
             body = [ordered]@{
@@ -507,7 +507,7 @@ function Invoke-PandoMailResolveDid {
         Invoke-Svrn7DidResolveResponse can push the result back to WebSocket when the
         response arrives through the resolution chain.
 
-        Protocol (inbound):  did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Resolve-PandoDid
+        Protocol (inbound):  did:drn:svrn7.net/protocols/PandoMail.0.8.0/Resolve-PandoDid
         Protocol (outbound): did:drn:svrn7.net/protocols/Svrn7.Identity.0.8.0/Reply-DidDocument (ws)
                              did:drn:svrn7.net/protocols/Svrn7.Identity.0.8.0/did-resolve-request (http, on miss)
 
@@ -625,8 +625,8 @@ function Invoke-PandoMailListSent {
         Queries the local inbox for Enqueue-PandoMail messages (emails sent from PandoMail UI)
         and delivers a Get-PandoOutbox DIDComm message to the sender's endpoint over WebSocket.
 
-        Protocol (inbound):  did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/List-OutboundEmails
-        Protocol (outbound): did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Get-PandoOutbox
+        Protocol (inbound):  did:drn:svrn7.net/protocols/PandoMail.0.8.0/List-OutboundEmails
+        Protocol (outbound): did:drn:svrn7.net/protocols/PandoMail.0.8.0/Get-PandoOutbox
 
     .PARAMETER MessageDid
         The TDA resource DID URL of the inbox message.
@@ -670,7 +670,7 @@ function Invoke-PandoMailListSent {
         $envelope = [ordered]@{
             typ  = 'application/didcomm-plain+json'
             id   = [Svrn7.Core.TdaResourceId]::DIDCommMessage([Guid]::NewGuid().ToString('N'))
-            type = 'did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Get-PandoOutbox'
+            type = 'did:drn:svrn7.net/protocols/PandoMail.0.8.0/Get-PandoOutbox'
             from = $SVRN7.LocalDid
             to   = @($msg.FromDid)
             body = [ordered]@{
@@ -695,8 +695,8 @@ function Invoke-PandoMailListDeadLetters {
     .DESCRIPTION
         Returns pending dead-letter records (failed outbound deliveries) over the WebSocket hub.
 
-        Protocol (inbound):  did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/List-DeadLetters
-        Protocol (outbound): did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Get-PandoDeadLetters
+        Protocol (inbound):  did:drn:svrn7.net/protocols/PandoMail.0.8.0/List-DeadLetters
+        Protocol (outbound): did:drn:svrn7.net/protocols/PandoMail.0.8.0/Get-PandoDeadLetters
 
     .PARAMETER MessageDid
         The TDA resource DID URL of the inbox message.
@@ -737,7 +737,7 @@ function Invoke-PandoMailListDeadLetters {
         $envelope = [ordered]@{
             typ  = 'application/didcomm-plain+json'
             id   = [Svrn7.Core.TdaResourceId]::DIDCommMessage([Guid]::NewGuid().ToString('N'))
-            type = 'did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Get-PandoDeadLetters'
+            type = 'did:drn:svrn7.net/protocols/PandoMail.0.8.0/Get-PandoDeadLetters'
             from = $SVRN7.LocalDid
             to   = @($msg.FromDid)
             body = [ordered]@{
@@ -764,8 +764,8 @@ function Invoke-PandoMailQueryFolderCounts {
         existing data without requiring the user to click each folder first.
         Delegates entirely to New-FolderCountsNotification.
 
-        Protocol (inbound):  did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Query-FolderCounts
-        Protocol (outbound): did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Notify-FolderCounts
+        Protocol (inbound):  did:drn:svrn7.net/protocols/PandoMail.0.8.0/Query-FolderCounts
+        Protocol (outbound): did:drn:svrn7.net/protocols/PandoMail.0.8.0/Notify-FolderCounts
 
     .PARAMETER MessageDid
         The TDA resource DID URL of the inbox message.
@@ -791,7 +791,7 @@ function New-FolderCountsNotification {
     $envelope = [ordered]@{
         typ  = 'application/didcomm-plain+json'
         id   = [Svrn7.Core.TdaResourceId]::DIDCommMessage([Guid]::NewGuid().ToString('N'))
-        type = 'did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Notify-FolderCounts'
+        type = 'did:drn:svrn7.net/protocols/PandoMail.0.8.0/Notify-FolderCounts'
         from = $SVRN7.LocalDid
         to   = @($SVRN7.LocalDid)
         body = [ordered]@{

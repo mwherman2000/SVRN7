@@ -184,7 +184,7 @@ directory is configured via `TdaOptions.LobesConfigPath` and defaults to `./lobe
 
 Examples:
 ```
-Svrn7.Email.0.8.0.psm1
+PandoMail.0.8.0.psm1
 Svrn7.Email.psd1
 Svrn7.Email.lobe.json
 ```
@@ -321,7 +321,7 @@ entry with a protocol prefix covers all message subtypes in a protocol family:
 
 ```json
 {
-  "uri":       "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/",
+  "uri":       "did:drn:svrn7.net/protocols/PandoMail.0.8.0/",
   "match":     "prefix",
   "entrypoint":"Dequeue-PandoMail"
 }
@@ -715,7 +715,7 @@ The following nine LOBEs are shipped with the SVRN7 TDA Host v0.8.0.
 
 | LOBE                   | Module                      | Protocols Handled                          |
 |------------------------|-----------------------------|--------------------------------------------|
-| Svrn7.Email            | Svrn7.Email.0.8.0.psm1            | email/1.0/*                                |
+| Svrn7.Email            | PandoMail.0.8.0.psm1            | email/1.0/*                                |
 | Svrn7.Calendar         | Svrn7.Calendar.0.8.0.psm1         | calendar/1.0/*                             |
 | Svrn7.Presence         | Svrn7.Presence.0.8.0.psm1         | presence/1.0/*                             |
 | Svrn7.Notifications    | Svrn7.Notifications.0.8.0.psm1    | Svrn7.Notifications/0.8.0/*                         |
@@ -742,7 +742,7 @@ handling in the Switchboard before being routed to the registered cmdlet:
 | `did:drn:svrn7.net/protocols/Svrn7.Society.0.8.0/transfer-order`             | Svrn7.Society       | Invoke-Svrn7IncomingTransfer  | 1     |
 | `did:drn:svrn7.net/protocols/Svrn7.Society.0.8.0/transfer-order-receipt`     | Svrn7.Society       | Confirm-Svrn7Settlement       | 1     |
 | `did:drn:svrn7.net/protocols/Svrn7.Onboarding.0.8.0/`                   | Svrn7.Onboarding    | ConvertFrom-Web7OnboardRequest| 0     |
-| `did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/`                     | Svrn7.Email         | Dequeue-PandoMail             | 0     |
+| `did:drn:svrn7.net/protocols/PandoMail.0.8.0/`                     | Svrn7.Email         | Dequeue-PandoMail             | 0     |
 | `did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/invite`            | Svrn7.Calendar      | Receive-Web7MeetingRequest    | 0     |
 | `did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/`                  | Svrn7.Calendar      | Import-Web7CalendarEvent      | 0     |
 | `did:drn:svrn7.net/protocols/Svrn7.Presence.0.8.0/subscribe`         | Svrn7.Presence      | Add-Web7PresenceSubscription  | 0     |

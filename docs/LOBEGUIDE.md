@@ -721,8 +721,8 @@ understand existing patterns; confirm that any new URI is unique before register
 | `Svrn7.Calendar` | `did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/event` | inbound | *(see lobe.json)* |
 | `Svrn7.Calendar` | `did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/invite` | inbound | *(see lobe.json)* |
 | `Svrn7.Calendar` | `did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/response` | inbound | *(see lobe.json)* |
-| `Svrn7.Email` | `did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/message` | inbound | *(see lobe.json)* |
-| `Svrn7.Email` | `did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/receipt` | outbound | — |
+| `Svrn7.Email` | `did:drn:svrn7.net/protocols/PandoMail.0.8.0/message` | inbound | *(see lobe.json)* |
+| `Svrn7.Email` | `did:drn:svrn7.net/protocols/PandoMail.0.8.0/receipt` | outbound | — |
 | `Svrn7.Notifications` | `did:drn:svrn7.net/protocols/Svrn7.Notifications.0.8.0/alert` | inbound | *(see lobe.json)* |
 | `Svrn7.Presence` | `did:drn:svrn7.net/protocols/Svrn7.Presence.0.8.0/status` | inbound | *(see lobe.json)* |
 | `Svrn7.Presence` | `did:drn:svrn7.net/protocols/Svrn7.Presence.0.8.0/subscribe` | inbound | *(see lobe.json)* |

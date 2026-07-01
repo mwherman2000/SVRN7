@@ -233,8 +233,8 @@ Epoch 0.
 | `OnboardReceipt`        | `did:drn:svrn7.net/protocols/Svrn7.Onboarding.0.8.0/receipt`                   | Society → Citizen |
 | `InvoiceRequest`        | `did:drn:svrn7.net/protocols/Svrn7.Invoicing.0.8.0/request`                   | Citizen → Society |
 | `InvoiceReceipt`        | `did:drn:svrn7.net/protocols/Svrn7.Invoicing.0.8.0/receipt`                   | Society → Citizen |
-| Email message           | `did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/message`                     | TDA → TDA |
-| Email receipt           | `did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/receipt`                     | TDA → TDA |
+| Email message           | `did:drn:svrn7.net/protocols/PandoMail.0.8.0/message`                     | TDA → TDA |
+| Email receipt           | `did:drn:svrn7.net/protocols/PandoMail.0.8.0/receipt`                     | TDA → TDA |
 | Calendar event          | `did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/event`                    | TDA → TDA |
 | Calendar invite         | `did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/invite`                   | TDA → TDA |
 | Calendar response       | `did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/response`                 | TDA → TDA |

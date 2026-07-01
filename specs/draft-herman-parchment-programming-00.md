@@ -797,7 +797,7 @@ between diagram and implementation explicitly visible and measurable.
 | Runspace Pool (outer box) | Runspace Pool  | IsolatedRunspaceFactory.cs + IsolatedPipeline.cs | ✓ Done |
 | LobeManager               | LOBE (implied) | LobeManager.cs             | ✓ Done   |
 | Svrn7RunspaceContext      | (Host service) | Svrn7RunspaceContext.cs    | ✓ Done   |
-| Svrn7.Email.0.8.0.psm1          | LOBE           | Svrn7.Email.0.8.0.psm1           | ✓ Done   |
+| PandoMail.0.8.0.psm1          | LOBE           | PandoMail.0.8.0.psm1           | ✓ Done   |
 | Svrn7.Calendar.0.8.0.psm1       | LOBE           | Svrn7.Calendar.0.8.0.psm1        | ✓ Done   |
 | Svrn7.Presence.0.8.0.psm1       | LOBE           | Svrn7.Presence.0.8.0.psm1        | ✓ Done   |
 | Svrn7.Notifications.0.8.0.psm1  | LOBE           | Svrn7.Notifications.0.8.0.psm1   | ✓ Done   |
@@ -1160,7 +1160,7 @@ a single element type (LOBE) producing multiple artefact categories (Module + Pr
 | Society LOBE        | Svrn7.Society.0.8.0.psm1      | did:drn:svrn7.net/protocols/Svrn7.Society.0.8.0/transfer-*|
 |                     |                         | did:drn:svrn7.net/protocols/Svrn7.Onboarding.0.8.0/* |
 | UX LOBE             | Svrn7.UX.0.8.0.psm1           | did:drn:svrn7.net/protocols/Svrn7.UX.0.8.0/*      |
-| Email LOBE          | Svrn7.Email.0.8.0.psm1        | did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/*   |
+| Email LOBE          | PandoMail.0.8.0.psm1        | did:drn:svrn7.net/protocols/PandoMail.0.8.0/*   |
 | Calendar LOBE       | Svrn7.Calendar.0.8.0.psm1     | did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/*|
 | Presence LOBE       | Svrn7.Presence.0.8.0.psm1     | did:drn:svrn7.net/protocols/Svrn7.Presence.0.8.0/*|
 | Notifications LOBE  | Svrn7.Notifications.0.8.0.psm1| did:drn:svrn7.net/protocols/Svrn7.Notifications.0.8.0/*|

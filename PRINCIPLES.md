@@ -44,7 +44,7 @@ URIs diverge from the code that handles them.
 **Examples:**
 
 ```
-Svrn7.Email 0.8.0          did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/message
+Svrn7.Email 0.8.0          did:drn:svrn7.net/protocols/PandoMail.0.8.0/message
 Svrn7.Onboarding 0.8.0     did:drn:svrn7.net/protocols/Svrn7.Onboarding.0.8.0/register-citizen
 Pando.Diagnostics 0.1.0    did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/date-query
 ```

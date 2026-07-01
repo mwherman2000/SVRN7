@@ -766,7 +766,7 @@ All SVRN7 `@type` URIs follow: `did:drn:svrn7.net/protocols/{family}/{version}/{
 
 | Family          | URI prefix                                      | LOBE                   |
 |-----------------|-------------------------------------------------|------------------------|
-| Email           | `did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/`        | `Svrn7.Email`          |
+| Email           | `did:drn:svrn7.net/protocols/PandoMail.0.8.0/`        | `Svrn7.Email`          |
 | Calendar        | `did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/`     | `Svrn7.Calendar`       |
 | Presence        | `did:drn:svrn7.net/protocols/Svrn7.Presence.0.8.0/`     | `Svrn7.Presence`       |
 | Notification    | `did:drn:svrn7.net/protocols/Svrn7.Notifications.0.8.0/` | `Svrn7.Notifications`  |

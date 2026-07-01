@@ -132,7 +132,7 @@ Web7-DSA.sln
 | 2 | Svrn7.Federation.0.8.0.psm1 | Eager | federation/1.0/*, transfer/1.0/*, did/1.0/* |
 | 3 | Svrn7.Society.0.8.0.psm1 | Eager | transfer/1.0/*, Svrn7.Onboarding/0.8.0/*, society/1.0/* |
 | 4 | Svrn7.UX.0.8.0.psm1 | Eager | ux/1.0/* (balance-update, notification, registration-complete) |
-| 5 | Svrn7.Email.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/* |
+| 5 | PandoMail.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/PandoMail.0.8.0/* |
 | 6 | Svrn7.Calendar.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/* |
 | 7 | Svrn7.Presence.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/Svrn7.Presence.0.8.0/* |
 | 8 | Svrn7.Notifications.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/Svrn7.Notifications.0.8.0/* |
@@ -625,7 +625,7 @@ New in DSA 0.24. Conditional: only instantiated by AddSvrn7Society().
 All new LOBEs have both .psm1 and .psd1 manifests.
 Eager (InitialSessionState): Svrn7.Common, Svrn7.Federation, Svrn7.Society
 JIT (Import-Module on first use):
-  Svrn7.Email.0.8.0.psm1         — email/1.0/* (RFC 5322 tunneling over DIDComm)
+  PandoMail.0.8.0.psm1         — email/1.0/* (RFC 5322 tunneling over DIDComm)
   Svrn7.Calendar.0.8.0.psm1      — calendar/1.0/* (iCalendar tunneling over DIDComm)
   Svrn7.Presence.0.8.0.psm1      — presence/1.0/* (net-new DIDComm protocol)
   Svrn7.Notifications.0.8.0.psm1 — Svrn7.Notifications/0.8.0/* (net-new DIDComm protocol)

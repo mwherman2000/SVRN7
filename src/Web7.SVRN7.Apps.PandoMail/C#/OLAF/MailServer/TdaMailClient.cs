@@ -123,7 +123,7 @@ namespace Web7.SVRN7.Apps
         {
             string msgBody = JsonSerializer.Serialize(new { recipientDid, subject, bodyText, senderDisplay, recipientDisplay });
             await SendEnvelopeAsync(
-                "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Enqueue-PandoMail",
+                "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Enqueue-PandoMail",
                 msgBody, ct);
         }
 
@@ -144,7 +144,7 @@ namespace Web7.SVRN7.Apps
                     limit
                 });
                 await SendEnvelopeAsync(
-                    "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/List-Emails",
+                    "did:drn:svrn7.net/protocols/PandoMail.0.8.0/List-Emails",
                     msgBody, ct);
 
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -173,7 +173,7 @@ namespace Web7.SVRN7.Apps
             {
                 string msgBody = JsonSerializer.Serialize(new { correlationId, limit });
                 await SendEnvelopeAsync(
-                    "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/List-OutboundEmails",
+                    "did:drn:svrn7.net/protocols/PandoMail.0.8.0/List-OutboundEmails",
                     msgBody, ct);
 
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -202,7 +202,7 @@ namespace Web7.SVRN7.Apps
             {
                 string msgBody = JsonSerializer.Serialize(new { correlationId, limit });
                 await SendEnvelopeAsync(
-                    "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/List-DeadLetters",
+                    "did:drn:svrn7.net/protocols/PandoMail.0.8.0/List-DeadLetters",
                     msgBody, ct);
 
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -230,7 +230,7 @@ namespace Web7.SVRN7.Apps
             {
                 string msgBody = JsonSerializer.Serialize(new { correlationId, messageDid });
                 await SendEnvelopeAsync(
-                    "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Get-EmailBody",
+                    "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Get-EmailBody",
                     msgBody, ct);
 
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -258,7 +258,7 @@ namespace Web7.SVRN7.Apps
             {
                 string msgBody = JsonSerializer.Serialize(new { correlationId, requestedDid = did });
                 await SendEnvelopeAsync(
-                    "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Resolve-PandoDid",
+                    "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Resolve-PandoDid",
                     msgBody, ct);
 
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -293,7 +293,7 @@ namespace Web7.SVRN7.Apps
                     correlationId
                 });
                 await SendEnvelopeAsync(
-                    "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Query-TdaDid",
+                    "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Query-TdaDid",
                     msgBody, ct);
 
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -316,7 +316,7 @@ namespace Web7.SVRN7.Apps
         public async Task RequestFolderCountsAsync(CancellationToken ct = default)
         {
             await SendEnvelopeAsync(
-                "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Query-FolderCounts",
+                "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Query-FolderCounts",
                 "{}", ct);
         }
 

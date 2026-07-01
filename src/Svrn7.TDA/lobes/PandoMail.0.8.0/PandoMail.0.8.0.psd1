@@ -11,7 +11,7 @@
     Description       = 'SVRN7 Email LOBE — DIDComm-native email using RFC 5322 tunneling.'
     PowerShellVersion = '7.0'
 
-    RootModule        = 'Svrn7.Email.0.8.0.psm1'
+    RootModule        = 'PandoMail.0.8.0.psm1'
 
     FunctionsToExport = @(
         'Dequeue-PandoMail',

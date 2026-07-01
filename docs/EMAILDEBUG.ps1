@@ -29,12 +29,12 @@ dotnet build src/Svrn7.TDA/Svrn7.TDA.csproj
 # Verify the Email LOBE files are in the output:
 
 Set-Location src/Svrn7.TDA/bin/Debug/net8.0
-Get-ChildItem lobes/Svrn7.Email.0.8.0
+Get-ChildItem lobes/PandoMail.0.8.0
 
 # Expected:
 #
 # Svrn7.Email.lobe.json
-# Svrn7.Email.0.8.0.psm1
+# PandoMail.0.8.0.psm1
 
 # Verify Svrn7.Email is in the JIT list:
 
@@ -42,7 +42,7 @@ Get-Content lobes/lobes.config.json | Select-String "Email"
 
 # Expected:
 #
-#     "Svrn7.Email.0.8.0/Svrn7.Email.0.8.0.psm1"
+#     "PandoMail.0.8.0/PandoMail.0.8.0.psm1"
 #
 # ---
 #
@@ -100,7 +100,7 @@ $body = @{
 $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
-    type = "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/message"
+    type = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/message"
     from = "did:drn:foundation.svrn7.net"
     to   = @("did:drn:bindloss.svrn7.net")
     body = $body
@@ -112,9 +112,9 @@ Send-LocalDIDCommMessage -Body $msg
 #
 # Expected TDA log (timestamps vary):
 #
-# 20:49:13.432 info: Svrn7.TDA.DIDCommMessageSwitchboard[0] Switchboard: routing ... (type=.../Svrn7.Email.0.8.0/message) → Dequeue-PandoMail [Svrn7.Email]
-# 20:49:13.441 dbug: Svrn7.TDA.LobeManager[0] LobeManager: EnsureLoadedAsync - JIT '...\lobes\Svrn7.Email.0.8.0\Svrn7.Email.0.8.0.psm1'.
-# 20:49:13.512 info: Svrn7.TDA.LobeManager[0] LobeManager: import complete - ...\Svrn7.Email.0.8.0.psm1
+# 20:49:13.432 info: Svrn7.TDA.DIDCommMessageSwitchboard[0] Switchboard: routing ... (type=.../PandoMail.0.8.0/message) → Dequeue-PandoMail [Svrn7.Email]
+# 20:49:13.441 dbug: Svrn7.TDA.LobeManager[0] LobeManager: EnsureLoadedAsync - JIT '...\lobes\PandoMail.0.8.0\PandoMail.0.8.0.psm1'.
+# 20:49:13.512 info: Svrn7.TDA.LobeManager[0] LobeManager: import complete - ...\PandoMail.0.8.0.psm1
 # 20:49:13.518 dbug: Svrn7.TDA.DIDCommMessageSwitchboard[0]   [PS Verbose] Email LOBE: stored email from did:drn:foundation.svrn7.net — 'Hello from the Foundation'
 # 20:49:13.519 dbug: Svrn7.Society.LiteInboxStore[0] Inbox: message ... marked Processed
 #
@@ -135,7 +135,7 @@ $body = @{
 $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
-    type = "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/message"
+    type = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/message"
     from = "did:drn:foundation.svrn7.net"
     to   = @("did:drn:bindloss.svrn7.net")
     body = $body
@@ -164,7 +164,7 @@ $body = @{
 $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
-    type = "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/receipt"
+    type = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/receipt"
     from = "did:drn:foundation.svrn7.net"
     to   = @("did:drn:bindloss.svrn7.net")
     body = $body
@@ -174,7 +174,7 @@ Send-LocalDIDCommMessage -Body $msg
 
 # Expected TDA log:
 #
-# 20:49:14.101 info: ... Switchboard: routing ... (type=.../Svrn7.Email.0.8.0/receipt) → Dequeue-PandoMail [Svrn7.Email]
+# 20:49:14.101 info: ... Switchboard: routing ... (type=.../PandoMail.0.8.0/receipt) → Dequeue-PandoMail [Svrn7.Email]
 # 20:49:14.104 dbug: ...   [PS Verbose] Email LOBE: stored email from did:drn:foundation.svrn7.net — 'Delivery receipt'
 #
 # Both email/1.0/message and email/1.0/receipt route to Dequeue-PandoMail —
@@ -216,7 +216,7 @@ $body = @{
 $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
-    type = "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/message"
+    type = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/message"
     from = "did:drn:foundation.svrn7.net"
     to   = @("did:drn:bindloss.svrn7.net")
     body = $body
@@ -264,7 +264,7 @@ $body = @{
 $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
-    type = "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/List-Emails"
+    type = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/List-Emails"
     from = "did:drn:foundation.svrn7.net"
     to   = @("did:drn:bindloss.svrn7.net")
     body = $body

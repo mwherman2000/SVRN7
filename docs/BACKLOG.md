@@ -26,8 +26,8 @@ transformation.
 **Examples under the new convention:**
 
 ```
-Svrn7.Email 0.8.0      did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/message
-Svrn7.Email 0.8.0      did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/receipt
+Svrn7.Email 0.8.0      did:drn:svrn7.net/protocols/PandoMail.0.8.0/message
+Svrn7.Email 0.8.0      did:drn:svrn7.net/protocols/PandoMail.0.8.0/receipt
 Svrn7.Federation 0.8.0 did:drn:svrn7.net/protocols/Svrn7.Federation.0.8.0/register-society
 Svrn7.Onboarding 0.8.0 did:drn:svrn7.net/protocols/Svrn7.Onboarding.0.8.0/register-citizen
 Svrn7.Invoicing 0.8.0  did:drn:svrn7.net/protocols/Svrn7.Invoicing.0.8.0/request
@@ -135,7 +135,7 @@ every message type a TDA will ever encounter.
 1. **LOBE registry / index** — Once TDA-007 naming is in place, the NuGet
    package ID is read directly from the URI: the second path segment after
    `/protocols/` is the package ID verbatim (e.g.
-   `did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/message` → package
+   `did:drn:svrn7.net/protocols/PandoMail.0.8.0/message` → package
    `Svrn7.Email`).  The registry is still needed for one thing: the NuGet feed
    URL (`https://packages.svrn7.net/v3/index.json`).  The minimum version
    constraint is also read directly from the URI (`0.8` → `>= 0.8.0`).
@@ -388,7 +388,7 @@ would eliminate the per-dispatch import cost for frequently-used JIT LOBEs.
 
 ## TDA-001c — Double GetMessageAsync call in LOBE cmdlets (FYI / Minor Performance Note)
 
-**Area:** `DIDCommMessageSwitchboard`, `Svrn7.Email.0.8.0.psm1`, all LOBE cmdlets that call
+**Area:** `DIDCommMessageSwitchboard`, `PandoMail.0.8.0.psm1`, all LOBE cmdlets that call
 `$SVRN7.GetMessageAsync()` internally
 
 **Summary:** The Switchboard pipeline calls `Dequeue-Svrn7Message -Did $did` before invoking
@@ -416,7 +416,7 @@ profiling shows inbox-store reads appearing under load.
 
 **Summary:** When a DIDComm message arrives with a version-less `@type` URI
 (e.g. `did:drn:svrn7.net/protocols/Svrn7.Email/signal-message` instead of
-`did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/signal-message`), the
+`did:drn:svrn7.net/protocols/PandoMail.0.8.0/signal-message`), the
 Switchboard currently dead-letters it — no registration matches.  A possible
 convenience feature would add a third fallback tier to `TryResolveProtocol`
 that strips the version segment from all registered URIs, matches on LOBE name
