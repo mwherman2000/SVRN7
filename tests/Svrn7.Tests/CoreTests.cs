@@ -990,7 +990,7 @@ public class TransferValidatorTests
             var v         = new TransferValidator(new LiteWalletStore(ctx), new LiteIdentityRegistry(ctx),
                 new PassthroughSanctionsChecker(), _crypto, new InMemoryTransferNonceStore(), 1);
             var unknownKp = _crypto.GenerateSecp256k1KeyPair();
-            var req       = BuildRequest("did:drn:nobody-test", unknownKp.PrivateKeyBytes, "did:drn:soc-test", 1);
+            var req       = BuildRequest("did:drn:nobody-test", unknownKp.PrivateKeyBytes, "did:drn:societytest.svrn7.net", 1);
             var ex        = await Assert.ThrowsAsync<EpochViolationException>(() => v.ValidateAsync(req));
             ex.ViolationType.Should().Be("PayerMustBeCitizen");
         }
