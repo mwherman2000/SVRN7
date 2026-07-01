@@ -828,8 +828,8 @@ public class VcRegistryTests : IAsyncLifetime
         var staleVc = new VcRecord
         {
             VcId       = "urn:uuid:" + Guid.NewGuid(),
-            IssuerDid  = "did:drn:issuer",
-            SubjectDid = "did:drn:subject",
+            IssuerDid  = "did:drn:issuer-test",
+            SubjectDid = "did:drn:subject-test",
             Types      = new List<string> { "VerifiableCredential", "TestCredential" },
             VcHash     = "abc123",
             JwtEncoded = "header.payload.sig",
