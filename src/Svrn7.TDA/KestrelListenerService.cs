@@ -324,7 +324,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
 
         try
         {
-            await ReceiveWebSocketLoopAsync(ws, http.RequestAborted);
+            await ReceiveWebSocketLoopAsync(ws, clientId, http.RequestAborted);
         }
         finally
         {
@@ -334,7 +334,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         }
     }
 
-    private async Task ReceiveWebSocketLoopAsync(WebSocket ws, CancellationToken ct)
+    private async Task ReceiveWebSocketLoopAsync(WebSocket ws, Guid clientId, CancellationToken ct)
     {
         var buffer = new byte[64 * 1024];
 
@@ -342,6 +342,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         {
             using var ms = new MemoryStream();
             WebSocketReceiveResult result;
+            bool tooLarge = false;
 
             do
             {
@@ -357,24 +358,48 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
                     return;
                 }
                 ms.Write(buffer, 0, result.Count);
+
+                if (ms.Length > WebSocketNotifyHub.MaxMessageBytes)
+                {
+                    tooLarge = true;
+                    break;
+                }
             }
             while (!result.EndOfMessage);
+
+            if (tooLarge)
+            {
+                _log.LogWarning(
+                    "KestrelListenerService: WebSocket message too large ({Bytes} bytes, id={Id}) — closing.",
+                    ms.Length, clientId);
+                using var closeCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                try { await ws.CloseAsync(WebSocketCloseStatus.MessageTooBig, "message too large", closeCts.Token); }
+                catch { /* best-effort */ }
+                return;
+            }
+
+            _hub.MarkReceived(clientId);
 
             _log.LogDebug(
                 "KestrelListenerService: WebSocket complete message assembled — {TotalBytes} bytes.",
                 ms.Length);
             var json = System.Text.Encoding.UTF8.GetString(ms.ToArray());
-            _ = Task.Run(() => ProcessWebSocketMessageAsync(json, ct), ct);
+            _ = Task.Run(() => ProcessWebSocketMessageAsync(json, clientId, ct), ct);
         }
     }
 
-    private async Task ProcessWebSocketMessageAsync(string json, CancellationToken ct)
+    private async Task ProcessWebSocketMessageAsync(string json, Guid clientId, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(json)) return;
 
         _log.LogDebug(
             "KestrelListenerService: WebSocket processing message — length={Length}, preview='{Preview}'.",
             json.Length, json.Length > 120 ? json[..120] : json);
+
+        // Svrn7.LocalUI.0.1.0 control frames (Hello/Goodbye) are connection-lifecycle
+        // concerns handled directly by the hub — never enqueued to the inbox/Switchboard.
+        if (await _hub.TryHandleControlFrameAsync(clientId, json, ct))
+            return;
 
         DIDCommUnpackedMessage unpacked;
         try
@@ -394,6 +419,10 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
             "KestrelListenerService: WebSocket UnpackAsync OK — type='{Type}', from='{From}'.",
             unpacked.Type, unpacked.From);
 
+        // Track correlationId → socket before enqueueing, so a correlated reply (e.g.
+        // Get-PandoMails) is routed back to this connection instead of broadcast to all.
+        TryTrackRequestCorrelation(unpacked.Body, clientId);
+
         try
         {
             await _inbox.EnqueueAsync(
@@ -409,6 +438,22 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         {
             _log.LogError(ex, "KestrelListenerService: WebSocket inbox enqueue failed.");
         }
+    }
+
+    private void TryTrackRequestCorrelation(string bodyJson, Guid clientId)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(bodyJson);
+            if (doc.RootElement.TryGetProperty("correlationId", out var cid) &&
+                cid.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var correlationId = cid.GetString();
+                if (!string.IsNullOrEmpty(correlationId))
+                    _hub.TrackCorrelation(correlationId, clientId);
+            }
+        }
+        catch { /* not every body is a JSON object with a correlationId — that's fine */ }
     }
 
     // ── mTLS peer certificate validation ─────────────────────────────────────

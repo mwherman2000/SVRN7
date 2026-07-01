@@ -2,9 +2,11 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.WebSockets;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -46,6 +48,19 @@ namespace Web7.SVRN7.Apps
 
         // Pending List-Emails requests keyed by correlationId → completion source.
         private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pending = new();
+
+        // Stable across reconnects — lets the TDA's WebSocketNotifyHub and its logs
+        // distinguish this process instance from another PandoMail window.
+        private readonly Guid _instanceId = Guid.NewGuid();
+
+        // Declared to the TDA via Hello so WebSocketNotifyHub knows which broadcast
+        // notifications (as opposed to correlated request replies, which are always
+        // unicast regardless of subscription) this connection should receive.
+        private static readonly (string Uri, string Match)[] Subscriptions =
+        {
+            ("did:drn:svrn7.net/protocols/Email-Notify.0.1.0/", "prefix"),
+            ("did:drn:svrn7.net/protocols/PandoMail.0.8.0/Notify-FolderCounts", "exact"),
+        };
 
         /// <summary>Fired on the thread-pool when TDA pushes an Email-Notify envelope.</summary>
         public event Action<string> EmailNotifyReceived;
@@ -102,6 +117,7 @@ namespace Web7.SVRN7.Apps
                 await _ws.ConnectAsync(new Uri(_wsUri), _http, ct);
                 Debug.WriteLine($"[TdaMailClient] WS CONNECT complete state={_ws.State}");
                 _ = Task.Run(() => ReceiveLoopAsync(_cts.Token));
+                await SendHelloAsync(ct);
             }
             catch (WebSocketException ex)
             {
@@ -113,6 +129,62 @@ namespace Web7.SVRN7.Apps
                 Debug.WriteLine($"[TdaMailClient] WS CONNECT FAILED ({ex.GetType().Name}): {ex.Message}  InnerException={ex.InnerException?.GetType().Name}: {ex.InnerException?.Message}");
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Declares this connection's identity and subscriptions to WebSocketNotifyHub.
+        /// Sent as the last step of ConnectAsync, before any other traffic — the hub is
+        /// fail-closed (see docs/BACKLOG.md TDA-011): a connection that hasn't sent Hello
+        /// receives no broadcast notifications (correlated request replies are unaffected).
+        /// </summary>
+        private async Task SendHelloAsync(CancellationToken ct)
+        {
+            string appVersion = typeof(TdaMailClient).Assembly
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion ?? "unknown";
+
+            string envelope = JsonSerializer.Serialize(new
+            {
+                typ  = "application/didcomm-plain+json",
+                id   = "did:drn:svrn7.net/didcomm/msg/" + Guid.NewGuid().ToString("N"),
+                type = "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Hello",
+                body = new
+                {
+                    app           = "PandoMail",
+                    appVersion,
+                    appFullName   = typeof(TdaMailClient).Assembly.GetName().FullName,
+                    instanceId    = _instanceId.ToString(),
+                    mvid          = typeof(TdaMailClient).Module.ModuleVersionId.ToString(),
+                    subscriptions = Subscriptions.Select(s => new { uri = s.Uri, match = s.Match })
+                }
+            });
+            byte[] bytes = Encoding.UTF8.GetBytes(envelope);
+            await _ws.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
+            Debug.WriteLine($"[TdaMailClient] sent Hello: {envelope}");
+        }
+
+        /// <summary>
+        /// Sends Goodbye and closes the WebSocket cleanly. Best-effort — the WS close
+        /// frame is authoritative for connection teardown either way, so a failure here
+        /// (e.g. TDA already gone) is not treated as an error.
+        /// </summary>
+        public async Task DisconnectAsync(CancellationToken ct = default)
+        {
+            if (_ws.State != WebSocketState.Open) return;
+            try
+            {
+                string envelope = JsonSerializer.Serialize(new
+                {
+                    typ  = "application/didcomm-plain+json",
+                    id   = "did:drn:svrn7.net/didcomm/msg/" + Guid.NewGuid().ToString("N"),
+                    type = "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Goodbye",
+                    body = new { instanceId = _instanceId.ToString() }
+                });
+                byte[] bytes = Encoding.UTF8.GetBytes(envelope);
+                await _ws.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
+                await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "client disconnecting", ct);
+            }
+            catch { /* best-effort */ }
         }
 
         // ── Outbound: Send a composed email ────────────────────────────────────

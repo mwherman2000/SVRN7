@@ -489,9 +489,9 @@ Changes made:
 
 ---
 
-## TDA-011 — WebSocketNotifyHub subscription routing for multiple local-UI clients
+## ~~TDA-011~~ — WebSocketNotifyHub subscription routing for multiple local-UI clients ✓ *implemented (2026-07-01)*
 
-**Area:** `WebSocketNotifyHub`, `KestrelListenerService`
+**Area:** `WebSocketNotifyHub`, `KestrelListenerService`, `TdaMailClient`
 
 **Summary:** `WebSocketNotifyHub` currently broadcasts every push notification to all
 connected clients. This is correct when only one app is connected, but breaks with
@@ -563,13 +563,23 @@ subscription bookkeeping lives entirely in shared TDA infrastructure, decoupled 
 app's business protocol — PandoBoard (or any future local-UI app) gets it for free by
 sending one `Hello` frame, no per-app server code required.
 
-**Two distinct traffic categories on this channel (surfaced during design, not yet
-resolved):** Topic subscriptions solve *broadcast notifications* (`Email-Notify`,
-`Notify-FolderCounts`). They do **not** solve *request/reply* correctness
-(`List-Emails`→`Get-PandoMails`, `Query-TdaDid`→`Reply-TdaDid`, etc.), which need
-correlation-based unicast routing back to the requesting socket specifically — a separate
-mechanism (`correlationId → socketId` tracking) from topic subscriptions. Tracked as a
-follow-up; not designed in detail yet.
+**Two distinct traffic categories on this channel — both implemented:** Topic
+subscriptions solve *broadcast notifications* (`Email-Notify`, `Notify-FolderCounts`).
+*Request/reply* correctness (`List-Emails`→`Get-PandoMails`, `Query-TdaDid`→`Reply-TdaDid`,
+etc.) needed a separate mechanism — `WebSocketNotifyHub.TrackCorrelation(correlationId,
+socketId)`, called from `KestrelListenerService.ProcessWebSocketMessageAsync` whenever an
+inbound WS message's body carries a `correlationId`, before enqueueing. `PushAsync` checks
+for a tracked correlation first (unicast to that connection only, entry consumed on match)
+and falls back to subscription-based multicast otherwise. Entries older than 5 minutes are
+pruned opportunistically on each `TrackCorrelation` call — bounds memory from requests that
+never got a reply, no background timer needed.
+
+**Note (2026-07-01):** `correlationId` lives in `body` because that's what every existing
+LOBE already uses — it is *not* DIDComm V2's spec-standard `thid` (thread ID) field.
+`Svrn7.DIDComm`'s `DIDCommMessage`/`DIDCommUnpackedMessage` never modeled `thid` at the
+envelope level at all, so there was nothing to reuse; the correlation-routing work here
+plugs into the existing ad-hoc convention rather than migrating every LOBE to a
+spec-conformant field. See TDA-014.
 
 **Multiple instances of the same app:** Two PandoMail instances both subscribe to
 `Email-Notify`. Both receive the push (fan-out). Because the payload is a LiteDB
@@ -595,24 +605,34 @@ WebSocket frame received
                                                         └── routed to subscribed clients only
 ```
 
-**What needs to change:**
-- `WebSocketNotifyHub`: add `Dictionary<Guid, List<(string Uri, string Match)>> _subscriptions`;
-  update `Attach`/`Detach` to manage subscriptions; update `PushAsync` to route by `@type`
-  using `LobeManager`'s exact/prefix matcher.
-- `KestrelListenerService.ReceiveWebSocketLoopAsync`: intercept `Svrn7.LocalUI.0.1.0/Hello`
-  and `.../Goodbye` frames before forwarding to `ProcessWebSocketMessageAsync`.
-- `TdaMailClient.ConnectAsync`: send `Hello` as its own last step after the WS connects,
-  with PandoMail's subscription list; send `Goodbye` on graceful disconnect.
-- LOBEs: **no change** — they still return `OutboundMessage` with
-  `PeerEndpoint = WebSocketNotifyHub.LocalEndpoint` as before.
-- `Send-LocalDIDCommMessage`: **no change** — the Hello handshake is optional for
-  tool/PS use; tools receive no pushes anyway (they connect, send, and disconnect).
-
-**No code change required now** — tracked here for design continuity.
+**Implemented (2026-07-01):**
+- `WebSocketNotifyHub`: per-connection `Connection` record (`WebSocket`, per-connection
+  `SendLock`, `Subscriptions`, `LastReceived`, `App`/`AppVersion`/`InstanceId`).
+  `TryHandleControlFrameAsync` handles Hello (records subscriptions, replies `Subscribed`)
+  and Goodbye (log only). `PushAsync` does correlation-unicast-first, then
+  subscription-multicast. `MatchesSubscription` reuses the exact/prefix semantics from
+  `.lobe.json` (not literally `LobeManager`'s matcher — a small local reimplementation,
+  since subscriptions are a per-connection list rather than a single registry and only need
+  an any-match boolean, not longest-prefix-wins).
+- `KestrelListenerService`: `ReceiveWebSocketLoopAsync`/`ProcessWebSocketMessageAsync` now
+  thread `clientId` through; `TryHandleControlFrameAsync` is checked before
+  `UnpackAsync`/`EnqueueAsync`; `TryTrackRequestCorrelation` extracts `body.correlationId`
+  and calls `_hub.TrackCorrelation` before enqueueing.
+- `TdaMailClient`: `SendHelloAsync` (app=`PandoMail`, subscriptions = `Email-Notify.0.1.0/`
+  prefix + `PandoMail.0.8.0/Notify-FolderCounts` exact) called as the last step of
+  `ConnectAsync`. `DisconnectAsync` sends `Goodbye` then closes; wired to
+  `MainForm.FormClosing`.
+- Tests: `WebSocketNotifyHubTests` in `tests/Svrn7.TDA.Tests/TdaTests.cs` — fail-closed
+  (no Hello ⇒ no broadcast), Hello ⇒ Subscribed ack, matching/non-matching prefix
+  subscription, and correlated-reply-unicast-only (two connections, only the requester
+  receives the reply).
+- LOBEs: unchanged, as planned — still return `OutboundMessage` with
+  `PeerEndpoint = WebSocketNotifyHub.LocalEndpoint`.
+- `Send-LocalDIDCommMessage`: unchanged — no Hello sent, receives no pushes, as planned.
 
 ---
 
-## TDA-013 — /didcomm-ws WebSocket hardening (idle watchdog, message cap, per-connection send lock)
+## ~~TDA-013~~ — /didcomm-ws WebSocket hardening (idle watchdog, message cap, per-connection send lock) ✓ *implemented (2026-07-01)*
 
 **Area:** `WebSocketNotifyHub`, `KestrelListenerService`
 
@@ -644,11 +664,64 @@ none of them:
    only sends *to the same socket* (echo reply vs. watchdog timeout message) need to be
    serialized against each other, not sends to different sockets.
 
-**Why not fixed now:** Discovered as a byproduct of researching TDA-011's design, not
-requested work. Currently low real-world impact — this channel serves a small,
-first-party set of localhost apps (PandoMail today), not untrusted or high-volume
-clients — but worth doing before more local-UI apps (PandoBoard, Calendar, Presence)
-connect concurrently.
+**Implemented (2026-07-01), with one intentional simplification vs. WsExample2:**
+- **Idle watchdog:** a single shared `System.Threading.Timer` in `WebSocketNotifyHub`
+  (matching `IsolatedRunspaceFactory`'s epoch-refresh pattern already used elsewhere in
+  this codebase) polls every 15s for connections idle over 60s, rather than one
+  `Task.Run` per connection as in WsExample2 — simpler for the connection counts this
+  channel actually sees. Sends a `Svrn7.LocalUI.0.1.0/Timeout` notice, then
+  `CloseOutputAsync` (half-close) and relies on the client responding with its own close
+  frame. **No hard-cancel fallback** if the client never responds (WsExample2 has one) —
+  accepted for v1 since this channel serves a small, trusted set of first-party local
+  processes, not adversarial peers; a stuck connection is caught eventually by the
+  Detach/pruning already done in `PushAsync`.
+- **Message size cap:** `WebSocketNotifyHub.MaxMessageBytes` (1 MB) checked inside
+  `KestrelListenerService.ReceiveWebSocketLoopAsync`'s reassembly loop; closes with
+  `WebSocketCloseStatus.MessageTooBig` if exceeded.
+- **Per-connection send lock:** each `Connection.SendLock` guards sends to that socket only
+  — replaces the old single global `_sendLock` that serialized broadcasts across every
+  connected client regardless of which socket was actually slow.
+
+---
+
+## TDA-014 — Adopt DIDComm V2's `thid` instead of ad-hoc `body.correlationId`
+
+**Area:** `Svrn7.DIDComm` (`DIDCommMessage`, `DIDCommUnpackedMessage`), every LOBE that
+currently reads/writes `correlationId`, `TdaMailClient`, `WebSocketNotifyHub`
+
+**Summary:** Surfaced while implementing TDA-011's correlation-based reply routing
+(2026-07-01). DIDComm Messaging V2 defines `thid` (thread ID) as a standard envelope-level
+header — alongside `id`, `type`, `from`, `to`, `body` — used exactly for this purpose:
+`id` identifies a message uniquely, `thid` (when present) points back to the `id` of the
+message that started the thread, letting a reply be correlated to its request without any
+application-level convention.
+
+This codebase never modeled `thid` at all — `DIDCommMessage`/`DIDCommUnpackedMessage` in
+`Svrn7.DIDComm` only have `Id`, `Type`, `From`, `Body`, `Mode`. Every LOBE that needs
+request/reply correlation (`Query-TdaDid`, `List-Emails`, `Get-EmailBody`,
+`Resolve-PandoDid`, `List-OutboundEmails`, `List-DeadLetters`) invented the same thing by
+hand inside `body.correlationId` instead. `WebSocketNotifyHub.TrackCorrelation` (TDA-011)
+plugs into that existing ad-hoc convention rather than introducing a second one, since
+migrating away from it touches every LOBE plus `TdaMailClient`.
+
+**What would be required:**
+- Add `string? Thid` to `DIDCommMessage`/`DIDCommUnpackedMessage` and thread it through
+  `PackPlaintextAsync`/`PackSignedAsync`/`PackEncryptedAsync`/`PackSignedAndEncryptedAsync`/
+  `UnpackAsync` in `DIDCommService`.
+- Update every LOBE currently reading/writing `body.correlationId` to use the envelope-level
+  `thid` instead (a breaking wire-format change for all affected protocols — same
+  version-bump rules as TDA-007).
+- Update `WebSocketNotifyHub.TrackCorrelation`/`PushAsync` and
+  `KestrelListenerService.TryTrackRequestCorrelation` to read `unpacked.Thid` instead of
+  parsing `body.correlationId` out of the JSON by hand.
+- Update `TdaMailClient`'s request-sending methods to set `thid` instead of generating and
+  threading a `correlationId` body field manually.
+
+**Why not fixed now:** Discovered as a byproduct of TDA-011, not requested work, and it's a
+breaking change across every existing protocol that uses `correlationId` today. `thid`
+would be the spec-conformant, cleaner long-term answer, but adopting it is a separate,
+larger migration from wiring up subscription/correlation routing on top of what already
+exists.
 
 **No code change required now** — tracked here for design continuity.
 

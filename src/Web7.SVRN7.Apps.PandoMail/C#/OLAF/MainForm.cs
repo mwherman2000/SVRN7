@@ -53,8 +53,19 @@ namespace Web7.SVRN7.Apps
 
 			toolStripSplitButton3.Click += async (s, ev) => await RefreshInboxAsync();
 
+			this.FormClosing += MainForm_FormClosing;
+
 			// Defer TDA connection until after first paint so the window appears immediately.
 			this.Shown += MainForm_Shown;
+		}
+
+		private async void MainForm_FormClosing(object sender, FormClosingEventArgs e)
+		{
+			if (_tdaClient is not null)
+			{
+				try { await _tdaClient.DisconnectAsync(); }
+				catch { /* best-effort — closing anyway */ }
+			}
 		}
 
 		private async void MainForm_Shown(object sender, EventArgs e)

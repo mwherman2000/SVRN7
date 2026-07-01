@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Net.WebSockets;
+using System.Text;
 using FluentAssertions;
 using Svrn7.Core.Interfaces;
 using LiteDB;
@@ -1628,4 +1630,171 @@ internal sealed class ThrowingResetInboxStore : IInboxStore
 internal sealed class NullHttpClientFactory : System.Net.Http.IHttpClientFactory
 {
     public HttpClient CreateClient(string name) => new HttpClient();
+}
+
+// ── WebSocketNotifyHub: Hello/subscription/correlation routing tests (TDA-011) ────
+
+public sealed class WebSocketNotifyHubTests : IAsyncLifetime
+{
+    private readonly int _port;
+    private readonly WebSocketNotifyHub _hub;
+    private readonly KestrelListenerService _listener;
+
+    public WebSocketNotifyHubTests()
+    {
+        _port = FindFreePort();
+        _hub  = new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance);
+        _listener = new KestrelListenerService(
+            Options.Create(new TdaOptions
+            {
+                SocietyDid                        = "did:drn:test.svrn7.net",
+                SocietyMessagingPrivateKeyEd25519 = Array.Empty<byte>(),
+                ListenPort                        = _port,
+                TlsCertificatePath                = null,
+                RequireMutualTls                  = false,
+            }),
+            new StubDIDCommService(
+                "did:drn:svrn7.net/protocols/Test.0.1.0/request",
+                """{"correlationId":"corr-1"}"""),
+            new RecordingInboxStore(),
+            _hub,
+            NullLogger<KestrelListenerService>.Instance);
+    }
+
+    public Task InitializeAsync() => _listener.StartAsync(CancellationToken.None);
+
+    public async Task DisposeAsync()
+    {
+        await _listener.StopAsync(CancellationToken.None);
+        await _listener.DisposeAsync();
+    }
+
+    private async Task<ClientWebSocket> ConnectAsync()
+    {
+        AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+        var ws = new ClientWebSocket();
+        ws.Options.HttpVersion       = new Version(2, 0);
+        ws.Options.HttpVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
+        var http = new HttpClient(new System.Net.Http.SocketsHttpHandler { EnableMultipleHttp2Connections = true });
+        await ws.ConnectAsync(new Uri($"ws://localhost:{_port}/didcomm-ws"), http, CancellationToken.None);
+        return ws;
+    }
+
+    private static Task SendAsync(ClientWebSocket ws, string json) =>
+        ws.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, true, CancellationToken.None);
+
+    private static async Task<string?> TryReceiveAsync(ClientWebSocket ws, TimeSpan timeout)
+    {
+        var buffer = new byte[8192];
+        using var cts = new CancellationTokenSource(timeout);
+        try
+        {
+            var result = await ws.ReceiveAsync(buffer, cts.Token);
+            return Encoding.UTF8.GetString(buffer, 0, result.Count);
+        }
+        catch (OperationCanceledException) { return null; }
+    }
+
+    private static int FindFreePort()
+    {
+        using var listener = new TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
+
+    [Fact]
+    public async Task Connection_Without_Hello_Receives_No_Broadcast()
+    {
+        using var ws = await ConnectAsync();
+
+        await _hub.PushAsync("""{"type":"did:drn:svrn7.net/protocols/Test.Notify.0.1.0/ping"}""");
+
+        var received = await TryReceiveAsync(ws, TimeSpan.FromMilliseconds(500));
+        received.Should().BeNull(
+            because: "a connection that hasn't sent Hello has no subscriptions — fail-closed, no unfiltered fallback");
+    }
+
+    [Fact]
+    public async Task Hello_Receives_Subscribed_Ack()
+    {
+        using var ws = await ConnectAsync();
+
+        await SendAsync(ws, """
+            {"type":"did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Hello",
+             "body":{"app":"Test","subscriptions":[{"uri":"did:drn:svrn7.net/protocols/Test.Notify.0.1.0/","match":"prefix"}]}}
+            """);
+
+        var ack = await TryReceiveAsync(ws, TimeSpan.FromSeconds(2));
+        ack.Should().NotBeNull();
+        ack.Should().Contain("Svrn7.LocalUI.0.1.0/Subscribed");
+    }
+
+    [Fact]
+    public async Task Connection_With_Matching_Prefix_Subscription_Receives_Broadcast()
+    {
+        using var ws = await ConnectAsync();
+        await SendAsync(ws, """
+            {"type":"did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Hello",
+             "body":{"app":"Test","subscriptions":[{"uri":"did:drn:svrn7.net/protocols/Test.Notify.0.1.0/","match":"prefix"}]}}
+            """);
+        await TryReceiveAsync(ws, TimeSpan.FromSeconds(2)); // consume the Subscribed ack
+
+        await _hub.PushAsync("""{"type":"did:drn:svrn7.net/protocols/Test.Notify.0.1.0/ping"}""");
+
+        var received = await TryReceiveAsync(ws, TimeSpan.FromSeconds(2));
+        received.Should().NotBeNull();
+        received.Should().Contain("Test.Notify.0.1.0/ping");
+    }
+
+    [Fact]
+    public async Task Connection_With_NonMatching_Subscription_Does_Not_Receive_Broadcast()
+    {
+        using var ws = await ConnectAsync();
+        await SendAsync(ws, """
+            {"type":"did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Hello",
+             "body":{"app":"Test","subscriptions":[{"uri":"did:drn:svrn7.net/protocols/Other.Notify.0.1.0/","match":"prefix"}]}}
+            """);
+        await TryReceiveAsync(ws, TimeSpan.FromSeconds(2)); // consume the Subscribed ack
+
+        await _hub.PushAsync("""{"type":"did:drn:svrn7.net/protocols/Test.Notify.0.1.0/ping"}""");
+
+        var received = await TryReceiveAsync(ws, TimeSpan.FromMilliseconds(500));
+        received.Should().BeNull(
+            because: "the pushed type does not match any declared subscription");
+    }
+
+    [Fact]
+    public async Task Correlated_Reply_Is_Unicast_To_Requesting_Connection_Only()
+    {
+        using var wsA = await ConnectAsync();
+        using var wsB = await ConnectAsync();
+
+        // Both connections subscribe to nothing — irrelevant to this test, since correlated
+        // replies bypass subscription filtering entirely.
+        const string hello = """
+            {"type":"did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Hello","body":{"app":"Test","subscriptions":[]}}
+            """;
+        await SendAsync(wsA, hello);
+        await TryReceiveAsync(wsA, TimeSpan.FromSeconds(2));
+        await SendAsync(wsB, hello);
+        await TryReceiveAsync(wsB, TimeSpan.FromSeconds(2));
+
+        // wsA sends a "request". StubDIDCommService always unpacks to body {"correlationId":"corr-1"}
+        // regardless of the actual frame contents — enough to exercise TrackCorrelation end-to-end.
+        await SendAsync(wsA, """{"type":"did:drn:svrn7.net/protocols/Test.0.1.0/request"}""");
+        await Task.Delay(300); // let ProcessWebSocketMessageAsync run and register the correlation
+
+        await _hub.PushAsync(
+            """{"type":"did:drn:svrn7.net/protocols/Test.0.1.0/reply","body":{"correlationId":"corr-1"}}""");
+
+        var receivedA = await TryReceiveAsync(wsA, TimeSpan.FromSeconds(2));
+        var receivedB = await TryReceiveAsync(wsB, TimeSpan.FromMilliseconds(500));
+
+        receivedA.Should().NotBeNull();
+        receivedA.Should().Contain("corr-1");
+        receivedB.Should().BeNull(
+            because: "the reply is correlated to wsA's request and must not broadcast to wsB");
+    }
 }
