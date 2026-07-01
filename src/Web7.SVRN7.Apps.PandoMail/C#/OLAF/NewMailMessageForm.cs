@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -461,21 +463,45 @@ namespace Web7.SVRN7.Apps
                     "The WebView2 Runtime is required for the rich-text editor.\n\n" +
                     "Download it from microsoft.com/edge/download (choose 'WebView2 Runtime').\n\n" +
                     "Detail: " + ex.Message,
-                    "Web7 Mail — WebView2 not found",
+                    "Pando Mail — WebView2 not found",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);
             }
         }
 
+        // Resolves a semicolon-separated list of DIDs to (rawJoined, displayJoined) — the raw
+        // list is forwarded to the TDA as-is (it re-splits on ';'), the display list is
+        // comma-joined for the RFC 5322 header the TDA builds (To:/Cc: allow comma-separated
+        // addresses within one header value regardless of how the UI separates them).
+        private async Task<(string Raw, string Display)> ResolveRecipientListAsync(string rawInput)
+        {
+            var dids = rawInput.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var displays = new List<string>();
+            foreach (var did in dids)
+            {
+                string display = did;
+                try
+                {
+                    DidResolutionResult resolved = await _client.ResolveDidAsync(did);
+                    if (resolved.Found && !string.IsNullOrEmpty(resolved.Svrn7Name))
+                        display = $"\"{resolved.Svrn7Name}\" <{did}>";
+                }
+                catch { }
+                displays.Add(display);
+            }
+            return (string.Join(";", dids), string.Join(", ", displays));
+        }
+
         private async void btnSend_Click(object sender, EventArgs e)
         {
             string to      = txtTo.Text.Trim();
+            string cc      = txtCc.Text.Trim();
             string subject = txtSubject.Text.Trim();
 
             if (string.IsNullOrEmpty(to))
             {
-                MessageBox.Show("Please enter a recipient DID in the To: field.",
-                    "Web7 Mail", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("Please enter at least one recipient DID in the To: field (separate multiple with ;).",
+                    "Pando Mail", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 txtTo.Focus();
                 return;
             }
@@ -483,7 +509,7 @@ namespace Web7.SVRN7.Apps
             if (string.IsNullOrEmpty(subject))
             {
                 MessageBox.Show("Please enter a subject.",
-                    "Web7 Mail", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    "Pando Mail", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 txtSubject.Focus();
                 return;
             }
@@ -499,7 +525,7 @@ namespace Web7.SVRN7.Apps
             if (string.IsNullOrWhiteSpace(bodyText))
             {
                 MessageBox.Show("Please enter a message body.",
-                    "Web7 Mail", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    "Pando Mail", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 webView.Focus();
                 return;
             }
@@ -509,21 +535,19 @@ namespace Web7.SVRN7.Apps
                 ? $"\"{_client.TdaName}\" <{_client.TdaDid}>"
                 : _client.TdaDid;
 
-            // Resolve recipient DID Document to get display name; fall back to bare DID on miss/timeout
-            string recipientDisplay = to;
-            try
-            {
-                DidResolutionResult resolved = await _client.ResolveDidAsync(to);
-                if (resolved.Found && !string.IsNullOrEmpty(resolved.Svrn7Name))
-                    recipientDisplay = $"\"{resolved.Svrn7Name}\" <{to}>";
-            }
-            catch { }
+            // Resolve each To/Cc recipient's DID Document to get display names; falls back to
+            // the bare DID on miss/timeout. Every resolved recipient — To and Cc alike — gets
+            // its own delivered copy of the message (fan-out happens on the TDA side).
+            var (toRaw, toDisplay) = await ResolveRecipientListAsync(to);
+            var (ccRaw, ccDisplay) = string.IsNullOrEmpty(cc)
+                ? (string.Empty, string.Empty)
+                : await ResolveRecipientListAsync(cc);
 
             btnSend.Enabled = false;
             try
             {
-                await _client.SendAsync(to, subject, bodyText, senderDisplay, recipientDisplay);
-                MessageBox.Show("Mail message sent.", "Web7 Mail",
+                await _client.SendAsync(toRaw, subject, bodyText, senderDisplay, toDisplay, ccRaw, ccDisplay);
+                MessageBox.Show("Mail message sent.", "Pando Mail",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 this.Close();
             }
@@ -532,7 +556,7 @@ namespace Web7.SVRN7.Apps
                 MessageBox.Show(
                     "Failed to send: is the Citizen TDA running on port " +
                     Program.TdaPort + "?\n\nDetail: " + ex.Message,
-                    "Web7 Mail", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    "Pando Mail", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 btnSend.Enabled = true;
             }
         }

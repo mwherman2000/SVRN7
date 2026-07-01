@@ -22,6 +22,7 @@ namespace Web7.SVRN7.Apps
 		int								_deadLetterCount = 0;
 		MailMessage						_selectedMessage;
 		int								_previous = 0;
+		string							_currentFolder = "Inbox";
 
 		private event PropertyChangedEventHandler _changed;
 
@@ -55,7 +56,7 @@ namespace Web7.SVRN7.Apps
 				int pos = _messages.IndexOf(value);
 				if (_previous != pos)
 				{
-					if (!value.Read)
+					if (_currentFolder.Equals("Inbox", StringComparison.OrdinalIgnoreCase) && !value.Read)
 					{
 						value.Read = true;
 						this.UnreadCount--;
@@ -147,6 +148,7 @@ namespace Web7.SVRN7.Apps
 
 		public void ReplaceAll(IList<MailMessage> incoming, string folderName = "Inbox")
 		{
+			_currentFolder = folderName;
 			_messages.RaiseListChangedEvents = false;
 			_messages.Clear();
 			int unread = 0;

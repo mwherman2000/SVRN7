@@ -131,7 +131,7 @@ function Enqueue-PandoMail {
         Protocol: did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail
 
     .PARAMETER RecipientDid
-        The recipient citizen's did:drn DID.
+        The recipient citizen's did:drn DID. Semicolon-separated for multiple To recipients.
 
     .PARAMETER Subject
         Email subject line.
@@ -143,13 +143,22 @@ function Enqueue-PandoMail {
         Sender display string, e.g. '"Alice" <did:drn:...>'. Defaults to the local DID.
 
     .PARAMETER ToDisplay
-        Recipient display string, e.g. '"Bob" <did:drn:...>'. Defaults to RecipientDid.
+        To display string(s), e.g. '"Bob" <did:drn:...>; "Alice" <did:drn:...>'. Defaults
+        to a comma-joined list of the RecipientDid entries.
+
+    .PARAMETER Cc
+        Semicolon-separated list of additional recipient DIDs to deliver a copy to.
+
+    .PARAMETER CcDisplay
+        Cc display string(s), e.g. '"Carol" <did:drn:...>; "Dave" <did:drn:...>'.
+        Defaults to a comma-joined list of the Cc DIDs when not provided.
 
     .OUTPUTS
-        OutboundMessage — packed DIDComm message ready for Switchboard delivery.
+        OutboundMessage — one per successfully resolved recipient (every To and every Cc),
+        packed and ready for Switchboard delivery.
 
     .EXAMPLE
-        Enqueue-PandoMail -RecipientDid "did:drn:beta.svrn7.net/citizen/bob" -Subject "Hello" -Body "Hi Bob"
+        Enqueue-PandoMail -RecipientDid "did:drn:beta.svrn7.net/citizen/bob" -Subject "Hello" -Body "Hi Bob" -Cc "did:drn:beta.svrn7.net/citizen/carol;did:drn:beta.svrn7.net/citizen/dave"
     #>
     [CmdletBinding()]
     param(
@@ -157,65 +166,72 @@ function Enqueue-PandoMail {
         [Parameter(Mandatory)] [string] $Subject,
         [Parameter(Mandatory)] [string] $Body,
         [string] $From      = '',
-        [string] $ToDisplay = ''
+        [string] $ToDisplay = '',
+        [string] $Cc        = '',
+        [string] $CcDisplay = ''
     )
 
     process {
-        if (-not $From)      { $From      = $SVRN7.LocalDid }
-        if (-not $ToDisplay) { $ToDisplay = $RecipientDid   }
+        if (-not $From) { $From = $SVRN7.LocalDid }
+
+        # Semicolon separates multiple recipients within the To: field and within the
+        # Cc: field alike (matches the PandoMail compose UI's To/Cc text boxes).
+        $toDids = @($RecipientDid -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        $ccDids = @($Cc           -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+
+        $toDisplayValue = if ($ToDisplay) { $ToDisplay } else { $toDids -join ', ' }
+        $ccDisplayValue = if ($CcDisplay) { $CcDisplay } else { $ccDids -join ', ' }
 
         $date = [datetime]::UtcNow.ToString('ddd, dd MMM yyyy HH:mm:ss') + ' +0000'
 
-        # Build RFC 5322 message — display names included when provided
-        $rfc5322 = @"
-From: $From
-To: $ToDisplay
-Subject: $Subject
-Date: $date
-MIME-Version: 1.0
-Content-Type: text/plain; charset=utf-8
+        # Build RFC 5322 headers — Cc: line only present when there are Cc recipients.
+        $headerLines = [System.Collections.Generic.List[string]]::new()
+        $headerLines.Add("From: $From")
+        $headerLines.Add("To: $toDisplayValue")
+        if ($ccDids.Count -gt 0) { $headerLines.Add("Cc: $ccDisplayValue") }
+        $headerLines.Add("Subject: $Subject")
+        $headerLines.Add("Date: $date")
+        $headerLines.Add("MIME-Version: 1.0")
+        $headerLines.Add("Content-Type: text/plain; charset=utf-8")
+        $rfc5322 = ($headerLines -join "`r`n") + "`r`n`r`n$Body"
 
-$Body
-"@
-        $peerEndpoint = Resolve-SocietySenderEndpoint -Did $RecipientDid
-        if (-not $peerEndpoint) {
-            Write-Warning "Enqueue-PandoMail: no DIDComm service endpoint for '$RecipientDid' — writing to dead letters."
-            $deadEnvelope = [ordered]@{
+        # Deliver independently to every To recipient and every Cc recipient — one
+        # physical DIDComm message per peer TDA, all carrying the same RFC 5322 body so
+        # every recipient sees the full To/Cc header set. A failure resolving one
+        # recipient's endpoint dead-letters only that copy; it does not block delivery
+        # to the others (matches SMTP semantics: each envelope recipient is independent).
+        $targets = $toDids + $ccDids
+
+        foreach ($targetDid in $targets) {
+            $targetEnvelope = [ordered]@{
                 typ  = 'application/didcomm-plain+json'
                 id   = [Svrn7.Core.TdaResourceId]::DIDCommMessage([Guid]::NewGuid().ToString('N'))
                 type = 'did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail'
                 from = $SVRN7.LocalDid
-                to   = @($RecipientDid)
+                to   = @($targetDid)
                 body = [ordered]@{
                     from        = $SVRN7.LocalDid
-                    to          = $RecipientDid
+                    to          = $toDids
+                    cc          = $ccDids
                     rfc5322Body = $rfc5322
                 }
             } | ConvertTo-Json -Compress -Depth 3
-            $SVRN7.EnqueueDeadLetterAsync(
-                $RecipientDid,
-                $deadEnvelope,
-                'did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail',
-                "No DIDComm service endpoint found for recipient '$RecipientDid'"
-            ).GetAwaiter().GetResult()
-            New-FolderCountsNotification
-            return
+
+            $peerEndpoint = Resolve-SocietySenderEndpoint -Did $targetDid
+            if (-not $peerEndpoint) {
+                Write-Warning "Enqueue-PandoMail: no DIDComm service endpoint for '$targetDid' — writing to dead letters."
+                $SVRN7.EnqueueDeadLetterAsync(
+                    $targetDid,
+                    $targetEnvelope,
+                    'did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail',
+                    "No DIDComm service endpoint found for recipient '$targetDid'"
+                ).GetAwaiter().GetResult()
+                continue
+            }
+
+            [Svrn7.TDA.OutboundMessage]::new($peerEndpoint, $targetEnvelope)
         }
 
-        $envelope = [ordered]@{
-            typ  = 'application/didcomm-plain+json'
-            id   = [Svrn7.Core.TdaResourceId]::DIDCommMessage([Guid]::NewGuid().ToString('N'))
-            type = 'did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail'
-            from = $SVRN7.LocalDid
-            to   = @($RecipientDid)
-            body = [ordered]@{
-                from        = $SVRN7.LocalDid
-                to          = $RecipientDid
-                rfc5322Body = $rfc5322
-            }
-        } | ConvertTo-Json -Compress -Depth 3
-
-        [Svrn7.TDA.OutboundMessage]::new($peerEndpoint, $envelope)
         New-FolderCountsNotification
     }
 }
@@ -304,8 +320,10 @@ function Invoke-PandoMailSend {
         Handles a Enqueue-PandoMail request from TdaMailClient and delivers to the recipient TDA.
 
     .DESCRIPTION
-        Accepts a DIDComm message from local PandoMail UI. Body: { recipientDid, subject, bodyText }.
-        Builds an RFC 5322 message via Enqueue-PandoMail and returns an OutboundMessage for delivery.
+        Accepts a DIDComm message from local PandoMail UI. Body: { recipientDid, subject, bodyText,
+        senderDisplay, recipientDisplay, cc, ccDisplay }. recipientDid and cc are semicolon-separated
+        when there are multiple recipients. Builds an RFC 5322 message via Enqueue-PandoMail and
+        returns an OutboundMessage per recipient for delivery.
 
         Protocol (inbound): did:drn:svrn7.net/protocols/PandoMail.0.8.0/Enqueue-PandoMail
 
@@ -337,14 +355,16 @@ function Invoke-PandoMailSend {
             return $null
         }
 
-        $subject         = Get-BodyField $body 'subject'         ''
-        $bodyText        = Get-BodyField $body 'bodyText'        ''
-        $senderDisplay   = Get-BodyField $body 'senderDisplay'   ''
+        $subject          = Get-BodyField $body 'subject'          ''
+        $bodyText         = Get-BodyField $body 'bodyText'         ''
+        $senderDisplay    = Get-BodyField $body 'senderDisplay'    ''
         $recipientDisplay = Get-BodyField $body 'recipientDisplay' ''
+        $cc               = Get-BodyField $body 'cc'               ''
+        $ccDisplay        = Get-BodyField $body 'ccDisplay'        ''
 
         Write-Verbose "Email LOBE: Enqueue-PandoMail — forwarding to $recipientDid ('$subject')"
         Enqueue-PandoMail -RecipientDid $recipientDid -Subject $subject -Body $bodyText `
-            -From $senderDisplay -ToDisplay $recipientDisplay
+            -From $senderDisplay -ToDisplay $recipientDisplay -Cc $cc -CcDisplay $ccDisplay
     }
 }
 

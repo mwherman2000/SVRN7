@@ -14,7 +14,7 @@ namespace Web7.SVRN7.Apps
 {
 	public partial class MainForm : Form
 	{
-		private const string BaseTitle = "Web 7.0 Pando Mail";
+		private const string BaseTitle = "Pando Mail";
 
 		// Message Server
 		private MessageStore		_store;

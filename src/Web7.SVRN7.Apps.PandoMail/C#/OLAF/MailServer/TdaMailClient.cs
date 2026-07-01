@@ -117,11 +117,15 @@ namespace Web7.SVRN7.Apps
 
         // ── Outbound: Send a composed email ────────────────────────────────────
 
+        /// <param name="recipientDid">Semicolon-separated for multiple To recipients.</param>
+        /// <param name="cc">Semicolon-separated Cc recipient DIDs; empty when there are none.</param>
         public async Task SendAsync(string recipientDid, string subject, string bodyText,
             string senderDisplay = "", string recipientDisplay = "",
+            string cc = "", string ccDisplay = "",
             CancellationToken ct = default)
         {
-            string msgBody = JsonSerializer.Serialize(new { recipientDid, subject, bodyText, senderDisplay, recipientDisplay });
+            string msgBody = JsonSerializer.Serialize(new
+                { recipientDid, subject, bodyText, senderDisplay, recipientDisplay, cc, ccDisplay });
             await SendEnvelopeAsync(
                 "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Enqueue-PandoMail",
                 msgBody, ct);
