@@ -420,7 +420,7 @@ PandoMail Compose UI
 Inbound email notification `@type`:
 
 ```
-did:drn:svrn7.net/protocols/Email-Notify/1.0/new-message
+did:drn:svrn7.net/protocols/Email-Notify.0.1.0/new-message
 ```
 
 Follows the Locator DID URL convention (`draft-herman-drn-resource-addressing-00`).
@@ -478,6 +478,6 @@ Protocol URIs use `svrn7.net` (not `svrn7.io`).
   same WebSocket endpoint and dispatch on `@type`. Future notification types:
 
   ```
-  did:drn:svrn7.net/protocols/Calendar-Notify/1.0/new-event
-  did:drn:svrn7.net/protocols/Presence-Notify/1.0/status-change
+  did:drn:svrn7.net/protocols/Calendar-Notify.0.1.0/new-event
+  did:drn:svrn7.net/protocols/Presence-Notify.0.1.0/status-change
   ```

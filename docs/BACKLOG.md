@@ -506,10 +506,10 @@ DIDComm message through the WebSocket before any other traffic:
 
 ```json
 {
-  "type": "did:drn:svrn7.net/protocols/LocalUI/1.0/subscribe",
+  "type": "did:drn:svrn7.net/protocols/LocalUI.0.1.0/subscribe",
   "body": {
     "protocols": [
-      "did:drn:svrn7.net/protocols/Email-Notify/1.0/"
+      "did:drn:svrn7.net/protocols/Email-Notify.0.1.0/"
     ]
   }
 }

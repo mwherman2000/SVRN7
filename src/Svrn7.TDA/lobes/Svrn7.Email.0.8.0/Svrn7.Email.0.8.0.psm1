@@ -98,7 +98,7 @@ function Dequeue-PandoMail {
         $notifyEnvelope = [ordered]@{
             typ  = 'application/didcomm-plain+json'
             id   = [Svrn7.Core.TdaResourceId]::DIDCommMessage([Guid]::NewGuid().ToString('N'))
-            type = 'did:drn:svrn7.net/protocols/Email-Notify/1.0/new-message'
+            type = 'did:drn:svrn7.net/protocols/Email-Notify.0.1.0/new-message'
             from = $SVRN7.LocalDid
             to   = @($SVRN7.LocalDid)
             body = [ordered]@{

@@ -20,7 +20,7 @@ did:drn:svrn7.net/protocols/{domain}/{version}/{action}
 Examples:
 - `did:drn:svrn7.net/protocols/Svrn7.Onboarding.0.8.0/register-citizen`
 - `did:drn:svrn7.net/protocols/Svrn7.Invoicing.0.8.0/request`
-- `did:drn:svrn7.net/protocols/payments/1.0/request`
+- `did:drn:svrn7.net/protocols/payments.0.1.0/request`
 
 One URI maps to exactly one entrypoint cmdlet.  If the LOBE handles multiple message
 types (request + confirmation, for example), define a URI and entrypoint for each.
@@ -131,7 +131,7 @@ Not all LOBEs send a reply.  If this one does, specify:
 
 | Item | Detail |
 |---|---|
-| Outbound `@type` URI | e.g. `did:drn:svrn7.net/protocols/payments/1.0/receipt` |
+| Outbound `@type` URI | e.g. `did:drn:svrn7.net/protocols/payments.0.1.0/receipt` |
 | Reply body fields | camelCase JSON field names and types |
 | Endpoint resolution | DID Document lookup via `Resolve-SocietySenderEndpoint -Did $msg.FromDid` |
 
@@ -307,7 +307,7 @@ function Invoke-PandoMyLobeRequest {
         return @{
             PeerEndpoint  = $endpoint
             PackedMessage = (@{ success = $true } | ConvertTo-Json -Compress)
-            MessageType   = 'did:drn:svrn7.net/protocols/mylobe/1.0/result'
+            MessageType   = 'did:drn:svrn7.net/protocols/mylobe.0.1.0/result'
         }
     }
 }
@@ -338,7 +338,7 @@ Minimum required structure:
   },
   "protocols": [
     {
-      "uri":           "did:drn:svrn7.net/protocols/mylobe/1.0/request",
+      "uri":           "did:drn:svrn7.net/protocols/mylobe.0.1.0/request",
       "title":         "MyLobe Request",
       "description":   "What this message does. Body: { requiredField1, requiredField2 }",
       "direction":     "inbound",
@@ -512,7 +512,7 @@ $payload = @{ ... } | ConvertTo-Json -Compress   # the data to send
 $envelope = [ordered]@{
     typ  = 'application/didcomm-plain+json'
     id   = [Svrn7.Core.TdaResourceId]::DIDCommMessage([Guid]::NewGuid().ToString('N'))
-    type = 'did:drn:svrn7.net/protocols/domain/1.0/result'   # outbound @type URI
+    type = 'did:drn:svrn7.net/protocols/domain.0.1.0/result'   # outbound @type URI
     from = $SVRN7.Driver.SocietyDid
     to   = @($msg.FromDid)
     body = $payload   # $payload is a JSON string; stored as a string literal in the envelope
@@ -684,7 +684,7 @@ if (-not $result.Success) {
     return @{
         PeerEndpoint  = $endpoint
         PackedMessage = (@{ success = $false; error = $result.ErrorMessage } | ConvertTo-Json -Compress)
-        MessageType   = 'did:drn:svrn7.net/protocols/domain/1.0/receipt'
+        MessageType   = 'did:drn:svrn7.net/protocols/domain.0.1.0/receipt'
     }
 }
 ```
@@ -765,7 +765,7 @@ The fastest way to exercise a new LOBE end-to-end:
    $msg  = @{
        typ  = "application/didcomm-plain+json"
        id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
-       type = "did:drn:svrn7.net/protocols/mylobe/1.0/request"
+       type = "did:drn:svrn7.net/protocols/mylobe.0.1.0/request"
        from = "did:drn:foundation.svrn7.net"
        to   = @("did:drn:bindloss.svrn7.net")
        body = $body
@@ -780,7 +780,7 @@ The fastest way to exercise a new LOBE end-to-end:
 At `LogLevel.Information`:
 ```
 Switchboard: routing did:drn:.../inbox/msg/<id>
-    (type=did:drn:svrn7.net/protocols/mylobe/1.0/request) → Invoke-PandoMyLobeRequest [Svrn7.MyLobe]
+    (type=did:drn:svrn7.net/protocols/mylobe.0.1.0/request) → Invoke-PandoMyLobeRequest [Svrn7.MyLobe]
 ```
 
 At `LogLevel.Trace`, all PS streams are forwarded (see Appendix F).

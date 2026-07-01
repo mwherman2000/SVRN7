@@ -209,7 +209,7 @@ did:drn:{developer-domain}/protocols/{family}/{version}/{message-type}
 
 Example:
 ```
-did:drn:health.example.org/protocols/prescription/1.0/request
+did:drn:health.example.org/protocols/prescription.0.1.0/request
 ```
 
 ### 3a.4 Complete Protocol URI Registry (Epoch 0)

@@ -73,34 +73,34 @@ Primary namespaces:
   Svrn7.Identity    — VcService, PassthroughSanctionsChecker
 
 DIDComm protocol URIs (all svrn7.net — not svrn7.io):
-  did:drn:svrn7.net/protocols/transfer/1.0/request
-  did:drn:svrn7.net/protocols/transfer/1.0/receipt
-  did:drn:svrn7.net/protocols/transfer/1.0/order
-  did:drn:svrn7.net/protocols/transfer/1.0/order-receipt
-  did:drn:svrn7.net/protocols/endowment/1.0/overdraft-draw-request
-  did:drn:svrn7.net/protocols/endowment/1.0/overdraft-draw-receipt
-  did:drn:svrn7.net/protocols/endowment/1.0/top-up
-  did:drn:svrn7.net/protocols/supply/1.0/update
-  did:drn:svrn7.net/protocols/did/1.0/resolve-request
-  did:drn:svrn7.net/protocols/did/1.0/resolve-response
-  did:drn:svrn7.net/protocols/society/1.0/society-query
-  did:drn:svrn7.net/protocols/society/1.0/society-query-result
-  did:drn:svrn7.net/protocols/society/1.0/member-query
-  did:drn:svrn7.net/protocols/society/1.0/member-query-result
-  did:drn:svrn7.net/protocols/society/1.0/overdraft-query
-  did:drn:svrn7.net/protocols/society/1.0/overdraft-query-result
-  did:drn:svrn7.net/protocols/society/1.0/did-methods-query
-  did:drn:svrn7.net/protocols/society/1.0/did-methods-query-result
-  did:drn:svrn7.net/protocols/society/1.0/did-method-register
-  did:drn:svrn7.net/protocols/society/1.0/did-method-register-result
-  did:drn:svrn7.net/protocols/society/1.0/citizen-did-add
-  did:drn:svrn7.net/protocols/society/1.0/citizen-did-add-result
-  did:drn:svrn7.net/protocols/federation/1.0/federation-query
-  did:drn:svrn7.net/protocols/federation/1.0/federation-query-result
-  did:drn:svrn7.net/protocols/federation/1.0/initialize-federation
-  did:drn:svrn7.net/protocols/federation/1.0/initialize-federation-result
-  did:drn:svrn7.net/protocols/federation/1.0/register-society
-  did:drn:svrn7.net/protocols/federation/1.0/register-society-result
+  did:drn:svrn7.net/protocols/transfer.0.1.0/request
+  did:drn:svrn7.net/protocols/transfer.0.1.0/receipt
+  did:drn:svrn7.net/protocols/transfer.0.1.0/order
+  did:drn:svrn7.net/protocols/transfer.0.1.0/order-receipt
+  did:drn:svrn7.net/protocols/endowment.0.1.0/overdraft-draw-request
+  did:drn:svrn7.net/protocols/endowment.0.1.0/overdraft-draw-receipt
+  did:drn:svrn7.net/protocols/endowment.0.1.0/top-up
+  did:drn:svrn7.net/protocols/supply.0.1.0/update
+  did:drn:svrn7.net/protocols/did.0.1.0/resolve-request
+  did:drn:svrn7.net/protocols/did.0.1.0/resolve-response
+  did:drn:svrn7.net/protocols/society.0.1.0/society-query
+  did:drn:svrn7.net/protocols/society.0.1.0/society-query-result
+  did:drn:svrn7.net/protocols/society.0.1.0/member-query
+  did:drn:svrn7.net/protocols/society.0.1.0/member-query-result
+  did:drn:svrn7.net/protocols/society.0.1.0/overdraft-query
+  did:drn:svrn7.net/protocols/society.0.1.0/overdraft-query-result
+  did:drn:svrn7.net/protocols/society.0.1.0/did-methods-query
+  did:drn:svrn7.net/protocols/society.0.1.0/did-methods-query-result
+  did:drn:svrn7.net/protocols/society.0.1.0/did-method-register
+  did:drn:svrn7.net/protocols/society.0.1.0/did-method-register-result
+  did:drn:svrn7.net/protocols/society.0.1.0/citizen-did-add
+  did:drn:svrn7.net/protocols/society.0.1.0/citizen-did-add-result
+  did:drn:svrn7.net/protocols/federation.0.1.0/federation-query
+  did:drn:svrn7.net/protocols/federation.0.1.0/federation-query-result
+  did:drn:svrn7.net/protocols/federation.0.1.0/initialize-federation
+  did:drn:svrn7.net/protocols/federation.0.1.0/initialize-federation-result
+  did:drn:svrn7.net/protocols/federation.0.1.0/register-society
+  did:drn:svrn7.net/protocols/federation.0.1.0/register-society-result
 
 ---
 
@@ -509,13 +509,13 @@ Elements 7, 8, 10 are Web 7.0 / SVRN7 specific (substitute equivalents for other
 | 2 | Svrn7.Federation.0.8.0.psm1 | Eager | federation/1.0/*, transfer/1.0/*, did/1.0/* |
 | 3 | Svrn7.Society.0.8.0.psm1 | Eager | transfer/1.0/*, onboard/1.0/*, society/1.0/* |
 | 4 | Svrn7.UX.0.8.0.psm1 | Eager | ux/1.0/* (balance-update, notification, registration-complete) |
-| 5 | Svrn7.Email.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/email/1.0/* |
-| 6 | Svrn7.Calendar.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/calendar/1.0/* |
-| 7 | Svrn7.Presence.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/presence/1.0/* |
-| 8 | Svrn7.Notifications.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/notification/1.0/* |
-| 9 | Svrn7.Onboarding.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/onboard/1.0/* |
-|10 | Svrn7.Invoicing.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/invoice/1.0/* |
-|11 | Svrn7.Identity.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/did/1.0/*, vc/1.0/* |
+| 5 | Svrn7.Email.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/email.0.1.0/* |
+| 6 | Svrn7.Calendar.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/calendar.0.1.0/* |
+| 7 | Svrn7.Presence.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/presence.0.1.0/* |
+| 8 | Svrn7.Notifications.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/notification.0.1.0/* |
+| 9 | Svrn7.Onboarding.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/onboard.0.1.0/* |
+|10 | Svrn7.Invoicing.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/invoice.0.1.0/* |
+|11 | Svrn7.Identity.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/did.0.1.0/*, vc/1.0/* |
 
 Each LOBE ships .psm1 + .psd1 + .lobe.json (MCP-aligned descriptor) in its own subfolder under lobes/
   (e.g. lobes/Svrn7.Common/, lobes/Svrn7.Federation/, lobes/Svrn7.Email/, etc.).

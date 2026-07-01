@@ -73,7 +73,7 @@ public static class SeedDataService
         var agentConversations = new[]
         {
             ("What LOBEs are currently registered in my Citizen TDA?",
-             "did:drn:svrn7.net/protocols/TDA-Status/1.0/lobe-list",
+             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/lobe-list",
              new[]{
                  "4 LOBEs active: Email-Notify/1.0, DID-Resolve/1.0, DeadLetter/1.0, PandoBoard-Relay/1.0.",
                  "Email-Notify routes inbound DIDComm V2 messages to Pando Board via encrypted relay.",
@@ -89,7 +89,7 @@ public static class SeedDataService
              }),
 
             ("Resolve did:drn:svrn7.net:jsnover",
-             "did:drn:svrn7.net/protocols/DID-Resolve/1.0/resolve",
+             "did:drn:svrn7.net/protocols/DID-Resolve.0.1.0/resolve",
              new[]{
                  "DID Document found for did:drn:svrn7.net:jsnover.",
                  "Verification methods: Ed25519VerificationKey2020 (signing), X25519KeyAgreementKey2020 (key agreement).",
@@ -105,7 +105,7 @@ public static class SeedDataService
              }),
 
             ("Show me recent inbound DIDComm V2 messages",
-             "did:drn:svrn7.net/protocols/Email-Notify/1.0/list",
+             "did:drn:svrn7.net/protocols/Email-Notify.0.1.0/list",
              new[]{
                  "3 inbound DIDComm V2 messages received in the last hour.",
                  "From did:drn:svrn7.net:jsnover — 'DNS TXT records for drn.directory verified on my end.'",
@@ -121,7 +121,7 @@ public static class SeedDataService
              }),
 
             ("What is the current SOVRONA L1 block height?",
-             "did:drn:svrn7.net/protocols/Chain/1.0/status",
+             "did:drn:svrn7.net/protocols/Chain.0.1.0/status",
              new[]{
                  "SOVRONA L1 testnet — current block height: 142,847.",
                  "Last block confirmed: 38 seconds ago. Active did:drn-anchored validators: 4.",
@@ -137,7 +137,7 @@ public static class SeedDataService
              }),
 
             ("Draft a DIDComm V2 reply to Jeffrey about key rotation",
-             "did:drn:svrn7.net/protocols/PandoBoard-Relay/1.0/draft",
+             "did:drn:svrn7.net/protocols/PandoBoard-Relay.0.1.0/draft",
              new[]{
                  "Draft ready: 'Key rotation goes through the DRN federation endpoint per DSA 0.24 Section 6.'",
                  "'New DID Document published — superseded key #key-1 TTL: 48h per draft-herman-did-w3c-drn-00.'",
@@ -153,7 +153,7 @@ public static class SeedDataService
              }),
 
             ("List all did:drn contacts in my Citizen TDA DID Document",
-             "did:drn:svrn7.net/protocols/DID-Resolve/1.0/list-contacts",
+             "did:drn:svrn7.net/protocols/DID-Resolve.0.1.0/list-contacts",
              new[]{
                  "14 contacts registered in your Citizen TDA contact list.",
                  "did:drn:svrn7.net:jsnover — Jeffrey Snover — VTC7 verified member.",
@@ -170,7 +170,7 @@ public static class SeedDataService
              }),
 
             ("What IETF Internet-Drafts are currently active?",
-             "did:drn:svrn7.net/protocols/TDA-Status/1.0/drafts",
+             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/drafts",
              new[]{
                  "15 IETF Internet-Drafts tracked in this Citizen TDA.",
                  "draft-herman-did-w3c-drn-00 — active, Section 5a pending IETF CATALIST WG review.",
@@ -187,7 +187,7 @@ public static class SeedDataService
              }),
 
             ("Summarise today's VTC7 conversations",
-             "did:drn:svrn7.net/protocols/TDA-Status/1.0/summary",
+             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/summary",
              new[]{
                  "Today: 6 active DIDComm V2 thread groups across 4 VTC7 contacts.",
                  "Jeffrey Snover: drn.directory DNS TXT verified, key rotation draft ready to dispatch.",
@@ -204,7 +204,7 @@ public static class SeedDataService
              }),
 
             ("Check drn.directory DNS propagation",
-             "did:drn:svrn7.net/protocols/DID-Resolve/1.0/dns-check",
+             "did:drn:svrn7.net/protocols/DID-Resolve.0.1.0/dns-check",
              new[]{
                  "federation.svrn7.net.drn.directory TXT record: FOUND.",
                  "Value: 'v=drn1; endpoint=https://tda.svrn7.net/didcomm; ttl=3600'.",
@@ -220,7 +220,7 @@ public static class SeedDataService
              }),
 
             ("Run the full LOBE Pester test suite",
-             "did:drn:svrn7.net/protocols/TDA-Status/1.0/pester",
+             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/pester",
              new[]{
                  "Running 11 LOBE Pester test suites across Citizen TDA modules…",
                  "Email-Notify/1.0: 12/12 PASS. All inbound DIDComm V2 routing scenarios covered.",
@@ -237,7 +237,7 @@ public static class SeedDataService
              }),
 
             ("Show all pending DIDComm V2 messages in the TDA inbox",
-             "did:drn:svrn7.net/protocols/Email-Notify/1.0/pending",
+             "did:drn:svrn7.net/protocols/Email-Notify.0.1.0/pending",
              new[]{
                  "2 pending DIDComm V2 messages awaiting acknowledgement in the TDA inbox.",
                  "Thread thid:a3f8…: From did:drn:svrn7.net:msporny — 'DID Core spec review for did:drn ready.'",
@@ -253,10 +253,10 @@ public static class SeedDataService
              }),
 
             ("Register the new Credential-Verify LOBE descriptor",
-             "did:drn:svrn7.net/protocols/TDA-Status/1.0/lobe-register",
+             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/lobe-register",
              new[]{
                  "Credential-Verify LOBE descriptor received — parsing lobe.json…",
-                 "DIDComm @type URI: did:drn:svrn7.net/protocols/Credential-Verify/1.0.",
+                 "DIDComm @type URI: did:drn:svrn7.net/protocols/Credential-Verify.0.1.0.",
                  "Declared handlers: verify, revoke, status. All 3 handler scripts present.",
                  "PowerShell 7 execution policy: AllSigned — LOBE scripts are code-signed, check PASS.",
                  "FileSystemWatcher hot-reload: descriptor written to LOBEs/Credential-Verify/. Switchboard updated.",
@@ -269,7 +269,7 @@ public static class SeedDataService
              }),
 
             ("Verify the incoming VTC7 proof set from Daniel Hardman",
-             "did:drn:svrn7.net/protocols/TDA-Status/1.0/vtc-verify",
+             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/vtc-verify",
              new[]{
                  "VTC7 proof set received from did:drn:svrn7.net:dhardman — verifying…",
                  "Proof type: Ed25519Signature2020. Verification method: did:drn:svrn7.net:dhardman#key-1.",
@@ -285,7 +285,7 @@ public static class SeedDataService
              }),
 
             ("Show the TDA Switchboard routing table",
-             "did:drn:svrn7.net/protocols/TDA-Status/1.0/routing-table",
+             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/routing-table",
              new[]{
                  "TDA Switchboard routing table — 5 active LOBE routes registered.",
                  "did:drn:svrn7.net/protocols/Email-Notify/* → LOBEs/Email-Notify/Invoke-EmailNotify.ps1.",
@@ -301,7 +301,7 @@ public static class SeedDataService
              }),
 
             ("Archive all TDA threads older than 30 days",
-             "did:drn:svrn7.net/protocols/TDA-Status/1.0/archive",
+             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/archive",
              new[]{
                  "Scanning Citizen TDA LiteDB for DIDComm V2 threads older than 30 days…",
                  "Found 12 archivable threads across 4 contacts. Total messages: 47.",
@@ -317,7 +317,7 @@ public static class SeedDataService
              }),
 
             ("Export my Citizen TDA DID Document as JSON-LD",
-             "did:drn:svrn7.net/protocols/DID-Resolve/1.0/export",
+             "did:drn:svrn7.net/protocols/DID-Resolve.0.1.0/export",
              new[]{
                  "Exporting DID Document for did:drn:svrn7.net:michael…",
                  "Context: https://www.w3.org/ns/did/v1, https://w3id.org/security/suites/ed25519-2020/v1.",
@@ -333,7 +333,7 @@ public static class SeedDataService
              }),
 
             ("Look up the contact entry for did:drn:svrn7.net:borkod",
-             "did:drn:svrn7.net/protocols/DID-Resolve/1.0/contact-lookup",
+             "did:drn:svrn7.net/protocols/DID-Resolve.0.1.0/contact-lookup",
              new[]{
                  "Contact lookup: did:drn:svrn7.net:borkod — Borko Djurkovic.",
                  "DID Document: resolved from drn.directory TXT record in 51ms.",
@@ -349,7 +349,7 @@ public static class SeedDataService
              }),
 
             ("Generate a new Ed25519 keypair for TDA key rotation",
-             "did:drn:svrn7.net/protocols/DID-Resolve/1.0/keygen",
+             "did:drn:svrn7.net/protocols/DID-Resolve.0.1.0/keygen",
              new[]{
                  "Generating Ed25519 keypair for did:drn:svrn7.net:michael key rotation…",
                  "Entropy source: System.Security.Cryptography.RandomNumberGenerator — CSPRNG.",
@@ -365,7 +365,7 @@ public static class SeedDataService
              }),
 
             ("Diagnose failed DIDComm V2 delivery to Borko Djurkovic",
-             "did:drn:svrn7.net/protocols/PandoBoard-Relay/1.0/diagnose",
+             "did:drn:svrn7.net/protocols/PandoBoard-Relay.0.1.0/diagnose",
              new[]{
                  "Diagnosing DIDComm V2 delivery failure to did:drn:svrn7.net:borkod…",
                  "Step 1 — DNS lookup: federation.borkod.svrn7.net.drn.directory — NXDOMAIN.",
@@ -381,7 +381,7 @@ public static class SeedDataService
              }),
 
             ("Show SVRN7 wallet balances for all TDA accounts",
-             "did:drn:svrn7.net/protocols/Chain/1.0/wallet",
+             "did:drn:svrn7.net/protocols/Chain.0.1.0/wallet",
              new[]{
                  "SVRN7 Shared Reserve Currency (SRC) wallet — Citizen TDA: did:drn:svrn7.net:michael.",
                  "Identity account (zero-fee): 12,450 SVRN7. Used for DID publish, rotate, deactivate.",
@@ -397,7 +397,7 @@ public static class SeedDataService
              }),
 
             ("Schedule a DIDComm V2 message to Jeffrey for 09:00 tomorrow",
-             "did:drn:svrn7.net/protocols/PandoBoard-Relay/1.0/schedule",
+             "did:drn:svrn7.net/protocols/PandoBoard-Relay.0.1.0/schedule",
              new[]{
                  "Scheduling DIDComm V2 message to did:drn:svrn7.net:jsnover for 2026-06-24 09:00 UTC.",
                  "Message content: 'Key rotation complete — did:drn:svrn7.net:michael#key-3 now active.'",
@@ -413,7 +413,7 @@ public static class SeedDataService
              }),
 
             ("Run drn.directory DNS federation health check for all contacts",
-             "did:drn:svrn7.net/protocols/DID-Resolve/1.0/federation-health",
+             "did:drn:svrn7.net/protocols/DID-Resolve.0.1.0/federation-health",
              new[]{
                  "Running drn.directory DNS federation health check for 14 registered Citizen TDA contacts…",
                  "13/14 TXT records resolving correctly with current TTL.",
@@ -429,7 +429,7 @@ public static class SeedDataService
              }),
 
             ("Check IETF draft submission deadlines for the next 90 days",
-             "did:drn:svrn7.net/protocols/TDA-Status/1.0/draft-deadlines",
+             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/draft-deadlines",
              new[]{
                  "IETF Internet-Draft submission deadlines — next 90 days from 2026-06-23.",
                  "IETF 121 (Dublin) cutoff: 2026-07-14. Drafts due: -did-w3c-drn-00, -tda-architecture-00.",
@@ -445,7 +445,7 @@ public static class SeedDataService
              }),
 
             ("Generate a VTC7 proof set for the pending governance credential",
-             "did:drn:svrn7.net/protocols/TDA-Status/1.0/vtc-proof",
+             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/vtc-proof",
              new[]{
                  "Generating VTC7 proof set for pending Web 7.0 DSA governance credential…",
                  "Credential type: VTC7GovernanceCredential. Subject: did:drn:svrn7.net:michael.",
@@ -461,7 +461,7 @@ public static class SeedDataService
              }),
 
             ("Back up Citizen TDA state to the secure vault",
-             "did:drn:svrn7.net/protocols/TDA-Status/1.0/backup",
+             "did:drn:svrn7.net/protocols/TDA-Status.0.1.0/backup",
              new[]{
                  "Initiating Citizen TDA state backup — LiteDB, LOBE descriptors, DID Document, SVRN7 wallet.",
                  "LiteDB snapshot: 14.2 MB. 38 active threads, 14 contacts, 47 pending messages.",
@@ -640,7 +640,7 @@ public static class SeedDataService
                 "I'll share my Windows Service wrapper config — it handles node restarts and log rotation." }),
 
         ("What's your recommendation for LOBE versioning as the TDA evolves?",
-         new[]{ "Version the LOBE in the @type URI — did:drn:svrn7.net/protocols/Email-Notify/1.1 is a new route.",
+         new[]{ "Version the LOBE in the @type URI — did:drn:svrn7.net/protocols/Email-Notify.0.1.1 is a new route.",
                 "Keep the old route active during transition — run both LOBE versions concurrently for 48h.",
                 "FileSystemWatcher hot-reload handles the new descriptor automatically — no TDA restart.",
                 "Pin the version in lobe.json and add a deprecation date field — gives consumers advance warning.",
@@ -830,7 +830,7 @@ public static class SeedDataService
         ("Borko, tell me about the Cohere AI integration LOBE you're building.",
          new[]{ "The LOBE wraps the Cohere generate API — DIDComm V2 message body becomes the prompt.",
                 "Response comes back as a DIDComm V2 reply routed through PandoBoard-Relay to the sender.",
-                "The LOBE descriptor URI is did:drn:borkod.svrn7.net/protocols/Cohere-Generate/1.0.",
+                "The LOBE descriptor URI is did:drn:borkod.svrn7.net/protocols/Cohere-Generate.0.1.0.",
                 "I'm using a streaming response pattern — first DIDComm message is 'processing', second is the result.",
                 "Privacy consideration: Cohere sees the plaintext prompt — need to discuss what data leaves the TDA.",
                 "Happy to share the PowerShell LOBE script — it's 80 lines including error handling." }),
@@ -2202,7 +2202,7 @@ public static class SeedDataService
                 "A LOBE Registry at a stable URL lists all published LOBEs with their @type URIs and author DIDs.",
                 "The LOBE Registry is itself a did:drn resource — resolvable via DID URL dereferencing.",
                 "LOBE submission process: PR to the registry repo, two reviewer approvals, merge to registry.",
-                "Versioning: semantic versioning on LOBE @type URIs — did:drn:svrn7.net/protocols/Email-Notify/1.1." }),
+                "Versioning: semantic versioning on LOBE @type URIs — did:drn:svrn7.net/protocols/Email-Notify.0.1.1." }),
 
         ("What's the migration path from Hyperledger Indy to SOVRONA for existing deployments?",
          new[]{ "Indy uses Plenum consensus and an Indy-specific DID method (did:indy) — different stack from SOVRONA.",
@@ -2861,7 +2861,7 @@ public static class SeedDataService
 
         ("What Linked Data Capabilities (ZCAP-LD) patterns apply to TDA LOBE authorization?",
          new[]{ "ZCAP-LD defines delegatable capabilities in JSON-LD — the capability grants the right to invoke an action.",
-                "A TDA LOBE invocation capability: 'did:drn:X may invoke did:drn:Y/protocols/Email-Notify/1.0'.",
+                "A TDA LOBE invocation capability: 'did:drn:X may invoke did:drn:Y/protocols/Email-Notify.0.1.0'.",
                 "The capability is signed by the LOBE owner (the TDA owner) and presented by the invoker.",
                 "Delegation: the TDA owner can issue sub-capabilities — 'did:drn:Z may invoke Email-Notify on behalf of X'.",
                 "The Switchboard checks the ZCAP-LD capability before dispatching to the LOBE — capability-based access control.",
