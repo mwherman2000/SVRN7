@@ -293,8 +293,13 @@ public sealed class LiteInboxStore : IInboxStore
     {
         ct.ThrowIfCancellationRequested();
 
+        // Includes Processing (not just Processed) so a folder-counts notification fired
+        // from within the LOBE cmdlet handling this very message — e.g. PandoMail's
+        // New-FolderCountsNotification, called before the Switchboard's MarkProcessedAsync
+        // runs — counts the in-flight message instead of undercounting it by one.
         var messages = _ctx.InboundMessages
-            .Find(m => m.MessageType.StartsWith(typePrefix) && m.Status == InboundMessageStatus.Processed)
+            .Find(m => m.MessageType.StartsWith(typePrefix) &&
+                       (m.Status == InboundMessageStatus.Processed || m.Status == InboundMessageStatus.Processing))
             .OrderByDescending(m => m.ReceivedAt)
             .Take(limit)
             .ToList();

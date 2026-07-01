@@ -297,9 +297,12 @@ public interface IInboxStore
         CancellationToken ct = default);
 
     /// <summary>
-    /// Returns up to <paramref name="limit"/> Processed messages whose
+    /// Returns up to <paramref name="limit"/> Processed or Processing messages whose
     /// <see cref="InboundMessage.MessageType"/> starts with <paramref name="typePrefix"/>,
     /// ordered newest-first. Used by LOBE cmdlets to satisfy list-query protocols.
+    /// Processing is included alongside Processed so a message is counted/listed as
+    /// soon as its LOBE cmdlet begins handling it, rather than only after
+    /// <see cref="MarkProcessedAsync"/> runs (which happens after the cmdlet returns).
     /// </summary>
     Task<IReadOnlyList<InboundMessage>> ListByTypeAsync(
         string typePrefix, int limit = 50, CancellationToken ct = default);

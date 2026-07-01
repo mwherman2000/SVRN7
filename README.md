@@ -349,6 +349,14 @@ A crash, infinite loop, or `Set-StrictMode` violation in one cmdlet cannot corru
 concurrent dispatch. The ISS is built once; the per-invocation runspace is opened and
 closed around a single `ps.Invoke()`.
 
+### Execution Policy Scoping
+
+LOBE `.psm1` files are unsigned PowerShell modules. `LobeManager.BuildInitialSessionState()`
+sets `iss.ExecutionPolicy = ExecutionPolicy.Bypass` on the shared `InitialSessionState` so
+`Import-Module` succeeds regardless of the host machine's `Set-ExecutionPolicy` setting —
+scoped only to the TDA's isolated LOBE runspaces, not the whole machine. See
+[ARCHITECTURE.md](./ARCHITECTURE.md) for the full rationale.
+
 ### Message Identity — Pass-by-Reference
 
 Every inbound message is assigned a TDA resource DID URL at ingestion:

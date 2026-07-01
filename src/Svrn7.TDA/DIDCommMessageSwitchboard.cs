@@ -698,6 +698,36 @@ public sealed class DIDCommMessageSwitchboard
             AttemptCount  = OutboundMaxAttempts,
             LastError     = lastException?.Message
         }, ct);
+
+        await PushFolderCountsNotificationAsync(ct);
+    }
+
+    /// <summary>
+    /// Pushes a Notify-FolderCounts envelope to PandoMail over the local WebSocket hub.
+    /// LOBE cmdlets do this themselves via New-FolderCountsNotification after operations
+    /// they control directly, but retry-exhaustion dead-lettering happens here in
+    /// <see cref="DeliverOutboundAsync"/> — after the LOBE has already returned — so the
+    /// Switchboard must push the refreshed counts itself or PandoMail's folder tree goes
+    /// stale until some unrelated notification happens to fire.
+    /// </summary>
+    private async Task PushFolderCountsNotificationAsync(CancellationToken ct)
+    {
+        var counts = await _ctx.CountEmailFoldersAsync(ct);
+        var envelope = new
+        {
+            typ  = "application/didcomm-plain+json",
+            id   = Svrn7.Core.TdaResourceId.DIDCommMessage(Guid.NewGuid().ToString("N")),
+            type = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Notify-FolderCounts",
+            from = _ctx.LocalDid,
+            to   = new[] { _ctx.LocalDid },
+            body = new
+            {
+                inboxCount      = counts.Inbox,
+                sentCount       = counts.Sent,
+                deadLetterCount = counts.DeadLetters
+            }
+        };
+        await _hub.PushAsync(JsonSerializer.Serialize(envelope), ct);
     }
 }
 

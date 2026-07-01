@@ -97,6 +97,10 @@ public sealed class LobeManager : IDisposable
         var iss = InitialSessionState.CreateDefault2();
         AddBuiltInCmdlets(iss);
 
+        // Scoped to these isolated runspaces only — independent of the host machine's
+        // Set-ExecutionPolicy, which otherwise blocks Import-Module on unsigned LOBE .psm1 files.
+        iss.ExecutionPolicy = Microsoft.PowerShell.ExecutionPolicy.Bypass;
+
         iss.Variables.Add(new SessionStateVariableEntry(
             "SVRN7", _ctx,
             "Svrn7RunspaceContext — SVRN7 driver, inbox, cache, epoch.",
