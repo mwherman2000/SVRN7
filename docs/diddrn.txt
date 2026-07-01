@@ -179,8 +179,8 @@ did:drn:sovronia.svrn7.net/citizen/1.0/alice
 did:drn:sovronia.svrn7.net/citizen/1.0/valp
 did:drn:sovronia.svrn7.net/citizen/alice
 did:drn:sovronia.svrn7.net/citizen/bob
-did:drn:stale-x
-did:drn:stale-y
+did:drn:stale-x-test
+did:drn:stale-y-test
 did:drn:subject
 did:drn:svrn7.net
 did:drn:svrn7.net:{didKey}
