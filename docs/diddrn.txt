@@ -54,7 +54,6 @@ did:drn:3J98...
 did:drn:3J98...#didcomm-1
 did:drn:3J98...#key-1
 did:drn:3J98...#key-1']
-did:drn:3J98t1
 did:drn:3J98t1...
 did:drn:3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy
 did:drn:abc
@@ -154,7 +153,6 @@ did:drn:societytest.svrn7.net/main/citizen/550e8400e29b41d4a716446655440000
 did:drn:societytest.svrn7.net/main/citizen/a3f9b2c1d4e5f67890
 did:drn:societytest.svrn7.net/main/citizen/b7e2a9f1
 did:drn:societytest.svrn7.net/main/keybak/alice
-did:drn:societytest.svrn7.net/main/logentry/a3f9b2c1
 did:drn:societytest.svrn7.net/main/logentry/a3f9b2c1...
 did:drn:societytest.svrn7.net/main/logentry/a3f9b2c1d4e5f678
 did:drn:societytest.svrn7.net/main/logentry/a3f9b2c1d4e5f67890ab1234cd5678ef90ab12cd34ef5678
@@ -162,9 +160,7 @@ did:drn:societytest.svrn7.net/main/logentry/a3f9b2c1d4e5f67890ab1234cd5678ef90ab
 did:drn:societytest.svrn7.net/main/membership/alice
 did:drn:societytest.svrn7.net/main/nonce/5f43a2b1c8e9d7f012345678
 did:drn:societytest.svrn7.net/main/overdraft/societytest.svrn7.net
-did:drn:societytest.svrn7.net/main/treehead/a3f9b2c1
 did:drn:societytest.svrn7.net/main/treehead/a3f9b2c1...
-did:drn:societytest.svrn7.net/main/utxo/a3f9b2c1
 did:drn:societytest.svrn7.net/main/utxo/a3f9b2c1...
 did:drn:societytest.svrn7.net/main/wallet/alice
 did:drn:societytest.svrn7.net/schemas/schema/{schemaName}
@@ -175,8 +171,6 @@ did:drn:societytest.svrn7.net/schemas/schema/Svrn7VtcCredential
 did:drn:societytest.svrn7.net/schemas/schema/TransferReceiptCredential
 did:drn:societytest.svrn7.net/vcs/revocation/5f43a2b1c8e9d7f012345678
 did:drn:societytest.svrn7.net/vcs/vc/vc-3fa85f64-5717-4562-b3fc-2c963f66afa6
-did:drn:societytest.svrn7.net
-did:drn:societytest.svrn7.net/inbox/msg/<id
 did:drn:sovronia
 did:drn:sovronia.svrn7.net
 did:drn:sovronia.svrn7.net/citizen/1.0/<genesis-hash
