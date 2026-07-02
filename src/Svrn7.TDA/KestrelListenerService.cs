@@ -380,6 +380,23 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
 
             _hub.MarkReceived(clientId);
 
+            // The idle watchdog's CloseOutputAsync (WebSocketNotifyHub.CloseIdleConnectionAsync)
+            // moves this socket's local state off Open without cancelling an already-pending
+            // ws.ReceiveAsync — so a message the client sends just as (or after) the server
+            // starts closing can still complete a full read here. Dispatching it anyway would
+            // do real LOBE work for a reply that can never be delivered: this loop's own
+            // while-condition will see the non-Open state on its very next check and exit,
+            // Detach runs, and by the time the reply is ready WebSocketNotifyHub has already
+            // forgotten the connection (logged as "pushed to local WebSocket (not connected)").
+            // Reject here instead of paying that cost for a guaranteed-lost reply.
+            if (ws.State != WebSocketState.Open)
+            {
+                _log.LogWarning(
+                    "KestrelListenerService: message received after local close began (state={State}, id={Id}) — dropping, reply would be undeliverable.",
+                    ws.State, clientId);
+                break;
+            }
+
             _log.LogDebug(
                 "KestrelListenerService: WebSocket complete message assembled — {TotalBytes} bytes.",
                 ms.Length);

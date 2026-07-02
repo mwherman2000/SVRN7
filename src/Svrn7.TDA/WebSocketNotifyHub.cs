@@ -40,12 +40,21 @@ public sealed class WebSocketNotifyHub : IDisposable
     private const string GoodbyeType    = "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Goodbye";
     private const string SubscribedType = "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Subscribed";
     private const string TimeoutType    = "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Timeout";
+    private const string PingType       = "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Ping";
+    private const string PongType       = "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Pong";
 
     /// <summary>Per-frame receive cap — mirrors the reference design in src/WsExample2-Kestrel.</summary>
     public const int MaxMessageBytes = 1 * 1024 * 1024;
 
-    private static readonly TimeSpan IdleTimeout      = TimeSpan.FromSeconds(60);
-    private static readonly TimeSpan WatchdogInterval = TimeSpan.FromSeconds(15);
+    // IdleTimeout deliberately diverges from src/WsExample2-Kestrel's 15s: that value fits
+    // an echo-test client with continuous traffic, not a mail client whose whole point is to
+    // sit quietly for minutes at a time while the user reads. TdaMailClient now sends a Ping
+    // heartbeat every 20s specifically to keep real connections well under this threshold —
+    // IdleTimeout here is a generous backstop for connections that never heartbeat at all
+    // (crashed clients, or tools like Send-LocalDIDCommMessage that connect once and leave),
+    // not the primary liveness mechanism.
+    private static readonly TimeSpan IdleTimeout      = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan WatchdogInterval = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan CorrelationTtl   = TimeSpan.FromMinutes(5);
 
     private readonly ILogger<WebSocketNotifyHub> _log;
@@ -171,6 +180,26 @@ public sealed class WebSocketNotifyHub : IDisposable
                 _log.LogInformation(
                     "WebSocketNotifyHub: Goodbye from app='{App}' instance={Instance}.",
                     conn.App, conn.InstanceId);
+            return true;
+        }
+
+        if (type == PingType)
+        {
+            // KestrelListenerService already called MarkReceived before this method ran —
+            // that alone is enough to keep the server's own idle clock fresh. The Pong reply
+            // is for the *client's* benefit: TdaMailClient tracks time-since-last-received
+            // and needs proof the server is actually still there, not just that its own send
+            // succeeded — a hard-killed server (vs. a graceful close) sends no close frame at
+            // all, so without a reply the client would have nothing to notice a dead peer by
+            // except an unrelated user action failing. No per-Ping/Pong log at Information —
+            // the generic frame-received/processing Debug lines already cover it.
+            var pong = JsonSerializer.Serialize(new
+            {
+                typ  = "application/didcomm-plain+json",
+                id   = Svrn7.Core.TdaResourceId.DIDCommMessage(Guid.NewGuid().ToString("N")),
+                type = PongType
+            });
+            await SendToConnectionAsync(id, pong, ct);
             return true;
         }
 

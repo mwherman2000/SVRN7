@@ -682,6 +682,85 @@ none of them:
   — replaces the old single global `_sendLock` that serialized broadcasts across every
   connected client regardless of which socket was actually slow.
 
+**Bug found live and fixed (2026-07-02) — idle watchdog race dropping in-flight replies:**
+`CloseOutputAsync` moves the *local* (server-side) `WebSocket.State` off `Open` without
+cancelling an already-pending `ws.ReceiveAsync()` in `ReceiveWebSocketLoopAsync`. A real
+user's PandoMail session showed this concretely: the watchdog logged
+`connection ... idle for over 60s - closing` at `00:21:06`; a full minute later, at
+`00:22:06`, PandoMail (which doesn't react to the `Timeout` notice at all — no dispatch
+case for it) sent a new `Resolve-PandoDid` request on the same connection. The server's
+still-pending `ReceiveAsync` accepted it, `UnpackAsync`'d it, enqueued it, and a LOBE
+actually ran real DID-resolution work — but the outer `while (ws.State == WebSocketState.Open)`
+loop condition failed on its very next check (state was already `CloseSent`), so the loop
+exited and `Detach` ran *before* the reply was ready. When the LOBE's `Reply-DidDocument`
+was finally ready to push: `Switchboard: pushed to local WebSocket (not connected).` —
+silently lost, real work wasted, and PandoMail has no idea why that request never answered.
+
+**Fix:** `ReceiveWebSocketLoopAsync` now re-checks `ws.State` immediately after fully
+assembling a message, *before* dispatching it to `ProcessWebSocketMessageAsync`. If the
+local half-close has already begun (state no longer `Open`), the message is dropped and
+the loop breaks (`Detach` runs normally) instead of paying for LOBE work whose reply can
+never be delivered.
+
+**Related, not fixed here:** a message that arrives *validly* while the connection is
+still `Open` and gets dispatched, but whose LOBE processing is still in flight when the
+watchdog *independently* decides to close for idleness — a narrower, harder-to-hit variant
+of the same class of bug, not covered by this fix. (The other related gap — `TdaMailClient`
+not reacting to `Timeout` — is fixed by TDA-015 below.)
+
+---
+
+## TDA-015 — Retune idle/reconnect timeouts and add a heartbeat for real mail-client usage ✓ *implemented (2026-07-02)*
+
+**Area:** `WebSocketNotifyHub`, `TdaMailClient`
+
+**Summary:** TDA-011/013's timeout values were carried over fairly directly from
+`src/WsExample2-Kestrel`, which is tuned for an actively-watched CLI echo-test tool, not a
+background mail client meant to behave like Outlook. Two concrete problems followed from
+that mismatch:
+
+1. **60s idle timeout was too aggressive.** A user just reading mail generates zero
+   outbound traffic for minutes at a time — completely normal usage that the watchdog
+   couldn't distinguish from a dead connection, causing the exact TDA-013 race to fire on
+   healthy connections.
+2. **10 fixed-interval reconnect attempts (~10s total) gave up far too soon.** A TDA
+   restart for a LOBE deploy, or any blip longer than ~10 seconds, left PandoMail
+   permanently disconnected until the user noticed and manually triggered the old lazy
+   reconnect-on-demand in `MainForm.LoadFolderAsync`.
+
+**Implemented (2026-07-02):**
+
+- **`Svrn7.LocalUI.0.1.0/Ping` → `.../Pong` heartbeat.** `TdaMailClient` sends `Ping` every
+  `HeartbeatInterval` (20s) regardless of user activity; `WebSocketNotifyHub` intercepts it
+  as a control frame (alongside Hello/Goodbye — never enqueued) and replies `Pong`. This
+  keeps the server's idle clock fresh independent of application traffic, and gives the
+  *client* proof the server is still alive too (see next point).
+- **`IdleTimeout` raised from 60s to 10 minutes**, `WatchdogInterval` from 15s to 60s —
+  now a generous backstop for non-heartbeating connections (crashed clients, one-shot tools
+  like `Send-LocalDIDCommMessage`) rather than the primary liveness signal.
+- **Client-side receive watchdog** (`TdaMailClient.ReceiveWatchdogLoopAsync`): tracks
+  time since *anything* was last received (including `Pong`); if nothing arrives for
+  `ReceiveTimeout` (60s, ~3× `HeartbeatInterval`), calls `ws.Abort()` to force the pending
+  `ReceiveAsync` to fault, driving the existing `Disconnected`/reconnect path. This exists
+  for a peer that vanishes with no WS close frame at all (true network black-hole) — a
+  gracefully-closed or promptly-RST'd connection is already caught immediately by the
+  normal receive-fault path (confirmed live, see below).
+- **Reconnect changed from 10 fixed 1s attempts to unbounded capped exponential backoff**
+  (1s, 2s, 4s, 8s, 16s, 30s, 30s, ... — `ReconnectBaseDelay`/`ReconnectMaxDelay` in
+  `TdaMailClient`): retries for as long as the app is running rather than giving up
+  permanently after ~10 seconds. `Reconnecting` event signature changed from
+  `(attempt, maxRetries)` to `(attempt, nextDelay)` to match (no more fixed max);
+  `ReconnectFailed` removed (nothing to fire — it no longer gives up).
+
+**Live-verified (2026-07-01/02):** hard-killed a running TDA — reconnect fired
+immediately with the correct backoff sequence (`1s → 2s → 4s → 8s → 16s → 30s → 30s`),
+then `Reconnected after 7 attempt(s)` the moment the TDA was relaunched, with Hello/
+Subscribed completing cleanly and Ping/Pong resuming on the new connection within one
+heartbeat interval. (The receive watchdog itself wasn't exercised by this test — Windows
+signalled the killed process's socket promptly enough that the normal receive-fault path
+caught it first; the watchdog remains in place for the black-hole case that path can't
+catch.)
+
 ---
 
 ## TDA-014 — Adopt DIDComm V2's `thid` instead of ad-hoc `body.correlationId`

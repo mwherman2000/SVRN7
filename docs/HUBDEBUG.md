@@ -105,9 +105,38 @@ after sending.
 { "type": "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Timeout" }
 ```
 
-Sent when a connection has received nothing for 60s, immediately followed by
-`CloseOutputAsync` (half-close, relying on the client responding with its own close frame
-— no hard-cancel fallback, per TDA-013's noted simplification).
+Sent when a connection has received nothing for `IdleTimeout` (10 minutes as of TDA-015 —
+see below), immediately followed by `CloseOutputAsync` (half-close, relying on the client
+responding with its own close frame — no hard-cancel fallback, per TDA-013's noted
+simplification). In practice a heartbeating client (see `Ping`/`Pong` below) should never
+get anywhere near this — it exists as a backstop for connections that don't heartbeat at
+all (crashed clients, one-shot tools like `Send-LocalDIDCommMessage`).
+
+**Ping** (`.../Ping`) — client → hub, sent every `HeartbeatInterval` (20s) regardless of
+user activity:
+
+```json
+{ "type": "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Ping", "body": { "instanceId": "<guid>" } }
+```
+
+Intercepted as a control frame like Hello/Goodbye — never enqueued. Its only server-side
+job is proving liveness (the hub already refreshes its idle clock on *any* received frame,
+so `Ping` itself adds nothing new there); the reply is what matters:
+
+**Pong** (`.../Pong`) — hub → client, reply to every `Ping`:
+
+```json
+{ "type": "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Pong" }
+```
+
+This is for the *client's* benefit — `TdaMailClient.ReceiveWatchdogLoopAsync` tracks time
+since anything was last received (including `Pong`) and proactively aborts the connection
+if nothing arrives for `ReceiveTimeout` (60s). This matters because a hard-killed server
+(vs. a graceful close) sends no WS close frame at all — without `Pong`, the client would
+have no way to notice a truly dead peer except an unrelated user action failing later.
+(Live-tested 2026-07-02: a promptly-RST'd kill was actually caught by the normal
+receive-fault path before this watchdog ever needed to fire — it exists for the slower,
+no-RST black-hole case that path can't catch.)
 
 **Key difference from WsExample2:** ours gets a real ack (`Subscribed`) because Hello
 carries data the hub must act on (subscriptions) — WsExample2's `attach` is pure identity
@@ -454,3 +483,23 @@ RECV: {"type":"...PandoMail.0.8.0/Notify-FolderCounts","body":{"inboxCount":1,"s
   isn't set on PandoMail's csproj, so it falls back correctly, but the field is currently
   unusable for build-traceability purposes (the reason `WsExample2` includes it).
   Cosmetic, not a defect.
+
+---
+
+## Reading `idle for over 60s - closing` followed by more activity on the same connection
+
+If you see `WebSocketNotifyHub: connection ... idle for over 60s - closing.` and then,
+later, *more* frames processed on that same connection id before
+`KestrelListenerService: local-UI WebSocket detached` finally appears — that was a real
+bug (fixed 2026-07-02, see `docs/BACKLOG.md` TDA-013): a message that arrives after the
+server's local half-close (`CloseOutputAsync`) has already begun used to still get fully
+processed (LOBE work and all), only for its reply to vanish with
+`Switchboard: pushed to local WebSocket (not connected).` once `Detach` ran. Now rejected
+at receive time instead — look for
+`message received after local close began (state=..., id=...) — dropping` in the log if
+you suspect this is happening again.
+
+This is reachable because `TdaMailClient` doesn't react to the `Timeout` notice the
+watchdog sends before closing — it keeps trying to use the connection until it actually
+breaks. Worth checking if you're chasing a "request silently never got a reply" report:
+was the connection idle for 60s+ right before the request was sent?

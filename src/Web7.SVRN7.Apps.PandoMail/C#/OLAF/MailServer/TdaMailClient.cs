@@ -47,10 +47,34 @@ namespace Web7.SVRN7.Apps
         private readonly CancellationTokenSource _cts = new();
         private readonly ILogger<TdaMailClient> _log = AppLog.CreateLogger<TdaMailClient>();
 
-        // Reconnect policy — ported from src/WsExample2-Kestrel's WSClient1 reconnect loop.
-        private const int MaxRetries = 10;
-        private static readonly TimeSpan RetryInterval  = TimeSpan.FromSeconds(1);
-        private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
+        // Reconnect policy — the retry *mechanics* (fresh ClientWebSocket per attempt,
+        // bounded ConnectTimeout via a linked token) are ported from
+        // src/WsExample2-Kestrel's WSClient1. The *cadence* deliberately diverges: WSClient1
+        // is a CLI tool the user is actively watching and can just restart, so it gives up
+        // after 10 fixed-interval attempts (~10s). PandoMail is a background mail client
+        // meant to behave like Outlook — it should keep quietly retrying, backing off, for
+        // as long as the app is open, not go permanently dark after 10 seconds because the
+        // TDA happened to be restarting for a LOBE deploy.
+        private static readonly TimeSpan ConnectTimeout      = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan ReconnectBaseDelay  = TimeSpan.FromSeconds(1);
+        private static readonly TimeSpan ReconnectMaxDelay   = TimeSpan.FromSeconds(30);
+
+        // Heartbeat: sent regardless of user activity so the TDA's idle watchdog
+        // (WebSocketNotifyHub) sees this connection as alive even while the user is just
+        // reading mail and generating no application requests. See docs/BACKLOG.md TDA-013.
+        private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(20);
+
+        // A hard-killed server (crash, force-kill, process manager restart) sends no WS
+        // close frame at all — a pending ws.ReceiveAsync can sit blocked far longer than any
+        // of our own timeouts with no application-level signal that anything is wrong.
+        // ReceiveTimeout (~3x HeartbeatInterval, so a missed Pong/Pong round trip or two is
+        // tolerated) bounds how long we'll wait for *anything* to arrive — including the
+        // server's Pong reply to our own Ping — before treating the connection as dead.
+        private static readonly TimeSpan ReceiveTimeout = TimeSpan.FromSeconds(60);
+
+        // Ticks, not DateTimeOffset directly — Interlocked has no DateTimeOffset overload,
+        // and this is read/written from two different background loops.
+        private long _lastReceivedTicks = DateTimeOffset.UtcNow.UtcTicks;
 
         // Set by DisconnectAsync so an app-initiated close never triggers a background
         // reconnect loop — only an unexpected drop (server closed us, network blip) does.
@@ -85,14 +109,15 @@ namespace Web7.SVRN7.Apps
         /// <summary>Fired on the thread-pool when the WebSocket connection drops unexpectedly.</summary>
         public event Action Disconnected;
 
-        /// <summary>Fired on the thread-pool before each background reconnect attempt.</summary>
-        public event Action<int, int> Reconnecting;
+        /// <summary>
+        /// Fired on the thread-pool before each background reconnect attempt, with the
+        /// attempt number and the backoff delay that follows if this attempt also fails.
+        /// Retries indefinitely — there is no "gave up permanently" event.
+        /// </summary>
+        public event Action<int, TimeSpan> Reconnecting;
 
         /// <summary>Fired on the thread-pool once a background reconnect attempt succeeds.</summary>
         public event Action Reconnected;
-
-        /// <summary>Fired on the thread-pool after MaxRetries consecutive failed reconnect attempts.</summary>
-        public event Action ReconnectFailed;
 
         /// <summary>The connected TDA's agent DID, populated after GetTdaDidAsync() completes.</summary>
         public string TdaDid { get; private set; } = string.Empty;
@@ -171,8 +196,89 @@ namespace Web7.SVRN7.Apps
             _log.LogDebug("WS CONNECT {Uri}", _wsUri);
             await _ws.ConnectAsync(new Uri(_wsUri), _http, connectCts.Token);
             _log.LogInformation("WS CONNECT complete, state={State}", _ws.State);
+            Interlocked.Exchange(ref _lastReceivedTicks, DateTimeOffset.UtcNow.UtcTicks);
             _ = Task.Run(() => ReceiveLoopAsync(_cts.Token));
             await SendHelloAsync(ct);
+            _ = Task.Run(() => HeartbeatLoopAsync(_ws, _cts.Token));
+            _ = Task.Run(() => ReceiveWatchdogLoopAsync(_ws, _cts.Token));
+        }
+
+        /// <summary>
+        /// Sends a Ping every HeartbeatInterval regardless of user activity, so the TDA's
+        /// idle watchdog doesn't mistake "user is just reading mail" for a dead connection
+        /// (see docs/BACKLOG.md TDA-013). Captures the specific ClientWebSocket this loop
+        /// belongs to and stops quietly once a reconnect replaces _ws with a new instance
+        /// (a fresh heartbeat loop starts for that new connection from ConnectCoreAsync) or
+        /// the socket is no longer open — the receive loop is the authoritative disconnect
+        /// detector; a failed Ping send just ends this loop, it doesn't drive reconnection.
+        /// </summary>
+        private async Task HeartbeatLoopAsync(ClientWebSocket ws, CancellationToken ct)
+        {
+            try
+            {
+                using var timer = new PeriodicTimer(HeartbeatInterval);
+                while (await timer.WaitForNextTickAsync(ct))
+                {
+                    if (!ReferenceEquals(_ws, ws) || ws.State != WebSocketState.Open)
+                        return;
+
+                    try
+                    {
+                        string envelope = JsonSerializer.Serialize(new
+                        {
+                            typ  = "application/didcomm-plain+json",
+                            id   = "did:drn:svrn7.net/didcomm/msg/" + Guid.NewGuid().ToString("N"),
+                            type = "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Ping",
+                            body = new { instanceId = _instanceId.ToString() }
+                        });
+                        byte[] bytes = Encoding.UTF8.GetBytes(envelope);
+                        await ws.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
+                        _log.LogDebug("sent Ping (heartbeat)");
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.LogDebug(ex, "Ping send failed — connection is likely already gone; the receive loop will handle reconnect.");
+                        return;
+                    }
+                }
+            }
+            catch (OperationCanceledException) { }
+        }
+
+        /// <summary>
+        /// Detects a peer that vanished without a graceful close — a hard-killed server
+        /// sends no WS close frame, so a pending ws.ReceiveAsync in ReceiveLoopAsync can sit
+        /// blocked far longer than any of our own timeouts with no application-level signal.
+        /// If nothing at all has been received (including the server's Pong reply to our own
+        /// Ping) for ReceiveTimeout, aborts the socket — Abort() forces the pending
+        /// ReceiveAsync to fault immediately, which drives the existing Disconnected/
+        /// reconnect path exactly as a real network error would. Same supersession guard as
+        /// HeartbeatLoopAsync: stops quietly once a reconnect replaces _ws or the socket
+        /// closes on its own.
+        /// </summary>
+        private async Task ReceiveWatchdogLoopAsync(ClientWebSocket ws, CancellationToken ct)
+        {
+            try
+            {
+                using var timer = new PeriodicTimer(HeartbeatInterval);
+                while (await timer.WaitForNextTickAsync(ct))
+                {
+                    if (!ReferenceEquals(_ws, ws) || ws.State != WebSocketState.Open)
+                        return;
+
+                    var lastReceived = new DateTimeOffset(Interlocked.Read(ref _lastReceivedTicks), TimeSpan.Zero);
+                    var since = DateTimeOffset.UtcNow - lastReceived;
+                    if (since > ReceiveTimeout)
+                    {
+                        _log.LogWarning(
+                            "No data received for {Since}s (> {Timeout}s) — aborting connection to force reconnect.",
+                            since.TotalSeconds, ReceiveTimeout.TotalSeconds);
+                        ws.Abort();
+                        return;
+                    }
+                }
+            }
+            catch (OperationCanceledException) { }
         }
 
         /// <summary>
@@ -190,8 +296,12 @@ namespace Web7.SVRN7.Apps
         }
 
         /// <summary>
-        /// Background reconnect loop ported from src/WsExample2-Kestrel's WSClient1:
-        /// up to MaxRetries attempts, RetryInterval apart, each attempt getting a fresh
+        /// Background reconnect loop. Retries indefinitely with capped exponential backoff
+        /// (1s, 2s, 4s, 8s, 16s, 30s, 30s, ...) — deliberately unbounded, unlike
+        /// src/WsExample2-Kestrel's WSClient1 (10 fixed-interval attempts then gives up):
+        /// PandoMail is a background mail client, not an actively-watched CLI tool, so it
+        /// should keep quietly trying to reach the TDA for as long as it's running rather
+        /// than go permanently dark after ~10 seconds. Each attempt gets a fresh
         /// ClientWebSocket (a closed/aborted one cannot be reused) and its own
         /// ConnectTimeout via ConnectCoreAsync. Stops early if DisconnectAsync was called
         /// or the client itself is being disposed.
@@ -200,13 +310,15 @@ namespace Web7.SVRN7.Apps
         {
             try
             {
-                for (int attempt = 1; attempt <= MaxRetries; attempt++)
+                for (int attempt = 1; ; attempt++)
                 {
                     if (_intentionalDisconnect || _cts.IsCancellationRequested)
                         return;
 
-                    _log.LogInformation("Reconnect attempt {Attempt}/{Max}", attempt, MaxRetries);
-                    Reconnecting?.Invoke(attempt, MaxRetries);
+                    var delay = ComputeBackoff(attempt);
+                    _log.LogInformation("Reconnect attempt {Attempt} (next retry in {Delay}s if this fails)",
+                        attempt, delay.TotalSeconds);
+                    Reconnecting?.Invoke(attempt, delay);
 
                     try
                     {
@@ -220,20 +332,23 @@ namespace Web7.SVRN7.Apps
                     }
                     catch (Exception ex)
                     {
-                        _log.LogWarning(ex, "Reconnect attempt {Attempt}/{Max} failed", attempt, MaxRetries);
+                        _log.LogWarning(ex, "Reconnect attempt {Attempt} failed — retrying in {Delay}s", attempt, delay.TotalSeconds);
                     }
 
-                    try { await Task.Delay(RetryInterval, _cts.Token); }
+                    try { await Task.Delay(delay, _cts.Token); }
                     catch (OperationCanceledException) { return; }
                 }
-
-                _log.LogWarning("Reconnect gave up after {Max} attempt(s)", MaxRetries);
-                ReconnectFailed?.Invoke();
             }
             finally
             {
                 Volatile.Write(ref _reconnecting, 0);
             }
+        }
+
+        private static TimeSpan ComputeBackoff(int attempt)
+        {
+            double seconds = ReconnectBaseDelay.TotalSeconds * Math.Pow(2, attempt - 1);
+            return TimeSpan.FromSeconds(Math.Min(seconds, ReconnectMaxDelay.TotalSeconds));
         }
 
         /// <summary>
@@ -546,6 +661,7 @@ namespace Web7.SVRN7.Apps
                     }
                     while (!result.EndOfMessage);
 
+                    Interlocked.Exchange(ref _lastReceivedTicks, DateTimeOffset.UtcNow.UtcTicks);
                     var recvJson = Encoding.UTF8.GetString(ms.ToArray());
                     _log.LogDebug("WS RECV {Bytes} bytes: {Json}", ms.Length, recvJson);
                     DispatchReceived(recvJson);
