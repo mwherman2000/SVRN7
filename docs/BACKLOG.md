@@ -915,3 +915,88 @@ TDA-004). Worth revisiting once TDA-004 (LOBE marketplace/registry) is closer to
 since that's what actually introduces untrusted LOBEs into the picture.
 
 **No code change required now** — note for future investigation.
+
+---
+
+## TDA-016 — Migrate PandoBoard to a live TDA connection (planning note, 2026-07-02)
+
+**Area:** `Web7.SVRN7.Apps.PandoBoard` (new: a shared local-UI transport library;
+new: a board content LOBE), `Svrn7.Presence.0.8.0` (reused, not modified)
+
+**Summary:** PandoBoard (`src/Web7.SVRN7.Apps.PandoBoard`) is a WinForms + SkiaSharp
+contacts/conversation board — a `BoardColumn` per `Contact`, each with
+`ConversationThread`s and `Message`s — currently populated entirely by
+`SeedDataService.CreateSeedColumns()` (a large static file of fake DID-community
+contacts and canned conversations). No networking exists yet. This note plans the
+migration to a live `/localcomm-ws` connection, the same way `TdaMailClient` connects
+PandoMail today.
+
+Two things make this migration better-positioned than a from-scratch one:
+
+- **The domain model already speaks DIDComm.** `Contact.Did`, `ConversationThread.Thid`,
+  `Message.SenderDid`/`DIDCommType`/`IsVerified` aren't generic chat-app fields — they
+  map almost one-to-one onto DIDComm envelope concepts already. `ConversationThread.Thid`
+  in particular should literally be the DIDComm `thid`, grouping stored messages by
+  thread the same way TDA-014 now uses `thid` for reply correlation.
+- **A presence protocol already exists and fits directly.** `Svrn7.Presence.0.8.0`
+  (`status`/`subscribe`/`unsubscribe`, `Available`/`Busy`/`Away`/`Offline`, cached in
+  `IMemoryCache`) maps onto `Contact.Status` (`Online`/`Away`/`Offline`) — PandoBoard
+  doesn't need to invent presence, just consume this LOBE's `Get-Web7Presence`/
+  `Publish-Web7Presence`/subscribe cmdlets. One reconciliation needed: the enum values
+  don't line up 1:1 (`Available`/`Busy` on the Presence side vs. `Online` on the board
+  side — decide where `Busy` maps).
+
+**Planned steps:**
+
+1. **Shared transport library vs. copy-paste `TdaMailClient`.** The first real fork in
+   the road. `TdaMailClient` already has the heartbeat, capped-exponential-backoff
+   reconnect, `thid`-based correlation, and Hello/Subscribed handshake that PandoBoard
+   will need identically — it's the same `/localcomm-ws` protocol on the same hub.
+   Copy-pasting means every future WS-hardening fix (see TDA-013/TDA-015 and the
+   2026-07-02 robustness-review fixes) has to land twice and will drift. Recommended:
+   extract the transport-agnostic parts (connect/reconnect/heartbeat/Hello/correlation
+   dictionary/`SendEnvelopeAsync`) into a small shared library (e.g.
+   `Svrn7.LocalUiClient`), leaving only the PandoMail-specific request methods in
+   `TdaMailClient` and the PandoBoard-specific ones in a new `TdaBoardClient`.
+2. **New protocol family + LOBE for board content.** Presence is covered, but
+   conversation content isn't — nothing in the current LOBE set is a generic messaging
+   protocol (PandoMail's is RFC 5322-email-shaped, wrong fit for a lightweight chat
+   message). Needs something like `Svrn7.Board.0.1.0` or `PandoBoard.0.1.0` with cmdlets
+   analogous to PandoMail's: `Query-Contacts`/`List-Contacts`, `List-Threads`,
+   `Get-ThreadMessages`, `Send-BoardMessage`, plus a push type
+   (`Board-Notify.0.1.0/new-message`) mirroring `Email-Notify`.
+3. **Domain mapping is mostly a rename, not a redesign** — see the DIDComm-shaped
+   fields already on `Contact`/`ConversationThread`/`Message` above.
+4. **Replace the seam, not the surface.** `BoardForm` has exactly one injection point —
+   `_columns = SeedDataService.CreateSeedColumns()`, followed by
+   `_velocity.RefreshAndSort(_columns)` and `_surface.SetColumns(_columns)`. Swap the
+   first line for an async live load; `VelocityService` and `BoardSurface` don't need
+   to change.
+5. **Incremental updates matter more here than in PandoMail.** PandoMail's
+   reload-the-active-folder-on-notify approach is fine for a list view. PandoBoard is a
+   live, always-visible multi-column canvas with actively animated column widths
+   (`CurrentWidth`/`TargetWidth`) — a full reload on every `Board-Notify` push would
+   reset scroll position and animation state. Push handling should patch the specific
+   column/thread in place, not rebuild `_columns` wholesale.
+6. **Bake in the exception-safety lesson from the start.** Wrap every push-notification
+   handler in try/catch and add `Application.ThreadException`/
+   `AppDomain.UnhandledException` handlers in PandoBoard's `Program.cs` from day one,
+   rather than retrofitting after a crash the way PandoMail's were added reactively
+   (2026-07-02 robustness review).
+7. **DI makes this cleaner than PandoMail, not harder.** PandoBoard already uses
+   `Microsoft.Extensions.DependencyInjection` (`Program.cs` builds a `ServiceCollection`)
+   — unlike PandoMail, which deliberately avoids a DI container.
+   `services.AddSingleton<TdaBoardClient>()` injected into `BoardForm`'s constructor is
+   more idiomatic here than PandoMail's manual `new TdaMailClient(...)` field.
+8. **Test the multi-app scenario, since it's real.** `WebSocketNotifyHub` already
+   supports multiple simultaneous connections with independent subscriptions — CLAUDE.md
+   explicitly describes this as reusable across apps. Once PandoBoard exists,
+   verification should include PandoMail *and* PandoBoard connected to the *same* TDA at
+   once (sharing the Citizen TDA's DID), confirming correlated replies and presence
+   broadcasts route to the right one.
+
+**Suggested order:** protocol/LOBE design first (needs cmdlet-shape decisions), then
+the shared transport extraction, then the seam swap in `BoardForm`, then
+incremental-update wiring, then the dual-app live test.
+
+**No code change required now** — planning note, not yet scoped for implementation.
