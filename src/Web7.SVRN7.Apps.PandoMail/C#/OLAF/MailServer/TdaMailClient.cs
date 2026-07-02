@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -11,6 +10,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace Web7.SVRN7.Apps
 {
@@ -45,6 +45,7 @@ namespace Web7.SVRN7.Apps
         private readonly HttpClient          _http;
         private ClientWebSocket              _ws;
         private readonly CancellationTokenSource _cts = new();
+        private readonly ILogger<TdaMailClient> _log = AppLog.CreateLogger<TdaMailClient>();
 
         // Pending List-Emails requests keyed by correlationId → completion source.
         private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pending = new();
@@ -111,22 +112,22 @@ namespace Web7.SVRN7.Apps
 
         public async Task ConnectAsync(CancellationToken ct = default)
         {
-            Debug.WriteLine($"[TdaMailClient] WS CONNECT {_wsUri}");
+            _log.LogDebug("WS CONNECT {Uri}", _wsUri);
             try
             {
                 await _ws.ConnectAsync(new Uri(_wsUri), _http, ct);
-                Debug.WriteLine($"[TdaMailClient] WS CONNECT complete state={_ws.State}");
+                _log.LogInformation("WS CONNECT complete, state={State}", _ws.State);
                 _ = Task.Run(() => ReceiveLoopAsync(_cts.Token));
                 await SendHelloAsync(ct);
             }
             catch (WebSocketException ex)
             {
-                Debug.WriteLine($"[TdaMailClient] WS CONNECT FAILED: {ex.Message} (WebSocketErrorCode={ex.WebSocketErrorCode} HttpStatusCode={ex.WebSocketErrorCode} InnerException={ex.InnerException?.Message})");
+                _log.LogWarning(ex, "WS CONNECT FAILED (WebSocketErrorCode={ErrorCode})", ex.WebSocketErrorCode);
                 throw;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[TdaMailClient] WS CONNECT FAILED ({ex.GetType().Name}): {ex.Message}  InnerException={ex.InnerException?.GetType().Name}: {ex.InnerException?.Message}");
+                _log.LogWarning(ex, "WS CONNECT FAILED ({ExceptionType})", ex.GetType().Name);
                 throw;
             }
         }
@@ -160,7 +161,7 @@ namespace Web7.SVRN7.Apps
             });
             byte[] bytes = Encoding.UTF8.GetBytes(envelope);
             await _ws.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
-            Debug.WriteLine($"[TdaMailClient] sent Hello: {envelope}");
+            _log.LogDebug("sent Hello: {Envelope}", envelope);
         }
 
         /// <summary>
@@ -408,15 +409,15 @@ namespace Web7.SVRN7.Apps
                 body
             });
             byte[] bytes = Encoding.UTF8.GetBytes(envelope);
-            Debug.WriteLine($"[TdaMailClient] WS SEND type={type} bytes={bytes.Length} state={_ws.State}");
+            _log.LogDebug("WS SEND type={Type} bytes={Bytes} state={State}", type, bytes.Length, _ws.State);
             try
             {
                 await _ws.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
-                Debug.WriteLine($"[TdaMailClient] WS SEND complete type={type}");
+                _log.LogDebug("WS SEND complete type={Type}", type);
             }
             catch (WebSocketException ex)
             {
-                Debug.WriteLine($"[TdaMailClient] WS SEND FAILED: {ex.Message} (WebSocketErrorCode={ex.WebSocketErrorCode} InnerException={ex.InnerException?.Message})");
+                _log.LogWarning(ex, "WS SEND FAILED type={Type} (WebSocketErrorCode={ErrorCode})", type, ex.WebSocketErrorCode);
                 throw;
             }
         }
@@ -441,7 +442,7 @@ namespace Web7.SVRN7.Apps
                     while (!result.EndOfMessage);
 
                     var recvJson = Encoding.UTF8.GetString(ms.ToArray());
-                    Debug.WriteLine($"[TdaMailClient] WS RECV {ms.Length} bytes: {recvJson}");
+                    _log.LogDebug("WS RECV {Bytes} bytes: {Json}", ms.Length, recvJson);
                     DispatchReceived(recvJson);
                 }
             }
@@ -463,7 +464,7 @@ namespace Web7.SVRN7.Apps
                 string type = root.TryGetProperty("type", out JsonElement t)
                     ? t.GetString() ?? "" : "";
 
-                Debug.WriteLine($"[TdaMailClient] WS DISPATCH type={type}");
+                _log.LogDebug("WS DISPATCH type={Type}", type);
 
                 if (type.EndsWith("/Reply-TdaDid", StringComparison.Ordinal))
                 {
@@ -517,7 +518,8 @@ namespace Web7.SVRN7.Apps
                 else if (type.EndsWith("/Reply-DidDocument", StringComparison.Ordinal))
                 {
                     string cid = ExtractCorrelationId(root);
-                    Debug.WriteLine($"[TdaMailClient] Reply-DidDocument correlationId={cid} pendingCount={_pending.Count} matched={(!string.IsNullOrEmpty(cid) && _pending.ContainsKey(cid))}");
+                    _log.LogDebug("Reply-DidDocument correlationId={CorrelationId} pendingCount={PendingCount} matched={Matched}",
+                        cid, _pending.Count, !string.IsNullOrEmpty(cid) && _pending.ContainsKey(cid));
                     if (!string.IsNullOrEmpty(cid) && _pending.TryGetValue(cid, out var tcs))
                         tcs.TrySetResult(json);
                 }

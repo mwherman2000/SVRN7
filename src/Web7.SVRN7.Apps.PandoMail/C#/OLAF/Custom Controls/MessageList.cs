@@ -9,7 +9,7 @@ using System.Data;
 using System.Reflection;
 using System.Text;
 using System.Windows.Forms;
-using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 
 #endregion
@@ -22,6 +22,7 @@ namespace Web7.SVRN7.Apps
 		private Bitmap			_unreadImage;
 		private MessageStore	_store;
 		private	Font			_font;
+		private readonly ILogger<MessageList> _log = AppLog.CreateLogger<MessageList>();
 
 		private IContainer components;
 		private DataGridViewImageColumn dataGridViewImageColumn2;
@@ -198,7 +199,7 @@ namespace Web7.SVRN7.Apps
 
 				// Set default row height
 				this.dataGridView1.RowTemplate.Height = (TextRenderer.MeasureText("I", _font).Height + 5) * 2;
-				Debug.WriteLine(this.dataGridView1.RowTemplate.Height.ToString());
+				_log.LogDebug("RowTemplate.Height={Height}", this.dataGridView1.RowTemplate.Height);
 			}
 		}
 		#endregion
