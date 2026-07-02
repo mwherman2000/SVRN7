@@ -9,12 +9,15 @@ using System.Windows.Forms;
 
 using System.Net.NetworkInformation;
 using Microsoft.Win32;
+using Microsoft.Extensions.Logging;
 
 namespace Web7.SVRN7.Apps
 {
 	public partial class MainForm : Form
 	{
 		private const string BaseTitle = "Pando Mail";
+
+		private readonly ILogger<MainForm> _log = AppLog.CreateLogger<MainForm>();
 
 		// Message Server
 		private MessageStore		_store;
@@ -197,20 +200,37 @@ namespace Web7.SVRN7.Apps
 		private void OnEmailNotifyReceived(string json)
 		{
 			// Marshal to UI thread and refresh the inbox when a new email arrives.
+			// The lambda passed to MethodInvoker is effectively async void once BeginInvoke
+			// adapts it to a void delegate — an exception here has no Task to surface through
+			// and no caller to observe it, so it must be caught locally rather than relying
+			// solely on the global handler (Program.InstallGlobalExceptionHandlers), which
+			// would otherwise pop a dialog for what should be a quiet, self-correcting retry.
 			if (this.IsHandleCreated)
-				BeginInvoke(new MethodInvoker(async () => await RefreshInboxAsync()));
+				BeginInvoke(new MethodInvoker(async () =>
+				{
+					try { await RefreshInboxAsync(); }
+					catch (Exception ex) { _log.LogError(ex, "OnEmailNotifyReceived: failed to refresh inbox."); }
+				}));
 		}
 
 		private void OnFolderCountsReceived(int inbox, int sent, int deadLetters)
 		{
 			if (this.IsHandleCreated)
-				BeginInvoke(new MethodInvoker(() => _store.UpdateFolderCounts(inbox, sent, deadLetters)));
+				BeginInvoke(new MethodInvoker(() =>
+				{
+					try { _store.UpdateFolderCounts(inbox, sent, deadLetters); }
+					catch (Exception ex) { _log.LogError(ex, "OnFolderCountsReceived: failed to update folder counts."); }
+				}));
 		}
 
 		private void OnTdaDisconnected()
 		{
 			if (this.IsHandleCreated)
-				BeginInvoke(new MethodInvoker(async () => await UpdateTitleAsync()));
+				BeginInvoke(new MethodInvoker(async () =>
+				{
+					try { await UpdateTitleAsync(); }
+					catch (Exception ex) { _log.LogError(ex, "OnTdaDisconnected: failed to update title."); }
+				}));
 		}
 
 		private static List<MailMessage> MapToMailMessages(List<EmailSummary> summaries)

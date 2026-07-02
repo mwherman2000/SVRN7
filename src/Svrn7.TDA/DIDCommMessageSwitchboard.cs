@@ -593,7 +593,23 @@ public sealed class DIDCommMessageSwitchboard
         // Derived from: "HTTP Listener/Sender (HTTPClient)" — DSA 0.24 Epoch 0.
         while (_outboundQueue.TryDequeue(out var msg))
         {
-            await DeliverOutboundAsync(msg, ct);
+            try
+            {
+                await DeliverOutboundAsync(msg, ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                // DeliverOutboundAsync already handles expected failure modes (HTTP errors,
+                // timeouts) internally via retry + dead-letter. Reaching here means something
+                // unexpected escaped that handling (e.g. a WebSocket push race, malformed
+                // envelope JSON in PackOutboundAsync) — this message is one dequeued item,
+                // not the whole queue, so log and move on to the next rather than letting it
+                // propagate out of RunAsync's while loop and kill the entire drain loop (the
+                // TDA's single dispatcher for both inbound and outbound processing).
+                _log.LogError(ex,
+                    "Switchboard: unexpected error delivering outbound message to {Endpoint} — message lost, continuing drain.",
+                    msg.PeerEndpoint);
+            }
         }
     }
 

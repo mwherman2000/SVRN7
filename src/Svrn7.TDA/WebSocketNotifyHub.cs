@@ -259,22 +259,34 @@ public sealed class WebSocketNotifyHub : IDisposable
             return;
 
         var bytes = Encoding.UTF8.GetBytes(json);
-        await conn.SendLock.WaitAsync(ct).ConfigureAwait(false);
+        bool lockAcquired = false;
         try
         {
+            // Detach(id) can run concurrently between the TryGetValue above and here —
+            // e.g. the connection sends Goodbye and closes normally, or the idle watchdog
+            // races with it — disposing conn.SendLock out from under us. WaitAsync on a
+            // disposed SemaphoreSlim throws ObjectDisposedException, not WebSocketException,
+            // so it must be caught here too: this is a routine disconnect, not a fault.
+            await conn.SendLock.WaitAsync(ct).ConfigureAwait(false);
+            lockAcquired = true;
+
             await conn.Socket.SendAsync(
                 new ReadOnlyMemory<byte>(bytes),
                 WebSocketMessageType.Text,
                 endOfMessage: true,
                 ct).ConfigureAwait(false);
         }
-        catch (WebSocketException ex)
+        catch (Exception ex) when (ex is WebSocketException or ObjectDisposedException)
         {
             _log.LogDebug(ex, "WebSocketNotifyHub: send failed for connection {Id} — will be pruned.", id);
         }
         finally
         {
-            conn.SendLock.Release();
+            if (lockAcquired)
+            {
+                try { conn.SendLock.Release(); }
+                catch (ObjectDisposedException) { /* disposed concurrently — nothing to release */ }
+            }
         }
     }
 

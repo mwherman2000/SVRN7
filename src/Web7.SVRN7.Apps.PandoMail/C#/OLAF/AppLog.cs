@@ -25,6 +25,13 @@ namespace Web7.SVRN7.Apps
     }
 
     /// <summary>
+    /// Log-category marker for process-lifetime events (startup, global exception
+    /// handlers) that aren't naturally owned by one class — a static class like
+    /// <c>Program</c> cannot itself be used as an <see cref="ILogger{T}"/> type argument.
+    /// </summary>
+    internal sealed class AppLifecycle { }
+
+    /// <summary>
     /// Minimal file-backed ILoggerProvider — appends timestamped lines to a single log
     /// file. No rotation, no buffering: PandoMail's traffic volume (WebSocket connect/
     /// send/receive events) doesn't warrant either, and simplicity here means one less
