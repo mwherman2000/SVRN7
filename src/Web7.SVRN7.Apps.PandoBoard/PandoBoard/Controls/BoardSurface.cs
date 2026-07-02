@@ -54,7 +54,10 @@ public class BoardSurface : SKControl
     private SKTypeface _mono = SKTypeface.FromFamilyName("Consolas", SKFontStyle.Normal);
 
     // ── Colors ──
+    // Elevation scale: BgColor (canvas/spines, darkest) < SurfaceActive (active column
+    // body) < Surface2 (header/composer/inbound bubbles) < Surface3 (input pill).
     private static readonly SKColor BgColor       = SKColor.Parse("#080C16");
+    private static readonly SKColor SurfaceActive = SKColor.Parse("#0F1422");
     private static readonly SKColor Surface2      = SKColor.Parse("#161C2E");
     private static readonly SKColor Surface3      = SKColor.Parse("#1C2438");
     private static readonly SKColor TextPrimary   = SKColor.Parse("#E8EAF0");
@@ -399,11 +402,11 @@ public class BoardSurface : SKControl
         var rect = new SKRect(x, y, x + w, y + h);
 
         // Background
-        using var bgPaint = new SKPaint { Color = color.WithAlpha(25), IsAntialias = true };
+        using var bgPaint = new SKPaint { Color = color.WithAlpha(35), IsAntialias = true };
         canvas.DrawRect(rect, bgPaint);
 
-        // Left accent bar
-        using var accentPaint = new SKPaint { Color = color, IsAntialias = true };
+        // Left accent bar — dimmed; the active column carries the full-strength accent
+        using var accentPaint = new SKPaint { Color = color.WithAlpha(160), IsAntialias = true };
         canvas.DrawRect(new SKRect(x, y, x + 3, y + h), accentPaint);
 
         // Drop highlight
@@ -421,13 +424,14 @@ public class BoardSurface : SKControl
             canvas.DrawCircle(x + w / 2, y + 14, 4, pipPaint);
         }
 
-        // Contact name — rotated vertically, bottom to top
+        // Contact name — rotated vertically, bottom to top; same size as the expanded
+        // column's header name so the label doesn't shrink when a column collapses.
         using var namePaint = new SKPaint
         {
             Color = color,
             IsAntialias = true,
             Typeface = _sansBold,
-            TextSize = 11f
+            TextSize = 14f
         };
 
         float nameWidth = namePaint.MeasureText(contact.Name);
@@ -459,8 +463,9 @@ public class BoardSurface : SKControl
         var contact = col.Contact;
         var color = contact.Color;
 
-        // Background
-        using var bgPaint = new SKPaint { Color = BgColor, IsAntialias = true };
+        // Background — lifted above the base canvas so the active column reads as a raised
+        // surface, while staying darker than the header/composer/bubbles layered on top of it.
+        using var bgPaint = new SKPaint { Color = SurfaceActive, IsAntialias = true };
         canvas.DrawRect(new SKRect(x, y, x + w, y + h), bgPaint);
 
         // ── Header ──
@@ -474,8 +479,9 @@ public class BoardSurface : SKControl
         // ── Composer ──
         DrawComposer(canvas, col, x, h - ComposerHeight, w);
 
-        // Left border accent — drawn last so header/composer backgrounds don't cover it
-        using var accentPaint = new SKPaint { Color = color.WithAlpha(120), IsAntialias = true };
+        // Left border accent — full strength; drawn last so header/composer backgrounds
+        // don't cover it. The active column carries the strong accent, spines the dim one.
+        using var accentPaint = new SKPaint { Color = color, IsAntialias = true };
         canvas.DrawRect(new SKRect(x, y, x + 3, y + h), accentPaint);
     }
 
