@@ -11,11 +11,16 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <SupportedOSPlatformVersion>6.1</SupportedOSPlatformVersion>
     <GenerateResourceWarnOnBinaryFormatterUse>false</GenerateResourceWarnOnBinaryFormatterUse>
+    <ApplicationIcon>Images\Web7Pinwheel.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2277.86" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Images\Web7Pinwheel.ico" />
   </ItemGroup>
 
   <ItemGroup>

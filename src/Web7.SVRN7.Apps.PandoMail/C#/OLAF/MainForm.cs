@@ -50,7 +50,10 @@ namespace Web7.SVRN7.Apps
 			NetworkChange.NetworkAvailabilityChanged += new NetworkAvailabilityChangedEventHandler(NetworkChange_NetworkAvailabilityChanged);
 			UpdateStatusBar();
 
-			this.Icon = Icon.FromHandle(Web7.SVRN7.Apps.Properties.Resources.PandoMail.GetHicon());
+			using (var iconStream = typeof(MainForm).Assembly.GetManifestResourceStream("Web7.SVRN7.Apps.Images.Web7Pinwheel.ico"))
+			{
+				this.Icon = new Icon(iconStream);
+			}
 
 			Microsoft.Win32.SystemEvents.UserPreferenceChanged += new UserPreferenceChangedEventHandler(Form1_UserPreferenceChanged);
 
