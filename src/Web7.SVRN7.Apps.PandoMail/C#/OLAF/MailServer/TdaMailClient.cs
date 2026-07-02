@@ -47,6 +47,19 @@ namespace Web7.SVRN7.Apps
         private readonly CancellationTokenSource _cts = new();
         private readonly ILogger<TdaMailClient> _log = AppLog.CreateLogger<TdaMailClient>();
 
+        // Reconnect policy — ported from src/WsExample2-Kestrel's WSClient1 reconnect loop.
+        private const int MaxRetries = 10;
+        private static readonly TimeSpan RetryInterval  = TimeSpan.FromSeconds(1);
+        private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
+
+        // Set by DisconnectAsync so an app-initiated close never triggers a background
+        // reconnect loop — only an unexpected drop (server closed us, network blip) does.
+        private volatile bool _intentionalDisconnect;
+
+        // 0 = idle, 1 = a ReconnectLoopAsync is already running. Interlocked, not a lock,
+        // since the only operation needed is "claim it once."
+        private int _reconnecting;
+
         // Pending List-Emails requests keyed by correlationId → completion source.
         private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pending = new();
 
@@ -71,6 +84,15 @@ namespace Web7.SVRN7.Apps
 
         /// <summary>Fired on the thread-pool when the WebSocket connection drops unexpectedly.</summary>
         public event Action Disconnected;
+
+        /// <summary>Fired on the thread-pool before each background reconnect attempt.</summary>
+        public event Action<int, int> Reconnecting;
+
+        /// <summary>Fired on the thread-pool once a background reconnect attempt succeeds.</summary>
+        public event Action Reconnected;
+
+        /// <summary>Fired on the thread-pool after MaxRetries consecutive failed reconnect attempts.</summary>
+        public event Action ReconnectFailed;
 
         /// <summary>The connected TDA's agent DID, populated after GetTdaDidAsync() completes.</summary>
         public string TdaDid { get; private set; } = string.Empty;
@@ -112,13 +134,15 @@ namespace Web7.SVRN7.Apps
 
         public async Task ConnectAsync(CancellationToken ct = default)
         {
-            _log.LogDebug("WS CONNECT {Uri}", _wsUri);
+            _intentionalDisconnect = false;
             try
             {
-                await _ws.ConnectAsync(new Uri(_wsUri), _http, ct);
-                _log.LogInformation("WS CONNECT complete, state={State}", _ws.State);
-                _ = Task.Run(() => ReceiveLoopAsync(_cts.Token));
-                await SendHelloAsync(ct);
+                await ConnectCoreAsync(ct);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                _log.LogWarning("WS CONNECT timed out after {Timeout}", ConnectTimeout);
+                throw;
             }
             catch (WebSocketException ex)
             {
@@ -129,6 +153,86 @@ namespace Web7.SVRN7.Apps
             {
                 _log.LogWarning(ex, "WS CONNECT FAILED ({ExceptionType})", ex.GetType().Name);
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Opens the socket, starts the receive loop, and sends Hello. Shared by the
+        /// initial ConnectAsync and every background reconnect attempt. Bounds the
+        /// connect itself to ConnectTimeout (5s) via a linked token, same as
+        /// src/WsExample2-Kestrel's WSClient1 — a server that accepts the TCP connection
+        /// but stalls the WebSocket upgrade must not hang the caller indefinitely.
+        /// </summary>
+        private async Task ConnectCoreAsync(CancellationToken ct)
+        {
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            connectCts.CancelAfter(ConnectTimeout);
+
+            _log.LogDebug("WS CONNECT {Uri}", _wsUri);
+            await _ws.ConnectAsync(new Uri(_wsUri), _http, connectCts.Token);
+            _log.LogInformation("WS CONNECT complete, state={State}", _ws.State);
+            _ = Task.Run(() => ReceiveLoopAsync(_cts.Token));
+            await SendHelloAsync(ct);
+        }
+
+        /// <summary>
+        /// Claims the reconnect loop if one isn't already running. Called from
+        /// ReceiveLoopAsync's finally block on an unexpected disconnect — never after
+        /// DisconnectAsync, and never after the initial ConnectAsync (that failure is
+        /// still reported synchronously to the caller, unchanged).
+        /// </summary>
+        private void StartReconnectLoop()
+        {
+            if (Interlocked.CompareExchange(ref _reconnecting, 1, 0) != 0)
+                return; // already reconnecting
+
+            _ = ReconnectLoopAsync();
+        }
+
+        /// <summary>
+        /// Background reconnect loop ported from src/WsExample2-Kestrel's WSClient1:
+        /// up to MaxRetries attempts, RetryInterval apart, each attempt getting a fresh
+        /// ClientWebSocket (a closed/aborted one cannot be reused) and its own
+        /// ConnectTimeout via ConnectCoreAsync. Stops early if DisconnectAsync was called
+        /// or the client itself is being disposed.
+        /// </summary>
+        private async Task ReconnectLoopAsync()
+        {
+            try
+            {
+                for (int attempt = 1; attempt <= MaxRetries; attempt++)
+                {
+                    if (_intentionalDisconnect || _cts.IsCancellationRequested)
+                        return;
+
+                    _log.LogInformation("Reconnect attempt {Attempt}/{Max}", attempt, MaxRetries);
+                    Reconnecting?.Invoke(attempt, MaxRetries);
+
+                    try
+                    {
+                        _ws.Dispose();
+                        _ws = new ClientWebSocket();
+                        ConfigureWebSocket(_ws);
+                        await ConnectCoreAsync(_cts.Token);
+                        _log.LogInformation("Reconnected after {Attempt} attempt(s)", attempt);
+                        Reconnected?.Invoke();
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.LogWarning(ex, "Reconnect attempt {Attempt}/{Max} failed", attempt, MaxRetries);
+                    }
+
+                    try { await Task.Delay(RetryInterval, _cts.Token); }
+                    catch (OperationCanceledException) { return; }
+                }
+
+                _log.LogWarning("Reconnect gave up after {Max} attempt(s)", MaxRetries);
+                ReconnectFailed?.Invoke();
+            }
+            finally
+            {
+                Volatile.Write(ref _reconnecting, 0);
             }
         }
 
@@ -171,6 +275,7 @@ namespace Web7.SVRN7.Apps
         /// </summary>
         public async Task DisconnectAsync(CancellationToken ct = default)
         {
+            _intentionalDisconnect = true;
             if (_ws.State != WebSocketState.Open) return;
             try
             {
@@ -451,7 +556,11 @@ namespace Web7.SVRN7.Apps
             finally
             {
                 if (!ct.IsCancellationRequested)
+                {
                     Disconnected?.Invoke();
+                    if (!_intentionalDisconnect)
+                        StartReconnectLoop();
+                }
             }
         }
 
