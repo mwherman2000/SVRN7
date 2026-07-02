@@ -10,6 +10,114 @@ See `docs/BACKLOG.md` TDA-011 for the design this exercises, and
 
 ---
 
+## Message Flow Reference
+
+Two related flows exist: the reference pattern in `src/WsExample2-Kestrel` (plain JSON,
+no DIDComm envelope) and the one actually built for `/didcomm-ws`
+(`Svrn7.LocalUI.0.1.0`, real DIDComm-plain envelopes), modeled on the reference but
+adapted to fit.
+
+### WsExample2-Kestrel (reference pattern)
+
+```
+Client                                    Server
+  │──── attach ────────────────────────────▶│   (sent immediately after ConnectAsync)
+  │                                          │
+  │◀─────────────────── (no ack) ────────────│
+  │                                          │
+  │──── ordinary text messages ────────────▶│   (echoed back with ">>> " prefix)
+  │                                          │
+  │──── detach ─────────────────────────────▶│   (sent when user types "bye")
+  │                                          │   client then closes the connection
+  │                                          │
+  │◀──── timeout ────────────────────────────│   (server → client, only if idle > 15s)
+  │                                          │   sent before CloseOutputAsync
+```
+
+Fields on every message: `type` (`"attach"|"detach"|"timeout"`), `instanceId`, `appName`,
+`mvid`, `appVersion`; `attach`/`detach` add `appFullName`. No ack is sent back for
+`attach`/`detach` — they're fire-and-forget identity announcements.
+
+### Our TDA (`Svrn7.LocalUI.0.1.0`)
+
+```
+Client (e.g. PandoMail)                   WebSocketNotifyHub
+  │──── Hello ──────────────────────────────▶│   sent as the last step of ConnectAsync,
+  │                                          │   before any other request
+  │                                          │   intercepted BEFORE the inbox/Switchboard —
+  │                                          │   never routed to a LOBE
+  │◀──── Subscribed ──────────────────────────│   ack, echoes back the accepted subscriptions
+  │                                          │
+  │──── ordinary requests (List-Emails, etc.)▶│   flow through the normal
+  │◀──── correlated replies ───────────────────│   inbox/Switchboard/LOBE pipeline as usual
+  │                                          │
+  │◀──── (broadcast notifications) ────────────│   Email-Notify, Notify-FolderCounts — pushed
+  │                                          │   to any connection whose Hello subscriptions match
+  │                                          │
+  │──── Goodbye ────────────────────────────▶│   sent by DisconnectAsync before a clean close
+  │                                          │   (log-only on the hub side, no reply)
+  │                                          │
+  │◀──── Timeout ──────────────────────────────│   idle watchdog, only if no frame received
+  │                                          │   for 60s; followed by CloseOutputAsync (half-close)
+```
+
+**Hello** (`Svrn7.LocalUI.0.1.0/Hello`) — client → hub:
+
+```json
+{
+  "typ": "application/didcomm-plain+json",
+  "id": "did:drn:svrn7.net/didcomm/msg/<guid>",
+  "type": "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Hello",
+  "body": {
+    "app": "PandoMail",
+    "appVersion": "<AssemblyInformationalVersion>",
+    "appFullName": "<Assembly.GetName().FullName>",
+    "instanceId": "<guid, stable across reconnects>",
+    "mvid": "<Module.ModuleVersionId>",
+    "subscriptions": [
+      { "uri": "did:drn:svrn7.net/protocols/Email-Notify.0.1.0/", "match": "prefix" },
+      { "uri": "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Notify-FolderCounts", "match": "exact" }
+    ]
+  }
+}
+```
+
+**Subscribed** (`.../Subscribed`) — hub → client, the ack:
+
+```json
+{ "type": "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Subscribed",
+  "body": { "subscriptions": [ /* same entries, echoed back */ ] } }
+```
+
+**Goodbye** (`.../Goodbye`) — client → hub, sent by `TdaMailClient.DisconnectAsync` right
+before it closes the socket:
+
+```json
+{ "type": "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Goodbye", "body": { "instanceId": "<guid>" } }
+```
+
+No reply — the hub just logs it (`App`/`InstanceId`) and the client closes immediately
+after sending.
+
+**Timeout** (`.../Timeout`) — hub → client, only from the idle watchdog:
+
+```json
+{ "type": "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Timeout" }
+```
+
+Sent when a connection has received nothing for 60s, immediately followed by
+`CloseOutputAsync` (half-close, relying on the client responding with its own close frame
+— no hard-cancel fallback, per TDA-013's noted simplification).
+
+**Key difference from WsExample2:** ours gets a real ack (`Subscribed`) because Hello
+carries data the hub must act on (subscriptions) — WsExample2's `attach` is pure identity
+announcement, nothing to acknowledge. And Hello/Goodbye are the *only* two message types
+on this channel that get intercepted before the normal DIDComm unpack/enqueue pipeline —
+everything else (`List-Emails`, `Enqueue-PandoMail`, etc.) flows through
+`KestrelListenerService` → inbox → Switchboard → LOBE exactly as it always has.
+
+---
+
 ## Prerequisites
 
 - PowerShell 7 (`pwsh.exe`) is required for the scripted WebSocket client below.
