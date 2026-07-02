@@ -360,9 +360,9 @@ function Resolve-FederationEndpoint {
 function Send-LocalDIDCommMessage {
     <#
     .SYNOPSIS
-        Sends a DIDComm plaintext envelope to a local TDA via WebSocket (/didcomm-ws).
+        Sends a DIDComm plaintext envelope to a local TDA via WebSocket (/localcomm-ws).
     .DESCRIPTION
-        Connects to ws://localhost:{Port}/didcomm-ws using RFC 8441 (WebSocket over HTTP/2),
+        Connects to ws://localhost:{Port}/localcomm-ws using RFC 8441 (WebSocket over HTTP/2),
         sends a single DIDComm plaintext JSON frame, then closes the connection gracefully.
         The TDA's receive loop unpacks and enqueues the message through the same pipeline as
         POST /didcomm, routing it to the appropriate LOBE via the Switchboard.
@@ -395,7 +395,7 @@ function Send-LocalDIDCommMessage {
         # h2c (cleartext HTTP/2) support required for ws:// URIs in dev/test environments.
         [System.AppContext]::SetSwitch('System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport', $true)
 
-        $uri     = "ws://localhost:$Port/didcomm-ws"
+        $uri     = "ws://localhost:$Port/localcomm-ws"
         $handler = [System.Net.Http.SocketsHttpHandler]::new()
         $invoker = [System.Net.Http.HttpClient]::new($handler)
         $ws      = [System.Net.WebSockets.ClientWebSocket]::new()

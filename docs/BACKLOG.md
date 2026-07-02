@@ -450,12 +450,12 @@ multiple versions installed.
 
 ---
 
-## TDA-009 — WebSocket /didcomm-ws channel encryption (PandoMail ↔ Citizen TDA) ✓ RESOLVED BY POLICY
+## TDA-009 — WebSocket /localcomm-ws channel encryption (PandoMail ↔ Citizen TDA) ✓ RESOLVED BY POLICY
 
 **Area:** `WebSocketNotifyHub`, `KestrelListenerService`, `TdaMailClient`, `DIDCommPackingService`
 
 **Policy decision (2026-06-19):** All WebSocket messages, inbound or outbound, use
-plaintext DIDComm (`application/didcomm-plain+json`).  The `/didcomm-ws` channel
+plaintext DIDComm (`application/didcomm-plain+json`).  The `/localcomm-ws` channel
 is localhost-only, PandoMail holds no key material, and PandoMail shares the Citizen
 TDA's DID — it is a local UI attachment, not a DIDComm peer.  This is the permanent
 design, not a temporary gap.
@@ -632,13 +632,13 @@ WebSocket frame received
 
 ---
 
-## ~~TDA-013~~ — /didcomm-ws WebSocket hardening (idle watchdog, message cap, per-connection send lock) ✓ *implemented (2026-07-01)*
+## ~~TDA-013~~ — /localcomm-ws WebSocket hardening (idle watchdog, message cap, per-connection send lock) ✓ *implemented (2026-07-01)*
 
 **Area:** `WebSocketNotifyHub`, `KestrelListenerService`
 
 **Summary:** Surfaced by reading `src/WsExample2-Kestrel` (a reference WebSocket
 server/client pair) while designing TDA-011. That example treats three things as
-non-negotiable for a production WS server; our `/didcomm-ws` channel currently has
+non-negotiable for a production WS server; our `/localcomm-ws` channel currently has
 none of them:
 
 1. **No idle watchdog.** A PandoMail client that crashes without closing cleanly (no
@@ -873,12 +873,45 @@ read the full inbox via `ListEmailsAsync`, or invoke any `Driver.*` method.
 **Options to investigate:**
 1. **Two-tier `$SVRN7`** — `$SVRN7` for first-party LOBEs (full surface, current);
    `$SVRN7Const` (or a reduced `$SVRN7`) for third-party LOBEs (constants only).
-   Third-party flag sourced from `lobe.json` (`"trust": "third-party"`).
+   Third-party flag sourced from `lobe.json` (`"trust": "third-party"`). Simplest to
+   implement, coarsest — a third-party LOBE that legitimately needs `ResolveDidAsync`
+   (see actual usage below) gets nothing.
 2. **Interface split** — Define `ISvrn7LobeContext` (constants + GetMessageAsync only)
    and `ISvrn7TrustedLobeContext : ISvrn7LobeContext` (full surface).
    Inject the appropriate interface into the runspace based on LOBE trust level.
+   Same granularity as option 1, but cleaner on the C# side (real interface
+   segregation instead of a runtime flag check), at the cost of restructuring
+   `Svrn7RunspaceContext`'s public API into two interfaces.
 3. **Capability-based** — `lobe.json` declares required capabilities
    (`"capabilities": ["inbox.read", "deadletter.write"]`); the runtime grants only
    what is declared, and the operator approves the capability list at install time.
+   Finest-grained and most honest about what each LOBE actually touches, but needs a
+   capability→member mapping designed and enforced (likely a dynamic proxy or
+   per-capability wrapper) and an install-time approval UX that doesn't exist yet.
+
+**Actual usage today (2026-07-02):** grepped every LOBE's `.psm1` for `$SVRN7.Driver.*`
+calls across all five LOBEs currently in the tree (PandoMail, Identity, Notifications,
+Onboarding, UX). The entire real usage is three members, all read-only lookups:
+`Driver.ResolveDidAsync`, `Driver.CreateDidDocument`, `Driver.SocietyDid`. Nothing in
+the current LOBE set touches `TransferAsync`, `RegisterSocietyAsync`,
+`ErasePersonAsync`, or any signing/key-generation method — yet all of those are
+reachable from any LOBE today, first-party or third-party, since no trust distinction
+exists anywhere in the codebase (`lobe.json` has no `trust`/capability field; grepped
+and confirmed). The gap between what's exposed and what's needed is large, which is
+exactly what makes a capability-based restriction (option 3) feasible without breaking
+any existing LOBE.
+
+**Leaning:** option 3, despite being the most work, because option 1/2's "third-party =
+constants only" line would immediately break the `ResolveDidAsync`/`CreateDidDocument`
+pattern several first-party LOBEs already use if any were ever reclassified as
+third-party, or if a legitimate third-party LOBE needed DID resolution (plausible — DID
+resolution is explicitly designed as an open service, see P-008). Capability
+declarations let the trust boundary track actual need instead of an all-or-nothing
+split.
+
+**Why not fixed now:** no active vulnerability — no third-party LOBE loading mechanism
+exists yet (no marketplace, no external LOBE install path in production use; see
+TDA-004). Worth revisiting once TDA-004 (LOBE marketplace/registry) is closer to real,
+since that's what actually introduces untrusted LOBEs into the picture.
 
 **No code change required now** — note for future investigation.

@@ -1677,7 +1677,7 @@ public sealed class WebSocketNotifyHubTests : IAsyncLifetime
         ws.Options.HttpVersion       = new Version(2, 0);
         ws.Options.HttpVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
         var http = new HttpClient(new System.Net.Http.SocketsHttpHandler { EnableMultipleHttp2Connections = true });
-        await ws.ConnectAsync(new Uri($"ws://localhost:{_port}/didcomm-ws"), http, CancellationToken.None);
+        await ws.ConnectAsync(new Uri($"ws://localhost:{_port}/localcomm-ws"), http, CancellationToken.None);
         return ws;
     }
 

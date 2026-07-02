@@ -1,6 +1,6 @@
 # WebSocketNotifyHub — Debug & Testing Guide
 
-This guide covers manually exercising `/didcomm-ws` (Hello handshake, subscription-based
+This guide covers manually exercising `/localcomm-ws` (Hello handshake, subscription-based
 broadcast routing, correlation-based reply routing) and the PandoMail folder-count / Cc
 fan-out behavior that rides on top of it, end-to-end against a live TDA. No unit-test
 stubs — real `WebSocketNotifyHub`, real `KestrelListenerService`, real LOBEs.
@@ -13,7 +13,7 @@ See `docs/BACKLOG.md` TDA-011 for the design this exercises, and
 ## Message Flow Reference
 
 Two related flows exist: the reference pattern in `src/WsExample2-Kestrel` (plain JSON,
-no DIDComm envelope) and the one actually built for `/didcomm-ws`
+no DIDComm envelope) and the one actually built for `/localcomm-ws`
 (`Svrn7.LocalUI.0.1.0`, real DIDComm-plain envelopes), modeled on the reference but
 adapted to fit.
 
@@ -188,10 +188,10 @@ below need it for a self-addressed send.
 Confirm in the startup log:
 
 ```
-KestrelListenerService: POST /didcomm (HTTP/2 inbound) and GET /didcomm-ws (WebSocket RFC 8441) active on port 8443.
+KestrelListenerService: POST /didcomm (HTTP/2 inbound) and GET /localcomm-ws (WebSocket RFC 8441) active on port 8443.
 ```
 
-If this says `/didcomm-notify` instead of `/didcomm-ws`, the build predates the path
+If this says `/didcomm-notify` instead of `/localcomm-ws`, the build predates the path
 rename — rebuild.
 
 ---
@@ -209,7 +209,7 @@ Watch the TDA console (or tail its log) for, in order:
 
 ```
 info: Svrn7.TDA.KestrelListenerService[0]
-      KestrelListenerService: local-UI WebSocket attached on /didcomm-ws (id=<guid>).
+      KestrelListenerService: local-UI WebSocket attached on /localcomm-ws (id=<guid>).
 info: Svrn7.TDA.WebSocketNotifyHub[0]
       WebSocketNotifyHub: Hello from app='PandoMail' version='<version>' instance=<guid> (2 subscription(s)).
 ```
@@ -239,7 +239,7 @@ Save as `verify-cc.ps1`, substituting the `Agent DID` from Step 1's startup bann
 [System.AppContext]::SetSwitch('System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport', $true)
 
 $tdaDid = "did:drn:wanderer.svrn7.net/agent/1.0/<paste-from-startup-banner>"
-$uri = "ws://localhost:8443/didcomm-ws"
+$uri = "ws://localhost:8443/localcomm-ws"
 
 $handler = [System.Net.Http.SocketsHttpHandler]::new()
 $invoker = [System.Net.Http.HttpClient]::new($handler)
@@ -419,7 +419,7 @@ reachable in this environment.
 **Steps and results:**
 
 1. ✅ Built and started TDA fresh → startup log confirmed
-   `GET /didcomm-ws (WebSocket RFC 8441) active on port 8443` — the path rename is live,
+   `GET /localcomm-ws (WebSocket RFC 8441) active on port 8443` — the path rename is live,
    not just in source.
 2. ✅ Launched real `PandoMail.exe` → TDA attached the socket, but no further activity
    appeared in the log at all.

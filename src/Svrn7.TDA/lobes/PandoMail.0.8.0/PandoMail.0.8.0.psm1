@@ -111,7 +111,7 @@ function Dequeue-PandoMail {
 
         # Output the record for any pipeline caller, then the notification OutboundMessage.
         $record
-        [Svrn7.TDA.OutboundMessage]::new('ws://local/didcomm-ws', $notifyEnvelope)
+        [Svrn7.TDA.OutboundMessage]::new('ws://local/localcomm-ws', $notifyEnvelope)
         New-FolderCountsNotification
     }
 }
@@ -307,7 +307,7 @@ function Invoke-PandoMailList {
         } | ConvertTo-Json -Compress -Depth 5
 
         Write-Verbose "Email LOBE: List-Emails returning $($emailList.Count) messages via WebSocket."
-        [Svrn7.TDA.OutboundMessage]::new('ws://local/didcomm-ws', $envelope)
+        [Svrn7.TDA.OutboundMessage]::new('ws://local/localcomm-ws', $envelope)
     }
 }
 
@@ -423,7 +423,7 @@ function Get-TdaDid {
             }
         } | ConvertTo-Json -Compress -Depth 3
 
-        [Svrn7.TDA.OutboundMessage]::new('ws://local/didcomm-ws', $envelope)
+        [Svrn7.TDA.OutboundMessage]::new('ws://local/localcomm-ws', $envelope)
     }
 }
 
@@ -501,7 +501,7 @@ function Invoke-Svrn7EmailGetEmailBody {
             }
         } | ConvertTo-Json -Compress -Depth 3
 
-        [Svrn7.TDA.OutboundMessage]::new('ws://local/didcomm-ws', $envelope)
+        [Svrn7.TDA.OutboundMessage]::new('ws://local/localcomm-ws', $envelope)
     }
 }
 
@@ -583,7 +583,7 @@ function Invoke-PandoMailResolveDid {
                     svrn7Name    = $svrn7Name
                 }
             } | ConvertTo-Json -Compress -Depth 3
-            return [Svrn7.TDA.OutboundMessage]::new('ws://local/didcomm-ws', $replyEnvelope)
+            return [Svrn7.TDA.OutboundMessage]::new('ws://local/localcomm-ws', $replyEnvelope)
         }
 
         # Local miss — escalate to parent TDA if available
@@ -605,7 +605,7 @@ function Invoke-PandoMailResolveDid {
                     svrn7Name    = ''
                 }
             } | ConvertTo-Json -Compress -Depth 3
-            return [Svrn7.TDA.OutboundMessage]::new('ws://local/didcomm-ws', $notFoundEnvelope)
+            return [Svrn7.TDA.OutboundMessage]::new('ws://local/localcomm-ws', $notFoundEnvelope)
         }
 
         # Forward the resolve request to the parent TDA using this request's WireId as the
@@ -698,7 +698,7 @@ function Invoke-PandoMailListSent {
         } | ConvertTo-Json -Compress -Depth 5
 
         Write-Verbose "Email LOBE: List-OutboundEmails returning $($emailList.Count) sent messages."
-        [Svrn7.TDA.OutboundMessage]::new('ws://local/didcomm-ws', $envelope)
+        [Svrn7.TDA.OutboundMessage]::new('ws://local/localcomm-ws', $envelope)
     }
 }
 
@@ -762,7 +762,7 @@ function Invoke-PandoMailListDeadLetters {
         } | ConvertTo-Json -Compress -Depth 5
 
         Write-Verbose "Email LOBE: List-DeadLetters returning $($emailList.Count) dead-letter record(s)."
-        [Svrn7.TDA.OutboundMessage]::new('ws://local/didcomm-ws', $envelope)
+        [Svrn7.TDA.OutboundMessage]::new('ws://local/localcomm-ws', $envelope)
     }
 }
 
@@ -814,7 +814,7 @@ function New-FolderCountsNotification {
             deadLetterCount = $counts.DeadLetters
         }
     } | ConvertTo-Json -Compress -Depth 3
-    [Svrn7.TDA.OutboundMessage]::new('ws://local/didcomm-ws', $envelope)
+    [Svrn7.TDA.OutboundMessage]::new('ws://local/localcomm-ws', $envelope)
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

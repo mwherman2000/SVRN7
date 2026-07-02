@@ -39,7 +39,7 @@ namespace Web7.SVRN7.Apps
 		{
 			_store = MessageStore.GetMessageStore();
 
-			this.Text = BaseTitle + $" - ws://localhost:{Program.TdaPort}/didcomm-ws" + " - Not connected";
+			this.Text = BaseTitle + $" - ws://localhost:{Program.TdaPort}/localcomm-ws" + " - Not connected";
 
 			// Show "0 Items" immediately; RefreshInboxAsync updates it after TDA connects.
 			this.itemCountLabel.Text = String.Format(this.itemCountLabel.Text, 0);

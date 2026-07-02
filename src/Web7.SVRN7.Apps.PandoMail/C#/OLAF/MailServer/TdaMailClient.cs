@@ -33,7 +33,7 @@ namespace Web7.SVRN7.Apps
         string Svrn7Name);
 
     /// <summary>
-    /// PandoMail ↔ local Citizen TDA transport over WebSocket (ws://localhost:{port}/didcomm-ws).
+    /// PandoMail ↔ local Citizen TDA transport over WebSocket (ws://localhost:{port}/localcomm-ws).
     /// All outbound messages (Enqueue-PandoMail, List-Emails requests) go over the WebSocket.
     /// All inbound messages (Get-PandoMails replies, Email-Notify pushes) arrive over the same socket.
     /// TDA→TDA mail delivery remains HTTP/2 — this client is local-only.
@@ -133,7 +133,7 @@ namespace Web7.SVRN7.Apps
 
         public TdaMailClient(int port)
         {
-            WsUri  = $"ws://localhost:{port}/didcomm-ws";
+            WsUri  = $"ws://localhost:{port}/localcomm-ws";
             _wsUri = WsUri;
 
             // Shared HttpClient for the ClientWebSocket HTTP/2 handshake (RFC 8441).

@@ -381,7 +381,7 @@ function Invoke-Svrn7DidResolveResponse {
                     svrn7Name    = $svrn7Name
                 }
             } | ConvertTo-Json -Compress -Depth 3
-            return [Svrn7.TDA.OutboundMessage]::new('ws://local/didcomm-ws', $wsEnvelope)
+            return [Svrn7.TDA.OutboundMessage]::new('ws://local/localcomm-ws', $wsEnvelope)
         }
 
         # Relay the response upstream to the TDA that originally asked us.
