@@ -127,7 +127,7 @@ public sealed class LiteInboxStore : IInboxStore
 
     /// <inheritdoc/>
     public Task EnqueueAsync(
-        string messageType, string packedPayload, string? fromDid = null, string? wireId = null, string? jweEnvelope = null, CancellationToken ct = default)
+        string messageType, string packedPayload, string? fromDid = null, string? wireId = null, string? thid = null, string? jweEnvelope = null, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
 
@@ -143,6 +143,7 @@ public sealed class LiteInboxStore : IInboxStore
             JweEnvelope   = jweEnvelope,
             FromDid       = fromDid,
             WireId        = wireId,
+            Thid          = thid,
             ReceivedAt    = DateTimeOffset.UtcNow,
             Status        = InboundMessageStatus.Pending,
         };

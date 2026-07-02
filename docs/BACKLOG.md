@@ -763,46 +763,95 @@ catch.)
 
 ---
 
-## TDA-014 — Adopt DIDComm V2's `thid` instead of ad-hoc `body.correlationId`
+## TDA-014 — Adopt DIDComm V2's `thid` instead of ad-hoc `body.correlationId` ✓ *implemented (2026-07-02)*
 
-**Area:** `Svrn7.DIDComm` (`DIDCommMessage`, `DIDCommUnpackedMessage`), every LOBE that
-currently reads/writes `correlationId`, `TdaMailClient`, `WebSocketNotifyHub`
+**Area:** `Svrn7.DIDComm` (`DIDCommMessage`, `DIDCommUnpackedMessage`), `Svrn7.Core`
+(`InboundMessage`, `IInboxStore.EnqueueAsync`), `Svrn7RunspaceContext` (`InboundMessageView`),
+`PandoMail.0.8.0.psm1`, `Svrn7.Identity.0.8.0.psm1`, `TdaMailClient`, `WebSocketNotifyHub`,
+`KestrelListenerService`
 
 **Summary:** Surfaced while implementing TDA-011's correlation-based reply routing
 (2026-07-01). DIDComm Messaging V2 defines `thid` (thread ID) as a standard envelope-level
 header — alongside `id`, `type`, `from`, `to`, `body` — used exactly for this purpose:
 `id` identifies a message uniquely, `thid` (when present) points back to the `id` of the
-message that started the thread, letting a reply be correlated to its request without any
-application-level convention.
+message that started the thread. Every LOBE needing request/reply correlation (`Query-TdaDid`,
+`List-Emails`, `Get-EmailBody`, `Resolve-PandoDid`, `List-OutboundEmails`, `List-DeadLetters`)
+had invented the same thing by hand inside `body.correlationId`.
 
-This codebase never modeled `thid` at all — `DIDCommMessage`/`DIDCommUnpackedMessage` in
-`Svrn7.DIDComm` only have `Id`, `Type`, `From`, `Body`, `Mode`. Every LOBE that needs
-request/reply correlation (`Query-TdaDid`, `List-Emails`, `Get-EmailBody`,
-`Resolve-PandoDid`, `List-OutboundEmails`, `List-DeadLetters`) invented the same thing by
-hand inside `body.correlationId` instead. `WebSocketNotifyHub.TrackCorrelation` (TDA-011)
-plugs into that existing ad-hoc convention rather than introducing a second one, since
-migrating away from it touches every LOBE plus `TdaMailClient`.
+**Migration approach:** clean cutover (no transitional dual-support — every LOBE and client
+here is first-party code, no external DIDComm peers depend on the old shape), full
+`Svrn7.DIDComm` scope (not just the local WS channel).
 
-**What would be required:**
-- Add `string? Thid` to `DIDCommMessage`/`DIDCommUnpackedMessage` and thread it through
-  `PackPlaintextAsync`/`PackSignedAsync`/`PackEncryptedAsync`/`PackSignedAndEncryptedAsync`/
-  `UnpackAsync` in `DIDCommService`.
-- Update every LOBE currently reading/writing `body.correlationId` to use the envelope-level
-  `thid` instead (a breaking wire-format change for all affected protocols — same
-  version-bump rules as TDA-007).
-- Update `WebSocketNotifyHub.TrackCorrelation`/`PushAsync` and
-  `KestrelListenerService.TryTrackRequestCorrelation` to read `unpacked.Thid` instead of
-  parsing `body.correlationId` out of the JSON by hand.
-- Update `TdaMailClient`'s request-sending methods to set `thid` instead of generating and
-  threading a `correlationId` body field manually.
+**Implemented:**
+- `Thid` added to `DIDCommMessage`/`DIDCommUnpackedMessage`/`DIDCommMessageBuilder` in
+  `Svrn7.DIDComm`, threaded through all four pack methods and both unpack paths
+  (`PlaintextResult`, `UnpackJwsAsync`).
+- `Thid` added to `InboundMessage` (`Svrn7.Core`) and `IInboxStore.EnqueueAsync`'s new `thid`
+  parameter, persisted by `LiteInboxStore`, populated from `unpacked.Thid` at both
+  `KestrelListenerService` enqueue sites (HTTP and WS).
+- `InboundMessageView` gained two fields: `Thid` (the incoming message's own thid, used by
+  `Invoke-Svrn7DidResolveResponse`) and **`WireId`** (the sender's wire envelope `id` — see
+  the bug note below).
+- `KestrelListenerService.TryTrackRequestCorrelation` deleted entirely — replaced by a
+  one-line `_hub.TrackCorrelation(unpacked.Id, clientId)` in `ProcessWebSocketMessageAsync`,
+  no more hand-parsing `body.correlationId` out of JSON.
+- `WebSocketNotifyHub.PushAsync` now reads top-level `thid` directly instead of digging into
+  `body.correlationId` via `ExtractBody`/`GetString`.
+- Every `PandoMail.0.8.0.psm1` reply-building cmdlet (`Invoke-PandoMailList`, `Get-TdaDid`,
+  `Invoke-Svrn7EmailGetEmailBody`, `Invoke-PandoMailResolveDid`, `Invoke-PandoMailListSent`,
+  `Invoke-PandoMailListDeadLetters`) sets envelope-level `thid` instead of `body.correlationId`.
+  `Invoke-PandoMailResolveDid`'s escalation forward to the parent TDA keeps its existing
+  `requestId`/`originalRequesterDid`/`originalRequestId` **body** fields unchanged (that
+  inter-TDA relay chain in `Resolve-Svrn7Did`/`Invoke-Svrn7DidResolveResponse` was judged
+  out of scope — see below) but now seeds them from the wire id instead of a removed
+  `correlationId` variable. `Invoke-Svrn7DidResolveResponse`'s terminal WS-push branch (this
+  TDA was the original requester) switched from `body.correlationId` to envelope `thid` to
+  match what the hub now expects.
+- `TdaMailClient`: every request method now generates its own envelope `id` first, registers
+  it in `_pending` *before* sending, and matches replies by envelope `thid` (`ExtractThid`,
+  reading the top-level field — no more body parsing). `EmailBody.CorrelationId` (write-only,
+  never read anywhere) deleted along with it.
+- Test stubs (`NullInboxStore`, `RecordingInboxStore`, `ThrowingResetInboxStore`,
+  `StubDIDCommService`) updated for the new `IInboxStore.EnqueueAsync` parameter and to set
+  `Id` so `TrackCorrelation` has something to key on.
 
-**Why not fixed now:** Discovered as a byproduct of TDA-011, not requested work, and it's a
-breaking change across every existing protocol that uses `correlationId` today. `thid`
-would be the spec-conformant, cleaner long-term answer, but adopting it is a separate,
-larger migration from wiring up subscription/correlation routing on top of what already
-exists.
+**Deliberately out of scope:** the inter-TDA DID-resolution relay chain
+(`Svrn7.Identity.0.8.0/did-resolve-request` ↔ `did-resolve-response`, handled by
+`Resolve-Svrn7Did` and the non-terminal branch of `Invoke-Svrn7DidResolveResponse`,
+backed by `PendingResolutionStore`) keeps its existing `requestId`/`originalRequesterDid`/
+`originalRequestId` body-field convention untouched. That mechanism is multi-hop
+(Citizen→Society→Federation), used by more than just PandoMail, not reachable in this
+session's single-TDA live-verification setup, and wasn't what motivated TDA-011/TDA-014 in
+the first place — migrating it carries real regression risk for a system capability with no
+corresponding test coverage here, for no functional gain over the working `thid`-based local
+boundary. Only the two points where this chain crosses into the local WS channel
+(`Invoke-PandoMailResolveDid`'s local-reply branches and `Invoke-Svrn7DidResolveResponse`'s
+terminal branch) were migrated, since those *do* need to match what `WebSocketNotifyHub`/
+`TdaMailClient` now key correlation on.
 
-**No code change required now** — tracked here for design continuity.
+**Bug found during live verification — `$msg.Id` vs `$msg.WireId`:** the first pass set every
+reply's `thid` to `$msg.Id`, which is `InboundMessageView.Id` — the TDA's own internal storage
+resource DID (`did:drn:/inbox/msg/...`), *not* the sender's wire envelope `id` that
+`WebSocketNotifyHub.TrackCorrelation` actually keys on. These are two unrelated values that
+happened to share a plausible-looking name. Because they never matched, every correlated
+reply silently fell through `PushAsync` to the subscription-broadcast path, found no matching
+subscriber, and was dropped — `Query-TdaDid` and `List-Emails` simply never got a reply, with
+no error anywhere (the hub logged "push complete" regardless, since a broadcast to zero
+matching connections isn't a failure). Caught by live end-to-end testing, not the unit suite
+(the stubbed `StubDIDCommService` didn't set `Id` either, so the existing correlation test
+passed for the wrong reason until it was also fixed). Fixed by adding `WireId` to
+`InboundMessageView`, populating it from `InboundMessage.WireId` at all three construction
+sites, and using `$msg.WireId` (never `$msg.Id`) everywhere a reply's `thid` is set.
+
+**Live-verified (2026-07-02):** launched a real TDA + PandoMail, confirmed `Reply-TdaDid` and
+`Get-PandoMails` arrive with `thid` correctly echoing the request's wire `id`. Then via a
+scripted WS client: `List-DeadLetters`, `List-OutboundEmails`, and `Resolve-PandoDid` (local
+hit/no-parent branch) all correlated correctly. Finally sent a real message to self via
+`Enqueue-PandoMail`, listed it via `List-Emails`, and fetched its body via `Get-EmailBody` —
+confirmed `thid` matched end-to-end for all six correlated request/reply protocols. Full test
+suite (103 TDA tests, 62 core tests, 17 Society tests) passes; one pre-existing unrelated
+failure (`RegisterSociety_DuplicateDid_Fails`) confirmed present on the clean tree before this
+work and left untouched.
 
 ---
 

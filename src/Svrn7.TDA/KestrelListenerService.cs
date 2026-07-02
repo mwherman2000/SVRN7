@@ -277,6 +277,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
                 unpacked.Body,
                 unpacked.From,
                 unpacked.Id,
+                unpacked.Thid,
                 packedBody,
                 http.RequestAborted);
         }
@@ -436,9 +437,14 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
             "KestrelListenerService: WebSocket UnpackAsync OK — type='{Type}', from='{From}'.",
             unpacked.Type, unpacked.From);
 
-        // Track correlationId → socket before enqueueing, so a correlated reply (e.g.
-        // Get-PandoMails) is routed back to this connection instead of broadcast to all.
-        TryTrackRequestCorrelation(unpacked.Body, clientId);
+        // Track this request's own envelope id → socket before enqueueing, so its eventual
+        // reply (envelope thid == this id, e.g. Get-PandoMails) is routed back to this
+        // connection instead of broadcast to every connected local-UI client. Reads the
+        // envelope directly (unpacked.Id) rather than a body field — DIDComm V2's thid is
+        // spec-standard for exactly this, replacing the old ad-hoc body.correlationId
+        // convention (see docs/BACKLOG.md TDA-014).
+        if (!string.IsNullOrEmpty(unpacked.Id))
+            _hub.TrackCorrelation(unpacked.Id, clientId);
 
         try
         {
@@ -447,6 +453,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
                 unpacked.Body,
                 unpacked.From,
                 unpacked.Id,
+                unpacked.Thid,
                 json,
                 ct);
             _log.LogDebug("KestrelListenerService: WebSocket message enqueued (type='{Type}').", unpacked.Type);
@@ -455,22 +462,6 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         {
             _log.LogError(ex, "KestrelListenerService: WebSocket inbox enqueue failed.");
         }
-    }
-
-    private void TryTrackRequestCorrelation(string bodyJson, Guid clientId)
-    {
-        try
-        {
-            using var doc = System.Text.Json.JsonDocument.Parse(bodyJson);
-            if (doc.RootElement.TryGetProperty("correlationId", out var cid) &&
-                cid.ValueKind == System.Text.Json.JsonValueKind.String)
-            {
-                var correlationId = cid.GetString();
-                if (!string.IsNullOrEmpty(correlationId))
-                    _hub.TrackCorrelation(correlationId, clientId);
-            }
-        }
-        catch { /* not every body is a JSON object with a correlationId — that's fine */ }
     }
 
     // ── mTLS peer certificate validation ─────────────────────────────────────

@@ -819,7 +819,7 @@ public class LobeManagerRegistryTests : IDisposable
 
 internal sealed class NullInboxStore : Svrn7.Core.Interfaces.IInboxStore
 {
-    public Task EnqueueAsync(string t, string p, string? fromDid = null, string? wireId = null, string? jweEnvelope = null, CancellationToken ct = default) => Task.CompletedTask;
+    public Task EnqueueAsync(string t, string p, string? fromDid = null, string? wireId = null, string? thid = null, string? jweEnvelope = null, CancellationToken ct = default) => Task.CompletedTask;
     public Task<Svrn7.Core.Models.InboundMessage?> GetByIdAsync(string id, CancellationToken ct = default) => Task.FromResult<Svrn7.Core.Models.InboundMessage?>(null);
     public Task<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.InboundMessage>> DequeueBatchAsync(int b = 20, CancellationToken ct = default) => Task.FromResult<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.InboundMessage>>(Array.Empty<Svrn7.Core.Models.InboundMessage>());
     public Task MarkProcessedAsync(string id, CancellationToken ct = default) => Task.CompletedTask;
@@ -1100,7 +1100,7 @@ internal sealed class RecordingInboxStore : IInboxStore
 {
     public List<(string Type, string Payload)> Messages { get; } = new();
 
-    public Task EnqueueAsync(string messageType, string packedPayload, string? fromDid = null, string? wireId = null, string? jweEnvelope = null, CancellationToken ct = default)
+    public Task EnqueueAsync(string messageType, string packedPayload, string? fromDid = null, string? wireId = null, string? thid = null, string? jweEnvelope = null, CancellationToken ct = default)
     {
         Messages.Add((messageType, packedPayload));
         return Task.CompletedTask;
@@ -1122,7 +1122,7 @@ internal sealed class RecordingInboxStore : IInboxStore
 }
 
 /// <summary>Stub IDIDCommService: UnpackAsync always returns a pre-configured message.</summary>
-internal sealed class StubDIDCommService(string type, string body) : IDIDCommService
+internal sealed class StubDIDCommService(string type, string body, string? id = null) : IDIDCommService
 {
     public DIDCommMessageBuilder NewMessage() => new();
     public Task<string> PackPlaintextAsync(DIDCommMessage m, CancellationToken ct = default) =>
@@ -1137,7 +1137,7 @@ internal sealed class StubDIDCommService(string type, string body) : IDIDCommSer
     public Task<DIDCommUnpackedMessage> UnpackAsync(string packed,
         byte[]? recipientPrivateKey = null, CancellationToken ct = default) =>
         Task.FromResult(new DIDCommUnpackedMessage
-            { Type = type, Body = body, Mode = DIDCommPackMode.Plaintext });
+            { Id = id, Type = type, Body = body, Mode = DIDCommPackMode.Plaintext });
 }
 
 /// <summary>Stub IDIDCommService: UnpackAsync always throws — simulates a malformed message.</summary>
@@ -1576,7 +1576,7 @@ internal sealed class TrackingInboxStore : IInboxStore
 {
     public bool ResetStuckCalled { get; private set; }
 
-    public Task EnqueueAsync(string t, string p, string? fromDid = null, string? wireId = null, string? jweEnvelope = null, CancellationToken ct = default) => Task.CompletedTask;
+    public Task EnqueueAsync(string t, string p, string? fromDid = null, string? wireId = null, string? thid = null, string? jweEnvelope = null, CancellationToken ct = default) => Task.CompletedTask;
     public Task<InboundMessage?> GetByIdAsync(string id, CancellationToken ct = default) => Task.FromResult<InboundMessage?>(null);
     public Task<IReadOnlyList<InboundMessage>> DequeueBatchAsync(int b = 20, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<InboundMessage>>(Array.Empty<InboundMessage>());
     public Task MarkProcessedAsync(string id, CancellationToken ct = default) => Task.CompletedTask;
@@ -1615,7 +1615,7 @@ internal sealed class TrackingDeadLetterStore : Svrn7.Core.Interfaces.IDeadLette
 /// <summary>IInboxStore stub: ResetStuckMessagesAsync throws to simulate a failed store.</summary>
 internal sealed class ThrowingResetInboxStore : IInboxStore
 {
-    public Task EnqueueAsync(string t, string p, string? fromDid = null, string? wireId = null, string? jweEnvelope = null, CancellationToken ct = default) => Task.CompletedTask;
+    public Task EnqueueAsync(string t, string p, string? fromDid = null, string? wireId = null, string? thid = null, string? jweEnvelope = null, CancellationToken ct = default) => Task.CompletedTask;
     public Task<InboundMessage?> GetByIdAsync(string id, CancellationToken ct = default) => Task.FromResult<InboundMessage?>(null);
     public Task<IReadOnlyList<InboundMessage>> DequeueBatchAsync(int b = 20, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<InboundMessage>>(Array.Empty<InboundMessage>());
     public Task MarkProcessedAsync(string id, CancellationToken ct = default) => Task.CompletedTask;
@@ -1655,7 +1655,8 @@ public sealed class WebSocketNotifyHubTests : IAsyncLifetime
             }),
             new StubDIDCommService(
                 "did:drn:svrn7.net/protocols/Test.0.1.0/request",
-                """{"correlationId":"corr-1"}"""),
+                "{}",
+                id: "corr-1"),
             new RecordingInboxStore(),
             _hub,
             NullLogger<KestrelListenerService>.Instance);
@@ -1781,13 +1782,13 @@ public sealed class WebSocketNotifyHubTests : IAsyncLifetime
         await SendAsync(wsB, hello);
         await TryReceiveAsync(wsB, TimeSpan.FromSeconds(2));
 
-        // wsA sends a "request". StubDIDCommService always unpacks to body {"correlationId":"corr-1"}
-        // regardless of the actual frame contents — enough to exercise TrackCorrelation end-to-end.
+        // wsA sends a "request". StubDIDCommService always unpacks to id "corr-1" regardless
+        // of the actual frame contents — enough to exercise TrackCorrelation end-to-end.
         await SendAsync(wsA, """{"type":"did:drn:svrn7.net/protocols/Test.0.1.0/request"}""");
         await Task.Delay(300); // let ProcessWebSocketMessageAsync run and register the correlation
 
         await _hub.PushAsync(
-            """{"type":"did:drn:svrn7.net/protocols/Test.0.1.0/reply","body":{"correlationId":"corr-1"}}""");
+            """{"type":"did:drn:svrn7.net/protocols/Test.0.1.0/reply","thid":"corr-1","body":{}}""");
 
         var receivedA = await TryReceiveAsync(wsA, TimeSpan.FromSeconds(2));
         var receivedB = await TryReceiveAsync(wsB, TimeSpan.FromMilliseconds(500));

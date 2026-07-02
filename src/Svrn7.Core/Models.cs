@@ -56,6 +56,7 @@ public record InboundMessage
     public string?                     JweEnvelope   { get; set; }  // Original JWE wire payload — preserved for auditability and non-repudiation
     public string?                     FromDid       { get; set; }  // Sender DID from DIDComm envelope
     public string?                     WireId        { get; set; }  // DIDComm wire 'id' from the sender's envelope (null for encrypted/opaque messages)
+    public string?                     Thid          { get; set; }  // DIDComm wire 'thid' — set on a reply, correlating it back to the request's 'id' (see docs/BACKLOG.md TDA-014)
     public required DateTimeOffset     ReceivedAt    { get; set; }
     public InboundMessageStatus          Status        { get; set; } = InboundMessageStatus.Pending;
     public DateTimeOffset?             ProcessedAt   { get; set; }
@@ -76,6 +77,7 @@ public record InboundMessage
             messageType   = MessageType,
             fromDid       = FromDid,
             wireId        = WireId,
+            thid          = Thid,
             receivedAt    = ReceivedAt,
             status        = Status.ToString(),
             attemptCount  = AttemptCount,

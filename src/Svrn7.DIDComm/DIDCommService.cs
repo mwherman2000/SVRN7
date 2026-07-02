@@ -29,6 +29,14 @@ public record DIDCommMessage
     public string? To      { get; init; }
     public string  Body    { get; init; } = "{}";
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+
+    /// <summary>
+    /// DIDComm V2 thread ID — the spec-standard way to correlate a reply back to the
+    /// message that started the thread. Absent (null) on the first message in a thread
+    /// (the spec says thid is then implicitly equal to id); a reply sets Thid to the
+    /// original request's Id. See docs/BACKLOG.md TDA-014.
+    /// </summary>
+    public string? Thid    { get; init; }
 }
 
 public record DIDCommUnpackedMessage
@@ -38,6 +46,9 @@ public record DIDCommUnpackedMessage
     public string? From    { get; init; }
     public string  Body    { get; init; } = "{}";
     public DIDCommPackMode Mode { get; init; }
+
+    /// <summary>See <see cref="DIDCommMessage.Thid"/>.</summary>
+    public string? Thid    { get; init; }
 
     static readonly JsonSerializerOptions _prettyOpts = new() { WriteIndented = true };
 
@@ -50,6 +61,7 @@ public record DIDCommUnpackedMessage
         return JsonSerializer.Serialize(new
         {
             id   = Id,
+            thid = Thid,
             type = Type,
             from = From,
             mode = Mode.ToString(),
@@ -83,10 +95,12 @@ public sealed class DIDCommMessageBuilder
     private string? _to;
     private string? _from;
     private string  _body = "{}";
+    private string? _thid;
 
     public DIDCommMessageBuilder Type(string type)   { _type = type;  return this; }
     public DIDCommMessageBuilder To(string to)       { _to   = to;    return this; }
     public DIDCommMessageBuilder From(string from)   { _from = from;  return this; }
+    public DIDCommMessageBuilder Thid(string? thid)  { _thid = thid;  return this; }
     public DIDCommMessageBuilder Body(object body)
     {
         _body = body is string s ? s : JsonSerializer.Serialize(body);
@@ -99,6 +113,7 @@ public sealed class DIDCommMessageBuilder
         To   = _to,
         From = _from,
         Body = _body,
+        Thid = _thid,
     };
 }
 
@@ -137,6 +152,7 @@ public sealed class DIDCommPackingService : IDIDCommService
         {
             typ  = "application/didcomm-plain+json",
             id   = message.Id,
+            thid = message.Thid,
             type = message.Type,
             from = message.From,
             to   = message.To is not null ? new[] { message.To } : null,
@@ -155,6 +171,7 @@ public sealed class DIDCommPackingService : IDIDCommService
         var payload = B64(JsonSerializer.SerializeToUtf8Bytes(new
         {
             id   = message.Id,
+            thid = message.Thid,
             type = message.Type,
             from = message.From,
             to   = message.To is not null ? new[] { message.To } : null,
@@ -187,6 +204,7 @@ public sealed class DIDCommPackingService : IDIDCommService
         var plaintext = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
         {
             id   = message.Id,
+            thid = message.Thid,
             type = message.Type,
             from = message.From,
             to   = message.To is not null ? new[] { message.To } : null,
@@ -378,6 +396,7 @@ public sealed class DIDCommPackingService : IDIDCommService
         var pr = payloadDoc.RootElement;
 
         var msgId   = pr.TryGetProperty("id",   out var idEl)   ? idEl.GetString()           : null;
+        var msgThid = pr.TryGetProperty("thid", out var thidEl) ? thidEl.GetString()          : null;
         var msgType = pr.TryGetProperty("type", out var typeEl) ? typeEl.GetString() ?? ""    : "";
         var msgFrom = pr.TryGetProperty("from", out var fromEl) ? fromEl.GetString()           : null;
         var msgBody = pr.TryGetProperty("body", out var bodyEl)
@@ -424,7 +443,7 @@ public sealed class DIDCommPackingService : IDIDCommService
         }
 
         return new DIDCommUnpackedMessage
-            { Id = msgId, Type = msgType, From = msgFrom, Body = msgBody, Mode = DIDCommPackMode.SignOnly };
+            { Id = msgId, Thid = msgThid, Type = msgType, From = msgFrom, Body = msgBody, Mode = DIDCommPackMode.SignOnly };
     }
 
     // ── Private: crypto helpers ───────────────────────────────────────────────
@@ -434,6 +453,7 @@ public sealed class DIDCommPackingService : IDIDCommService
         new()
         {
             Id   = root.TryGetProperty("id",   out var idEl)   ? idEl.GetString()           : null,
+            Thid = root.TryGetProperty("thid", out var thidEl) ? thidEl.GetString()          : null,
             Type = typeEl.GetString() ?? string.Empty,
             From = root.TryGetProperty("from", out var fromEl) ? fromEl.GetString()          : null,
             Body = root.TryGetProperty("body", out var bodyEl)

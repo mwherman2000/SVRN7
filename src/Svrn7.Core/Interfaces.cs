@@ -259,7 +259,7 @@ public interface IProcessedOrderStore
 public interface IInboxStore
 {
     /// <summary>Persists a new incoming message with Status = Pending.</summary>
-    Task EnqueueAsync(string messageType, string packedPayload, string? fromDid = null, string? wireId = null, string? jweEnvelope = null, CancellationToken ct = default);
+    Task EnqueueAsync(string messageType, string packedPayload, string? fromDid = null, string? wireId = null, string? thid = null, string? jweEnvelope = null, CancellationToken ct = default);
 
     /// <summary>
     /// Retrieves a single message by its LiteDB ObjectId string.

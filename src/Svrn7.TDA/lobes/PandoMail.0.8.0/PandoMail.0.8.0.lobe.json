@@ -34,7 +34,7 @@
     {
       "uri": "did:drn:svrn7.net/protocols/PandoMail.0.8.0/List-Emails",
       "title": "List Emails Request",
-      "description": "Query for stored email messages. Body: { limit?: int, correlationId?: string }. Replies with Get-PandoMails over WebSocket.",
+      "description": "Query for stored email messages. Body: { limit?: int }. Replies with Get-PandoMails over WebSocket (envelope thid = this request's id).",
       "direction": "inbound",
       "match": "exact",
       "entrypoint": "Invoke-PandoMailList",
@@ -52,7 +52,7 @@
     {
       "uri": "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Query-TdaDid",
       "title": "Query TDA DID",
-      "description": "Local UI request for this TDA's own DID. Body: { correlationId?: string }. Replies with Reply-TdaDid over WebSocket.",
+      "description": "Local UI request for this TDA's own DID. Replies with Reply-TdaDid over WebSocket (envelope thid = this request's id).",
       "direction": "inbound",
       "match": "exact",
       "entrypoint": "Get-TdaDid",
@@ -61,7 +61,7 @@
     {
       "uri": "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Get-EmailBody",
       "title": "Get Email Body",
-      "description": "Request for the full RFC 5322 body of a specific stored email message. Body: { messageDid: string, correlationId?: string }. Replies with Reply-EmailBody over WebSocket.",
+      "description": "Request for the full RFC 5322 body of a specific stored email message. Body: { messageDid: string }. Replies with Reply-EmailBody over WebSocket (envelope thid = this request's id).",
       "direction": "inbound",
       "match": "exact",
       "entrypoint": "Invoke-Svrn7EmailGetEmailBody",
@@ -70,7 +70,7 @@
     {
       "uri": "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Resolve-PandoDid",
       "title": "Resolve DID Document (PandoMail)",
-      "description": "Local UI request to resolve a DID Document. Body: { requestedDid: string, correlationId?: string }. Tries local registry; escalates to parent TDA via plaintext did-resolve-request on miss. Replies with Reply-DidDocument over WebSocket.",
+      "description": "Local UI request to resolve a DID Document. Body: { requestedDid: string }. Tries local registry; escalates to parent TDA via plaintext did-resolve-request on miss. Replies with Reply-DidDocument over WebSocket (envelope thid = this request's id).",
       "direction": "inbound",
       "match": "exact",
       "entrypoint": "Invoke-PandoMailResolveDid",
@@ -79,7 +79,7 @@
     {
       "uri": "did:drn:svrn7.net/protocols/PandoMail.0.8.0/List-OutboundEmails",
       "title": "List Sent Emails Request",
-      "description": "Query for sent (outbound) email messages. Body: { limit?: int, correlationId?: string }. Replies with Get-PandoOutbox over WebSocket.",
+      "description": "Query for sent (outbound) email messages. Body: { limit?: int }. Replies with Get-PandoOutbox over WebSocket (envelope thid = this request's id).",
       "direction": "inbound",
       "match": "exact",
       "entrypoint": "Invoke-PandoMailListSent",
@@ -88,7 +88,7 @@
     {
       "uri": "did:drn:svrn7.net/protocols/PandoMail.0.8.0/List-DeadLetters",
       "title": "List Dead Letters Request",
-      "description": "Query for pending dead-letter records (failed outbound deliveries). Body: { correlationId?: string }. Replies with Get-PandoDeadLetters over WebSocket.",
+      "description": "Query for pending dead-letter records (failed outbound deliveries). Replies with Get-PandoDeadLetters over WebSocket (envelope thid = this request's id).",
       "direction": "inbound",
       "match": "exact",
       "entrypoint": "Invoke-PandoMailListDeadLetters",

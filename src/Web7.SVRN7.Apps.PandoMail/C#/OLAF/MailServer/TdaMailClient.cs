@@ -23,7 +23,6 @@ namespace Web7.SVRN7.Apps
         DateTime ReceivedAt);
 
     public sealed record EmailBody(
-        string CorrelationId,
         string MessageDid,
         string Rfc5322Body,
         string BodyText);
@@ -84,7 +83,8 @@ namespace Web7.SVRN7.Apps
         // since the only operation needed is "claim it once."
         private int _reconnecting;
 
-        // Pending List-Emails requests keyed by correlationId → completion source.
+        // Pending requests keyed by this envelope's own 'id' → completion source. The
+        // TDA's reply carries 'thid' == this id (DIDComm V2 thread correlation).
         private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pending = new();
 
         // Stable across reconnects — lets the TDA's WebSocketNotifyHub and its logs
@@ -429,20 +429,16 @@ namespace Web7.SVRN7.Apps
         public async Task<List<EmailSummary>> ListEmailsAsync(int limit = 50,
             CancellationToken ct = default)
         {
-            string correlationId = Guid.NewGuid().ToString("N");
+            string id = NewMessageId();
             var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _pending[correlationId] = tcs;
+            _pending[id] = tcs;
 
             try
             {
-                string msgBody = JsonSerializer.Serialize(new
-                {
-                    correlationId,
-                    limit
-                });
+                string msgBody = JsonSerializer.Serialize(new { limit });
                 await SendEnvelopeAsync(
                     "did:drn:svrn7.net/protocols/PandoMail.0.8.0/List-Emails",
-                    msgBody, ct);
+                    id, msgBody, ct);
 
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeout.CancelAfter(TimeSpan.FromSeconds(15));
@@ -453,7 +449,7 @@ namespace Web7.SVRN7.Apps
             }
             finally
             {
-                _pending.TryRemove(correlationId, out _);
+                _pending.TryRemove(id, out _);
             }
         }
 
@@ -462,16 +458,16 @@ namespace Web7.SVRN7.Apps
         public async Task<List<EmailSummary>> ListOutboundEmailsAsync(int limit = 50,
             CancellationToken ct = default)
         {
-            string correlationId = Guid.NewGuid().ToString("N");
+            string id = NewMessageId();
             var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _pending[correlationId] = tcs;
+            _pending[id] = tcs;
 
             try
             {
-                string msgBody = JsonSerializer.Serialize(new { correlationId, limit });
+                string msgBody = JsonSerializer.Serialize(new { limit });
                 await SendEnvelopeAsync(
                     "did:drn:svrn7.net/protocols/PandoMail.0.8.0/List-OutboundEmails",
-                    msgBody, ct);
+                    id, msgBody, ct);
 
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeout.CancelAfter(TimeSpan.FromSeconds(15));
@@ -482,7 +478,7 @@ namespace Web7.SVRN7.Apps
             }
             finally
             {
-                _pending.TryRemove(correlationId, out _);
+                _pending.TryRemove(id, out _);
             }
         }
 
@@ -491,16 +487,16 @@ namespace Web7.SVRN7.Apps
         public async Task<List<EmailSummary>> ListDeadLettersAsync(int limit = 50,
             CancellationToken ct = default)
         {
-            string correlationId = Guid.NewGuid().ToString("N");
+            string id = NewMessageId();
             var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _pending[correlationId] = tcs;
+            _pending[id] = tcs;
 
             try
             {
-                string msgBody = JsonSerializer.Serialize(new { correlationId, limit });
+                string msgBody = JsonSerializer.Serialize(new { limit });
                 await SendEnvelopeAsync(
                     "did:drn:svrn7.net/protocols/PandoMail.0.8.0/List-DeadLetters",
-                    msgBody, ct);
+                    id, msgBody, ct);
 
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeout.CancelAfter(TimeSpan.FromSeconds(15));
@@ -511,7 +507,7 @@ namespace Web7.SVRN7.Apps
             }
             finally
             {
-                _pending.TryRemove(correlationId, out _);
+                _pending.TryRemove(id, out _);
             }
         }
 
@@ -519,16 +515,16 @@ namespace Web7.SVRN7.Apps
 
         public async Task<EmailBody> GetEmailBodyAsync(string messageDid, CancellationToken ct = default)
         {
-            string correlationId = Guid.NewGuid().ToString("N");
+            string id = NewMessageId();
             var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _pending[correlationId] = tcs;
+            _pending[id] = tcs;
 
             try
             {
-                string msgBody = JsonSerializer.Serialize(new { correlationId, messageDid });
+                string msgBody = JsonSerializer.Serialize(new { messageDid });
                 await SendEnvelopeAsync(
                     "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Get-EmailBody",
-                    msgBody, ct);
+                    id, msgBody, ct);
 
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeout.CancelAfter(TimeSpan.FromSeconds(15));
@@ -539,7 +535,7 @@ namespace Web7.SVRN7.Apps
             }
             finally
             {
-                _pending.TryRemove(correlationId, out _);
+                _pending.TryRemove(id, out _);
             }
         }
 
@@ -547,16 +543,16 @@ namespace Web7.SVRN7.Apps
 
         public async Task<DidResolutionResult> ResolveDidAsync(string did, CancellationToken ct = default)
         {
-            string correlationId = Guid.NewGuid().ToString("N");
+            string id = NewMessageId();
             var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _pending[correlationId] = tcs;
+            _pending[id] = tcs;
 
             try
             {
-                string msgBody = JsonSerializer.Serialize(new { correlationId, requestedDid = did });
+                string msgBody = JsonSerializer.Serialize(new { requestedDid = did });
                 await SendEnvelopeAsync(
                     "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Resolve-PandoDid",
-                    msgBody, ct);
+                    id, msgBody, ct);
 
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeout.CancelAfter(TimeSpan.FromSeconds(10));
@@ -571,7 +567,7 @@ namespace Web7.SVRN7.Apps
             }
             finally
             {
-                _pending.TryRemove(correlationId, out _);
+                _pending.TryRemove(id, out _);
             }
         }
 
@@ -579,19 +575,15 @@ namespace Web7.SVRN7.Apps
 
         public async Task<string> GetTdaDidAsync(CancellationToken ct = default)
         {
-            string correlationId = Guid.NewGuid().ToString("N");
+            string id = NewMessageId();
             var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _pending[correlationId] = tcs;
+            _pending[id] = tcs;
 
             try
             {
-                string msgBody = JsonSerializer.Serialize(new
-                {
-                    correlationId
-                });
                 await SendEnvelopeAsync(
                     "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Query-TdaDid",
-                    msgBody, ct);
+                    id, "{}", ct);
 
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeout.CancelAfter(TimeSpan.FromSeconds(10));
@@ -604,7 +596,7 @@ namespace Web7.SVRN7.Apps
             }
             finally
             {
-                _pending.TryRemove(correlationId, out _);
+                _pending.TryRemove(id, out _);
             }
         }
 
@@ -619,12 +611,24 @@ namespace Web7.SVRN7.Apps
 
         // ── Core send ───────────────────────────────────────────────────────────
 
-        private async Task SendEnvelopeAsync(string type, string body, CancellationToken ct)
+        private static string NewMessageId() => "did:drn:svrn7.net/didcomm/msg/" + Guid.NewGuid().ToString("N");
+
+        /// <summary>Fire-and-forget send — no reply correlation needed (e.g. Enqueue-PandoMail, Query-FolderCounts).</summary>
+        private Task SendEnvelopeAsync(string type, string body, CancellationToken ct) =>
+            SendEnvelopeAsync(type, NewMessageId(), body, ct);
+
+        /// <summary>
+        /// Sends a request using <paramref name="id"/> as this envelope's DIDComm 'id'.
+        /// Callers awaiting a correlated reply generate this id themselves, register it in
+        /// _pending *before* calling this method, and match the reply by its 'thid' (which
+        /// the TDA sets to this id) — see docs/BACKLOG.md TDA-014.
+        /// </summary>
+        private async Task SendEnvelopeAsync(string type, string id, string body, CancellationToken ct)
         {
             string envelope = JsonSerializer.Serialize(new
             {
-                typ  = "application/didcomm-plain+json",
-                id   = "did:drn:svrn7.net/didcomm/msg/" + Guid.NewGuid().ToString("N"),
+                typ = "application/didcomm-plain+json",
+                id,
                 type,
                 body
             });
@@ -693,20 +697,20 @@ namespace Web7.SVRN7.Apps
 
                 if (type.EndsWith("/Reply-TdaDid", StringComparison.Ordinal))
                 {
-                    string cid = ExtractCorrelationId(root);
-                    if (!string.IsNullOrEmpty(cid) && _pending.TryGetValue(cid, out var tcs))
+                    string thid = ExtractThid(root);
+                    if (!string.IsNullOrEmpty(thid) && _pending.TryGetValue(thid, out var tcs))
                         tcs.TrySetResult(json);
                 }
                 else if (type.EndsWith("/Get-PandoMails", StringComparison.Ordinal))
                 {
-                    string cid = ExtractCorrelationId(root);
-                    if (!string.IsNullOrEmpty(cid) && _pending.TryGetValue(cid, out var tcs))
+                    string thid = ExtractThid(root);
+                    if (!string.IsNullOrEmpty(thid) && _pending.TryGetValue(thid, out var tcs))
                     {
                         tcs.TrySetResult(json);
                     }
                     else
                     {
-                        // No correlationId match — complete the first pending request.
+                        // No thid match — complete the first pending request.
                         foreach (var kv in _pending)
                         {
                             kv.Value.TrySetResult(json);
@@ -716,8 +720,8 @@ namespace Web7.SVRN7.Apps
                 }
                 else if (type.EndsWith("/Get-PandoOutbox", StringComparison.Ordinal))
                 {
-                    string cid = ExtractCorrelationId(root);
-                    if (!string.IsNullOrEmpty(cid) && _pending.TryGetValue(cid, out var tcs))
+                    string thid = ExtractThid(root);
+                    if (!string.IsNullOrEmpty(thid) && _pending.TryGetValue(thid, out var tcs))
                         tcs.TrySetResult(json);
                     else
                     {
@@ -726,8 +730,8 @@ namespace Web7.SVRN7.Apps
                 }
                 else if (type.EndsWith("/Get-PandoDeadLetters", StringComparison.Ordinal))
                 {
-                    string cid = ExtractCorrelationId(root);
-                    if (!string.IsNullOrEmpty(cid) && _pending.TryGetValue(cid, out var tcs))
+                    string thid = ExtractThid(root);
+                    if (!string.IsNullOrEmpty(thid) && _pending.TryGetValue(thid, out var tcs))
                         tcs.TrySetResult(json);
                     else
                     {
@@ -736,16 +740,16 @@ namespace Web7.SVRN7.Apps
                 }
                 else if (type.EndsWith("/Reply-EmailBody", StringComparison.Ordinal))
                 {
-                    string cid = ExtractCorrelationId(root);
-                    if (!string.IsNullOrEmpty(cid) && _pending.TryGetValue(cid, out var tcs))
+                    string thid = ExtractThid(root);
+                    if (!string.IsNullOrEmpty(thid) && _pending.TryGetValue(thid, out var tcs))
                         tcs.TrySetResult(json);
                 }
                 else if (type.EndsWith("/Reply-DidDocument", StringComparison.Ordinal))
                 {
-                    string cid = ExtractCorrelationId(root);
-                    _log.LogDebug("Reply-DidDocument correlationId={CorrelationId} pendingCount={PendingCount} matched={Matched}",
-                        cid, _pending.Count, !string.IsNullOrEmpty(cid) && _pending.ContainsKey(cid));
-                    if (!string.IsNullOrEmpty(cid) && _pending.TryGetValue(cid, out var tcs))
+                    string thid = ExtractThid(root);
+                    _log.LogDebug("Reply-DidDocument thid={Thid} pendingCount={PendingCount} matched={Matched}",
+                        thid, _pending.Count, !string.IsNullOrEmpty(thid) && _pending.ContainsKey(thid));
+                    if (!string.IsNullOrEmpty(thid) && _pending.TryGetValue(thid, out var tcs))
                         tcs.TrySetResult(json);
                 }
                 else if (type.EndsWith("/Notify-FolderCounts", StringComparison.Ordinal))
@@ -762,24 +766,15 @@ namespace Web7.SVRN7.Apps
             catch { }
         }
 
-        private static string ExtractCorrelationId(JsonElement root)
-        {
-            if (!root.TryGetProperty("body", out JsonElement bodyEl)) return "";
-
-            if (bodyEl.ValueKind == JsonValueKind.String)
-            {
-                try
-                {
-                    using JsonDocument inner = JsonDocument.Parse(bodyEl.GetString()!);
-                    return inner.RootElement.TryGetProperty("correlationId", out JsonElement c)
-                        ? c.GetString() ?? "" : "";
-                }
-                catch { return ""; }
-            }
-
-            return bodyEl.TryGetProperty("correlationId", out JsonElement cv)
-                ? cv.GetString() ?? "" : "";
-        }
+        /// <summary>
+        /// Reads the envelope-level DIDComm 'thid' — the TDA sets this to the original
+        /// request's 'id' when replying, per DIDComm V2's standard thread-correlation
+        /// mechanism (see docs/BACKLOG.md TDA-014). No body parsing needed.
+        /// </summary>
+        private static string ExtractThid(JsonElement root) =>
+            root.TryGetProperty("thid", out JsonElement thidEl) && thidEl.ValueKind == JsonValueKind.String
+                ? thidEl.GetString() ?? ""
+                : "";
 
         // ── Parsing ─────────────────────────────────────────────────────────────
 
@@ -917,7 +912,7 @@ namespace Web7.SVRN7.Apps
                 using JsonDocument doc = JsonDocument.Parse(envelopeJson);
                 JsonElement root = doc.RootElement;
                 if (!root.TryGetProperty("body", out JsonElement bodyEl))
-                    return new EmailBody(string.Empty, string.Empty, string.Empty, string.Empty);
+                    return new EmailBody(string.Empty, string.Empty, string.Empty);
 
                 JsonElement resolved = bodyEl;
                 if (bodyEl.ValueKind == JsonValueKind.String)
@@ -927,12 +922,11 @@ namespace Web7.SVRN7.Apps
                 }
 
                 return new EmailBody(
-                    CorrelationId: GetStr(resolved, "correlationId"),
-                    MessageDid:    GetStr(resolved, "messageDid"),
-                    Rfc5322Body:   GetStr(resolved, "rfc5322Body"),
-                    BodyText:      GetStr(resolved, "bodyText"));
+                    MessageDid:  GetStr(resolved, "messageDid"),
+                    Rfc5322Body: GetStr(resolved, "rfc5322Body"),
+                    BodyText:    GetStr(resolved, "bodyText"));
             }
-            catch { return new EmailBody(string.Empty, string.Empty, string.Empty, string.Empty); }
+            catch { return new EmailBody(string.Empty, string.Empty, string.Empty); }
         }
 
         private static string GetStr(JsonElement el, string name) =>

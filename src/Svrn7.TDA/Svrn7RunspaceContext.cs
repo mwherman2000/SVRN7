@@ -245,7 +245,7 @@ public sealed class Svrn7RunspaceContext
         const string emailTypePrefix = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail";
         var messages = await _inbox.ListByTypeAsync(emailTypePrefix, limit, ct);
         return messages
-            .Select(m => new InboundMessageView(m.Id, m.MessageType, m.PackedPayload, m.FromDid, m.AttemptCount, m.ReceivedAt))
+            .Select(m => new InboundMessageView(m.Id, m.MessageType, m.PackedPayload, m.FromDid, m.AttemptCount, m.ReceivedAt, m.Thid, m.WireId))
             .ToList();
     }
 
@@ -260,7 +260,7 @@ public sealed class Svrn7RunspaceContext
         const string sentTypePrefix = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Enqueue-PandoMail";
         var messages = await _inbox.ListByTypeAsync(sentTypePrefix, limit, ct);
         return messages
-            .Select(m => new InboundMessageView(m.Id, m.MessageType, m.PackedPayload, m.FromDid, m.AttemptCount, m.ReceivedAt))
+            .Select(m => new InboundMessageView(m.Id, m.MessageType, m.PackedPayload, m.FromDid, m.AttemptCount, m.ReceivedAt, m.Thid, m.WireId))
             .ToList();
     }
 
@@ -335,7 +335,7 @@ public sealed class Svrn7RunspaceContext
         var msg = await _inbox.GetByIdAsync(messageDid, ct);
         if (msg is null) return null;
 
-        var view = new InboundMessageView(msg.Id, msg.MessageType, msg.PackedPayload, msg.FromDid, msg.AttemptCount, msg.ReceivedAt);
+        var view = new InboundMessageView(msg.Id, msg.MessageType, msg.PackedPayload, msg.FromDid, msg.AttemptCount, msg.ReceivedAt, msg.Thid, msg.WireId);
         _cache.Set(messageDid, view, TimeSpan.FromHours(24));
         return view;
     }
@@ -357,7 +357,10 @@ public sealed record FolderCounts(int Inbox, int Sent, int DeadLetters);
 /// <summary>
 /// Read-only projection of an <see cref="InboundMessage"/> for LOBE cmdlet consumption.
 /// Cmdlets receive this via <see cref="Svrn7RunspaceContext.GetMessageAsync"/>.
-/// The <see cref="Id"/> is the pass-by-reference handle passed through pipelines.
+/// The <see cref="Id"/> is the pass-by-reference handle passed through pipelines — it is the
+/// TDA's own internal resource DID URL (e.g. did:drn:/inbox/msg/...), NOT the sender's wire
+/// envelope id. A reply's thid must echo the sender's wire id — use <see cref="WireId"/> for
+/// that, never <see cref="Id"/> (see docs/BACKLOG.md TDA-014).
 /// </summary>
 public sealed record InboundMessageView(
     string         Id,
@@ -365,4 +368,6 @@ public sealed record InboundMessageView(
     string         PackedPayload,
     string?        FromDid,
     int            AttemptCount,
-    DateTimeOffset ReceivedAt);
+    DateTimeOffset ReceivedAt,
+    string?        Thid = null,
+    string?        WireId = null);

@@ -92,10 +92,10 @@ public sealed class WebSocketNotifyHub : IDisposable
     }
 
     /// <summary>
-    /// Associates a request's correlationId with the socket that sent it, so the eventual
-    /// reply (e.g. Get-PandoMails, Reply-TdaDid) can be routed back to that connection alone
-    /// instead of broadcast to every connected local-UI client. Call before enqueueing an
-    /// inbound WebSocket message whose body carries a correlationId.
+    /// Associates a request message's envelope id with the socket that sent it, so the
+    /// eventual reply (e.g. Get-PandoMails, Reply-TdaDid — identified by envelope thid ==
+    /// this id) can be routed back to that connection alone instead of broadcast to every
+    /// connected local-UI client. Call before enqueueing an inbound WebSocket message.
     /// </summary>
     internal void TrackCorrelation(string correlationId, Guid socketId)
     {
@@ -208,28 +208,27 @@ public sealed class WebSocketNotifyHub : IDisposable
 
     /// <summary>
     /// Pushes a DIDComm JSON envelope to connected local-UI clients.
-    /// Correlated replies (body.correlationId matches a tracked request) are unicast to the
-    /// requesting connection. Everything else is multicast to connections whose declared
-    /// subscriptions match the message's @type. No-op if no clients are connected.
+    /// Correlated replies (envelope-level thid matches a tracked request's id) are unicast
+    /// to the requesting connection. Everything else is multicast to connections whose
+    /// declared subscriptions match the message's @type. No-op if no clients are connected.
     /// </summary>
     public async Task PushAsync(string json, CancellationToken ct = default)
     {
         if (_connections.IsEmpty) return;
 
         string type = "(unknown)";
-        string? correlationId = null;
+        string? thid = null;
         try
         {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
             if (root.TryGetProperty("type", out var t)) type = t.GetString() ?? type;
-            var body = ExtractBody(root);
-            var cid = GetString(body, "correlationId");
-            correlationId = string.IsNullOrEmpty(cid) ? null : cid;
+            if (root.TryGetProperty("thid", out var thidEl) && thidEl.ValueKind == JsonValueKind.String)
+                thid = thidEl.GetString();
         }
         catch { }
 
-        if (correlationId is not null && _pendingCorrelations.TryRemove(correlationId, out var pending))
+        if (thid is not null && _pendingCorrelations.TryRemove(thid, out var pending))
         {
             _log.LogDebug(
                 "WebSocketNotifyHub: → connection {Id} (correlated reply) type={Type}",

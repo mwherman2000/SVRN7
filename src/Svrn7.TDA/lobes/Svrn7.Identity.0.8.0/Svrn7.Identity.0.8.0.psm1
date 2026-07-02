@@ -364,17 +364,21 @@ function Invoke-Svrn7DidResolveResponse {
                     $svrn7Name = $doc.Svrn7Name
                 }
             } catch { }
+            # thid = originalRequestId, which is the local Resolve-PandoDid request's own
+            # wire envelope id (Invoke-PandoMailResolveDid seeds originalRequestId from
+            # $msg.WireId when escalating) — matches what WebSocketNotifyHub/TdaMailClient key
+            # correlation on (see docs/BACKLOG.md TDA-014).
             $wsEnvelope = [ordered]@{
                 typ  = 'application/didcomm-plain+json'
                 id   = [Svrn7.Core.TdaResourceId]::DIDCommMessage([Guid]::NewGuid().ToString('N'))
+                thid = $originalRequestId
                 type = 'did:drn:svrn7.net/protocols/Svrn7.Identity.0.8.0/Reply-DidDocument'
                 from = $SVRN7.LocalDid
                 to   = @($SVRN7.LocalDid)
                 body = [ordered]@{
-                    correlationId = $originalRequestId
-                    requestedDid  = $requestedDid
-                    found         = $found
-                    svrn7Name     = $svrn7Name
+                    requestedDid = $requestedDid
+                    found        = $found
+                    svrn7Name    = $svrn7Name
                 }
             } | ConvertTo-Json -Compress -Depth 3
             return [Svrn7.TDA.OutboundMessage]::new('ws://local/didcomm-ws', $wsEnvelope)
