@@ -79,7 +79,12 @@ function Initialize-Svrn7Assemblies {
 # ── Driver guards ──────────────────────────────────────────────────────────────
 
 function Assert-FederationDriver {
-    if ($null -eq $SVRN7 -and $null -eq $Script:FederationDriver) {
+    # Bare $SVRN7 is only ever assigned inside a TDA runspace (TdaHost injection).
+    # In a standalone PS session it does not exist at all — under StrictMode, referencing
+    # it directly throws "cannot be retrieved because it has not been set" instead of
+    # evaluating to $null. Test-Path variable: checks existence without triggering that.
+    $hasSvrn7Context = (Test-Path variable:SVRN7) -and ($null -ne $SVRN7)
+    if (-not $hasSvrn7Context -and $null -eq $Script:FederationDriver) {
         throw [System.InvalidOperationException]::new(
             'Svrn7.Federation driver not initialised. ' +
             'Call Initialize-Svrn7FederationDriver before using Federation cmdlets.')
@@ -87,7 +92,8 @@ function Assert-FederationDriver {
 }
 
 function Assert-SocietyDriver {
-    if ($null -eq $SVRN7 -and $null -eq $Script:SocietyDriver) {
+    $hasSvrn7Context = (Test-Path variable:SVRN7) -and ($null -ne $SVRN7)
+    if (-not $hasSvrn7Context -and $null -eq $Script:SocietyDriver) {
         throw [System.InvalidOperationException]::new(
             'Svrn7.Society driver not initialised. ' +
             'Call Connect-Svrn7Society before using Society cmdlets.')

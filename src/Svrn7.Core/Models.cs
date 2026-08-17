@@ -164,6 +164,7 @@ public record SocietyRecord
     public required string Did          { get; set; }
     public required string PublicKeyHex { get; set; }
     public required string SocietyName  { get; set; }
+    public string          DidMethodName{ get; set; } = string.Empty;
     public bool            IsActive     { get; set; } = true;
     public DateTimeOffset  RegisteredAt { get; set; } = DateTimeOffset.UtcNow;
 }
@@ -177,6 +178,7 @@ public record FederationRecord
     public required string Did                       { get; set; }
     public required string PublicKeyHex              { get; set; }
     public required string FederationName            { get; set; }
+    public string          DidMethodName             { get; set; } = string.Empty;
     public long            TotalSupplyGrana          { get; set;  }
     public long            EndowmentPerSocietyGrana  { get; set; }
     public bool            IsActive                  { get; set; } = true;

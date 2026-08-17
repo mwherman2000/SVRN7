@@ -265,9 +265,10 @@ public sealed class Svrn7Driver : ISvrn7Driver
         {
             var society = new SocietyRecord
             {
-                Did          = did,
-                PublicKeyHex = publicKeyHex,
-                SocietyName  = request.SocietyName,
+                Did           = did,
+                PublicKeyHex  = publicKeyHex,
+                SocietyName   = request.SocietyName,
+                DidMethodName = methodName,
             };
             await _registry.RegisterSocietyAsync(society, ct);
 
@@ -558,6 +559,7 @@ public sealed class Svrn7Driver : ISvrn7Driver
             Did                      = federationDid,
             PublicKeyHex             = publicKeyHex,
             FederationName           = federationName,
+            DidMethodName            = didDocument.MethodName,
             TotalSupplyGrana         = Svrn7Constants.FederationInitialSupplyGrana,
             EndowmentPerSocietyGrana = 0,
         };

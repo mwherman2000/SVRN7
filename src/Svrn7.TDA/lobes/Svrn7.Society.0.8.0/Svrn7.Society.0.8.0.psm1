@@ -278,7 +278,7 @@ function Get-Svrn7OwnSociety {
         [Svrn7.Core.Models.SocietyRecord] or $null if not yet registered.
 
     .EXAMPLE
-        PS> Get-Svrn7OwnSociety | Select-Object SocietyName, PrimaryDidMethodName
+        PS> Get-Svrn7OwnSociety | Select-Object SocietyName, DidMethodName
 
     .EXAMPLE
         PS> $soc = Get-Svrn7OwnSociety

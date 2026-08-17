@@ -886,7 +886,7 @@ function Initialize-Svrn7Federation {
     [OutputType([PSCustomObject])]
     param()
     Assert-FederationDriver
-    $drv = if ($null -ne $SVRN7) { $SVRN7.Driver } else { $Script:FederationDriver }
+    $drv = if ((Test-Path variable:SVRN7) -and $null -ne $SVRN7) { $SVRN7.Driver } else { $Script:FederationDriver }
 
     # Idempotency guard — already a Federation
     $existing = $drv.GetFederationAsync().GetAwaiter().GetResult()
@@ -895,7 +895,7 @@ function Initialize-Svrn7Federation {
             PSTypeName         = $Script:TypeFederationReg
             FederationDid      = $existing.Did
             FederationName     = $existing.FederationName
-            MethodName         = $existing.PrimaryDidMethodName
+            MethodName         = $existing.DidMethodName
             WandererDid        = $null
             PublicKeyHex       = $null
             PrivateKeyHex      = $null
@@ -1302,7 +1302,7 @@ function Invoke-Web7FederationQuery {
                 found                = $true
                 federationDid        = $fed.Did
                 federationName       = $fed.FederationName
-                primaryDidMethodName = $fed.PrimaryDidMethodName
+                primaryDidMethodName = $fed.DidMethodName
                 totalSupplyGrana     = $fed.TotalSupplyGrana
                 endowmentPerSocietyGrana = $fed.EndowmentPerSocietyGrana
                 currentEpoch         = $drv.GetCurrentEpoch()
@@ -1360,7 +1360,7 @@ function Invoke-Web7SocietyList {
             @{
                 societyDid           = $_.Did
                 societyName          = $_.SocietyName
-                primaryDidMethodName = $_.PrimaryDidMethodName
+                primaryDidMethodName = $_.DidMethodName
                 endpointUrl          = Resolve-SocietySenderEndpoint -Did $_.Did
                 didDocument          = if ($docJson) { $docJson | ConvertFrom-Json } else { $null }
                 isActive             = $_.IsActive
