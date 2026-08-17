@@ -362,7 +362,8 @@ function Install-LOBEPackage {
 .SYNOPSIS
     Installs a LOBE NuGet package into a TDA lobes directory.
 .DESCRIPTION
-    Extracts tools/<LobeName>/* from a .nupkg into LobesDirectory/<LobeName>/.
+    Extracts tools/<LobeName>/* from a .nupkg into LobesDirectory/<LobeName>.<Version>/,
+    matching this project's {Name}.{version} LOBE source-tree convention (CLAUDE.md).
     JIT LOBEs are auto-discovered by the TDA from their .lobe.json — no config registration needed.
     Use -LoadMode Eager only to pre-load a LOBE at TDA startup (requires restart).
 .PARAMETER Path
@@ -459,9 +460,19 @@ function Install-LOBEPackage {
 
         $lobeName = ($toolsEntries[0].FullName -split '/')[1]
 
+        # Destination folder uses this project's {Name}.{version} source-tree convention
+        # (CLAUDE.md LOBE Authoring), not the bare NuGet package id — read the version back
+        # out of the package's own .lobe.json (every LOBE package is guaranteed to have one).
+        $lobeJsonEntry = $toolsEntries | Where-Object { $_.FullName -like '*.lobe.json' } | Select-Object -First 1
+        if (-not $lobeJsonEntry) { throw "No .lobe.json under tools/$lobeName/ in '$nupkgPath'." }
+        $lobeJsonReader = New-Object System.IO.StreamReader($lobeJsonEntry.Open())
+        try   { $lobeVersion = ($lobeJsonReader.ReadToEnd() | ConvertFrom-Json).lobe.version }
+        finally { $lobeJsonReader.Dispose() }
+        $lobeFolderName = "$lobeName.$lobeVersion"
+
         if (-not (Test-Path $LobesDirectory)) { $null = New-Item -ItemType Directory -Path $LobesDirectory -Force }
         $lobesDir    = (Resolve-Path $LobesDirectory).Path
-        $lobeDestDir = Join-Path $lobesDir $lobeName
+        $lobeDestDir = Join-Path $lobesDir $lobeFolderName
 
         if (Test-Path $lobeDestDir) {
             if (-not $Force) { throw "'$lobeDestDir' already exists. Use -Force to overwrite." }
@@ -492,7 +503,7 @@ function Install-LOBEPackage {
                 $lobeJsonFile = Get-ChildItem $lobeDestDir -Filter '*.lobe.json' | Select-Object -First 1
                 if (-not $lobeJsonFile) { throw "No .lobe.json in '$lobeDestDir'. Cannot determine entry point." }
                 $lobeModule  = (Get-Content $lobeJsonFile.FullName -Raw | ConvertFrom-Json).lobe.module
-                $configEntry = "$lobeName/$lobeModule"
+                $configEntry = "$lobeFolderName/$lobeModule"
 
                 $config    = Get-Content $configPath -Raw | ConvertFrom-Json
                 $eagerList = @($config.eager)
