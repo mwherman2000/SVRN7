@@ -19,7 +19,7 @@
       "description": "Citizen requests Society registration. Body: { citizenDid, publicKeyHex, displayName }",
       "direction": "inbound",
       "match": "prefix",
-      "entrypoint": "ConvertFrom-Web7OnboardRequest",
+      "entrypoint": "Invoke-Web7RegisterCitizen",
       "epochRequired": 0
     },
     {
@@ -43,9 +43,50 @@
   ],
   "cmdlets": [
     {
+      "name": "Invoke-Web7RegisterCitizen",
+      "title": "Register Citizen (registered entrypoint)",
+      "description": "The actual protocol entrypoint for register-citizen. Runs the full pipeline itself (parse, register with endowment, reply) since the Switchboard invokes exactly one cmdlet per protocol match and does not chain multiple cmdlets via a PowerShell pipeline.",
+      "epochRequired": 0,
+      "annotations": {
+        "idempotent": false,
+        "modifiesState": true,
+        "requiresEpoch": 0,
+        "destructive": false,
+        "pipelinePosition": "full"
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "MessageDid"
+        ],
+        "properties": {
+          "MessageDid": {
+            "type": "string",
+            "description": "TDA resource DID URL of the inbox message.",
+            "pattern": "^did:drn:[^/]+/inbox/msg/[0-9a-f]{24}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": [
+          "PeerEndpoint",
+          "PackedMessage",
+          "MessageType"
+        ],
+        "properties": {
+          "PeerEndpoint": { "type": "string", "format": "uri" },
+          "PackedMessage": { "type": "string" },
+          "MessageType": { "type": "string", "format": "uri" }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "ConvertFrom-Web7OnboardRequest",
       "title": "Parse Onboard Request",
-      "description": "Resolves the inbox message and parses the onboarding request body. Returns a request record for piping to Register-Svrn7CitizenInSociety.",
+      "description": "Internal parsing helper called by Invoke-Web7RegisterCitizen. Resolves the inbox message and parses the onboarding request body. Not itself a registered protocol entrypoint.",
       "epochRequired": 0,
       "annotations": {
         "idempotent": true,
@@ -238,9 +279,9 @@
       "Issuing the CitizenEndowmentCredential VC as part of onboarding"
     ],
     "compositionHints": [
-      "Full pipeline: Dequeue-Svrn7Message | ConvertFrom-Web7OnboardRequest | Register-Svrn7CitizenInSociety | New-Web7OnboardReceipt | Enqueue-Svrn7Message",
-      "Always wrap in try/catch and call Send-Web7OnboardError if any step throws",
-      "ConvertFrom-Web7OnboardRequest may return null \u2014 check before piping further",
+      "The Switchboard invokes exactly one cmdlet per protocol match (no automatic multi-cmdlet piping), so Invoke-Web7RegisterCitizen is the registered entrypoint and runs the full chain itself internally: ConvertFrom-Web7OnboardRequest -> Register-Svrn7CitizenInSociety -> New-Web7OnboardReceipt.",
+      "Always wrap in try/catch and call Send-Web7OnboardError if any step throws \u2014 Invoke-Web7RegisterCitizen already does this.",
+      "ConvertFrom-Web7OnboardRequest may return null \u2014 check before continuing",
       "Register-Svrn7CitizenInSociety is in Svrn7.Society.0.8.0.psm1 (eager) \u2014 no JIT import needed"
     ],
     "limitations": [
