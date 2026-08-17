@@ -634,7 +634,9 @@ JIT (Import-Module on first use):
 
 ### Agent Scripts (lobes/)
   Agent1-Coordinator.ps1  — dispatch via Dequeue-Svrn7Message / Enqueue-Svrn7Message
-  Agent2-Onboarding.ps1   — Svrn7.Onboarding/0.8.0/register-citizen → ConvertFrom-Web7OnboardRequest
+  Agent2-Onboarding.ps1   — present on disk but not registered as any protocol's entrypoint;
+                            the real Svrn7.Onboarding/0.8.0/register-citizen handler is
+                            Invoke-Web7RegisterCitizen in Svrn7.Onboarding.0.8.0.psm1
   AgentN-Invoicing.ps1    — Svrn7.Invoicing/0.8.0/request → ConvertFrom-Web7InvoiceRequest
 
 ### LOBE Cmdlet Naming Convention (v0.8.0)

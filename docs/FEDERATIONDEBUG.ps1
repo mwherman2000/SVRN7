@@ -3,7 +3,7 @@
 # Covers launching a Federation TDA and performing the full Federation bootstrap:
 # initialising the federation record, querying it, and registering the first Society.
 #
-# Run this guide first.  SOCIETYDEBUG.md requires the Federation to be initialised
+# Run this guide first.  SOCIETYDEBUG.ps1 requires the Federation to be initialised
 # before it starts.
 #
 # ---
@@ -100,32 +100,39 @@ Import-Module .\lobes\Svrn7.Federation.0.8.0\Svrn7.Federation.0.8.0.psm1
 # in the federation record.
 
 Write-Host "--- E.0.1 — Generate the federation governance key pair ---"
-$federationKp = New-Svrn7KeyPair
+$federationKp  = New-Svrn7KeyPair
+$federationDid = (New-Svrn7Did -KeyPair $federationKp -Role Federation).Did
 
-Write-Host "Public key  : $($federationKp.PublicKeyHex)"
-Write-Host "Private key : $($federationKp.PrivateKeyHex)   <-- store securely, never share"
+Write-Host "Federation DID : $federationDid"
+Write-Host "Public key     : $($federationKp.PublicKeyHex)"
+Write-Host "Private key    : $($federationKp.PrivateKeyHex)   <-- store securely, never share"
 
 # Example output (your values will differ):
 #
-# Public key  : 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
-# Private key : 18e14a7b5a...  <-- store securely, never share
+# Federation DID : did:drn:federation.svrn7.net/federation/1.0/<genesis-hash>
+# Public key     : 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+# Private key    : 18e14a7b5a...  <-- store securely, never share
 #
 # E.0.2 — Send initialize-federation
+#
+# federationDid, federationName, and publicKeyHex are required (Assert-BodyFields in
+# Invoke-Web7FederationInit — src\Svrn7.TDA\lobes\Svrn7.Federation.0.8.0\Svrn7.Federation.0.8.0.psm1).
+# The DID method is always 'drn' — there is no primaryDidMethodName body field; the
+# handler passes a literal 'drn' to CreateDidDocument regardless of what is sent.
 
 Write-Host "--- E.0.2 — Send initialize-federation ---"
 $body = @{
-    federationDid        = "did:drn:foundation.svrn7.net"
-    federationName       = "Web 7.0 SOVRON Foundation"
-    publicKeyHex         = $federationKp.PublicKeyHex
-    primaryDidMethodName = "drn"
+    federationDid  = $federationDid
+    federationName = "Web 7.0 SOVRON Foundation"
+    publicKeyHex   = $federationKp.PublicKeyHex
 } | ConvertTo-Json -Compress
 
 $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/Svrn7.Federation.0.8.0/initialize-federation"
-    from = "did:drn:foundation.svrn7.net"
-    to   = @("did:drn:foundation.svrn7.net")
+    from = $federationDid
+    to   = @($federationDid)
     body = $body
 } | ConvertTo-Json
 
@@ -136,18 +143,27 @@ Send-LocalDIDCommMessage -Port 8441 -Body $msg
 # info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
 #       Switchboard: routing ... (type=.../Svrn7.Federation.0.8.0/initialize-federation)
 #           → Invoke-Web7FederationInit [Svrn7.Federation]
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       [PS Info] Federation initialised: did:drn:foundation.svrn7.net (Web 7.0 SOVRON Foundation)
+# info: Svrn7.Federation.Svrn7Driver[0]
+#       Federation initialised: <federationDid> (Web 7.0 SOVRON Foundation), supply 1000000000000000 grana
 #
-# Reply body (initialize-federation-result) delivered to the sender:
+# The "Federation initialised: ..." line is logged directly by Svrn7Driver.InitialiseFederationAsync
+# (src\Svrn7.Federation\Svrn7Driver.cs) under its own ILogger category — it is NOT a
+# forwarded PowerShell stream, so it does not carry the "[PS Info]" prefix or the
+# Svrn7.TDA.DIDCommMessageSwitchboard[0] category used for genuine Write-Information output.
+# If the sender DID resolves to a DIDCommMessaging endpoint, a second line follows:
+#
+# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
+#       [PS Info] Invoke-Web7FederationInit: federation '<federationDid>' initialised, replying to <endpoint>
+#
+# Reply body (initialize-federation-result) delivered to the sender — only the fields
+# actually assembled by Invoke-Web7FederationInit (there is no primaryDidMethodName field):
 #
 # {
-#   "federationDid":        "did:drn:foundation.svrn7.net",
-#   "federationName":       "Web 7.0 SOVRON Foundation",
-#   "primaryDidMethodName": "drn",
-#   "totalSupplyGrana":     1000000000000000000,
-#   "alreadyInitialised":   false,
-#   "initialisedAt":        "2026-..."
+#   "federationDid":      "<federationDid>",
+#   "federationName":     "Web 7.0 SOVRON Foundation",
+#   "totalSupplyGrana":   1000000000000000,
+#   "alreadyInitialised": false,
+#   "initialisedAt":      "2026-..."
 # }
 #
 # ---
@@ -162,8 +178,8 @@ $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/Svrn7.Federation.0.8.0/federation-query"
-    from = "did:drn:foundation.svrn7.net"
-    to   = @("did:drn:foundation.svrn7.net")
+    from = $federationDid
+    to   = @($federationDid)
     body = "{}"
 } | ConvertTo-Json
 
@@ -175,17 +191,27 @@ Send-LocalDIDCommMessage -Port 8441 -Body $msg
 #       Switchboard: routing ... (type=.../Svrn7.Federation.0.8.0/federation-query)
 #           → Invoke-Web7FederationQuery [Svrn7.Federation]
 #
-# Reply body (federation-query-result):
+# KNOWN SOURCE BUG — the found:true branch of Invoke-Web7FederationQuery reads
+# $fed.PrimaryDidMethodName (Svrn7.Federation.0.8.0.psm1:1305), but FederationRecord
+# (src\Svrn7.Core\Models.cs) has no PrimaryDidMethodName property. Under
+# Set-StrictMode -Version Latest this throws a PropertyNotFoundException, so once the
+# Federation is initialised this handler currently errors instead of returning the
+# reply below. The JSON shows the intended/designed shape once that field reference
+# is fixed in source — do not expect this exact reply today.
+#
+# Reply body (federation-query-result), as currently assembled by the handler:
 #
 # {
 #   "found":                    true,
-#   "federationDid":            "did:drn:foundation.svrn7.net",
+#   "federationDid":            "<federationDid>",
 #   "federationName":           "Web 7.0 SOVRON Foundation",
 #   "primaryDidMethodName":     "drn",
-#   "totalSupplyGrana":         1000000000000000000,
+#   "totalSupplyGrana":         1000000000000000,
 #   "endowmentPerSocietyGrana": 0,
 #   "currentEpoch":             0,
-#   "isActive":                 true
+#   "isActive":                 true,
+#   "createdAt":                "2026-...",
+#   "queriedAt":                "2026-..."
 # }
 #
 # ---
@@ -201,22 +227,34 @@ Send-LocalDIDCommMessage -Port 8441 -Body $msg
 Write-Host "--- E.2 — Register the first Society ---"
 $societyKeyPair = New-Svrn7KeyPair
 
+# societyDid below is NOT used to derive the registered Society's DID — Invoke-Web7RegisterSociety
+# (Svrn7.Federation.0.8.0.psm1) always derives it server-side as
+# did:drn:federation.svrn7.net/{societyName}/1.0/{Blake3(publicKeyHex)}. The field must still be
+# present in the body: the handler's diagnostic log line reads $body.societyDid directly
+# (Svrn7.Federation.0.8.0.psm1:1512, not guarded by Assert-BodyFields/Get-BodyField), and
+# Set-StrictMode throws if the property is absent. Only publicKeyHex and societyName are
+# actually required (Assert-BodyFields). primaryDidMethodName is not read anywhere in the
+# handler — the DID method is always 'drn' — so it has been omitted here.
+#
+# societyName becomes the DID path segment verbatim — keep it lowercase with no spaces.
+#
+# GranaPerSvrn7 = 1,000,000 (src\Svrn7.Core\Svrn7Constants.cs) — 1 SVRN7 = 1,000,000 grana.
+
 $body = @{
-    societyDid            = "did:drn:bindloss.svrn7.net"
+    societyDid            = "did:drn:federation.svrn7.net/bindloss/1.0/<placeholder-ignored>"
     publicKeyHex          = $societyKeyPair.PublicKeyHex
-    societyName           = "Bindloss Alberta"
-    primaryDidMethodName  = "bindloss"
+    societyName           = "bindloss"
     serviceEndpointUrl    = "http://localhost:8442/didcomm"   # Society TDA endpoint
-    drawAmountGrana       = 1000000000000     # 1 SVRN7
-    overdraftCeilingGrana = 10000000000000    # 10 SVRN7
+    drawAmountGrana       = 1000000000000     # 1,000,000 SVRN7
+    overdraftCeilingGrana = 10000000000000    # 10,000,000 SVRN7
 } | ConvertTo-Json -Compress
 
 $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = "did:drn:svrn7.net/protocols/Svrn7.Federation.0.8.0/register-society"
-    from = "did:drn:bindloss.svrn7.net"
-    to   = @("did:drn:foundation.svrn7.net")
+    from = "did:drn:wanderer.svrn7.net/agent/1.0/<genesis-hash>"   # the Society TDA's own bootstrap Wanderer DID
+    to   = @($federationDid)
     body = $body
 } | ConvertTo-Json
 
@@ -229,27 +267,28 @@ Send-LocalDIDCommMessage -Port 8441 -Body $msg
 #           → Invoke-Web7RegisterSociety [Svrn7.Federation]
 # warn: ...
 #       RegisterSocietyAsync: FoundationPrivateKey not configured — VTC credential
-#       skipped for did:drn:bindloss.svrn7.net (development mode)
+#       skipped for did:drn:federation.svrn7.net/bindloss/1.0/<genesis-hash> (development mode)
 # info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       [PS Info] Invoke-Web7RegisterSociety: registered 'did:drn:bindloss.svrn7.net'
+#       [PS Info] Invoke-Web7RegisterSociety: registered '<value of body.societyDid — see note above>'
 #
 # The Federation TDA delivers register-society-result to the Society TDA at
-# http://localhost:8442/didcomm.  See SOCIETYDEBUG.md §E.2r for what the Society TDA
+# http://localhost:8442/didcomm.  See SOCIETYDEBUG.ps1 §E.2r for what the Society TDA
 # does on receipt.
 #
-# Reply body (register-society-result):
+# Reply body (register-society-result) — only the fields actually assembled by
+# Invoke-Web7RegisterSociety (there is no primaryDidMethodName field):
 #
 # {
-#   "societyDid":            "did:drn:bindloss.svrn7.net",
-#   "societyName":           "Bindloss Alberta",
-#   "primaryDidMethodName":  "bindloss",
-#   "societyDidDocument":    { "Did": "did:drn:bindloss.svrn7.net", ... },
-#   "federationDid":         "did:drn:foundation.svrn7.net",
+#   "societyDid":            "did:drn:federation.svrn7.net/bindloss/1.0/<genesis-hash>",
+#   "societyName":           "bindloss",
+#   "societyDidDocument":    { "Did": "did:drn:federation.svrn7.net/bindloss/1.0/<genesis-hash>", ... },
+#   "federationDid":         "<federationDid>",
 #   "federationEndpointUrl": "http://localhost:8441/didcomm",
-#   "federationDidDocument": { "Did": "did:drn:foundation.svrn7.net", ... },
+#   "federationDidDocument": { "Did": "<federationDid>", ... },
 #   "drawAmountGrana":       1000000000000,
 #   "overdraftCeilingGrana": 10000000000000,
-#   "success":               true
+#   "success":               true,
+#   "registeredAt":          "2026-..."
 # }
 #
 # ---
@@ -311,8 +350,8 @@ dotnet .\Svrn7.TDA.dll --port 8441 --name Federation --reset
 # At LogLevel.Trace, it additionally logs cmdlet start, completion, and all PowerShell
 # streams forwarded to the .NET logger:
 #
-# [Trace] PS invoke: Invoke-Web7FederationInit -MessageDid did:tda:...
-# [Info]    [PS Info] Federation initialised: ...
+# [Trace] PS invoke: Invoke-Web7FederationInit -MessageDid did:drn:federation.svrn7.net/inbox/msg/...
+# [Info]    [PS Info] Invoke-Web7FederationInit: federation '<federationDid>' initialised, replying to <endpoint>
 # [Trace] PS complete: Invoke-Web7FederationInit → 1 result(s).
 #
 # ---

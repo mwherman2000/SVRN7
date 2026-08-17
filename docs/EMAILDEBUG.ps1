@@ -2,7 +2,7 @@
 #
 # This guide covers building, running, and testing the Svrn7.Email LOBE end-to-end
 # against a live TDA.  It is self-contained from the point of starting the TDA in debug
-# mode.  See docs/LOBEDEBUG.md for the federation/society bootstrap sequence and
+# mode.  See docs/LOBEDEBUG.ps1 for the federation/society bootstrap sequence and
 # general TDA background.
 #
 # ---
@@ -14,7 +14,7 @@
 $PSVersionTable.PSVersion   # Major must be 7
 
 # - The TDA database must already have a federation and society record.
-#   If starting fresh, complete Steps 1–4 of docs/LOBEDEBUG.md first.
+#   If starting fresh, complete Steps 1–4 of docs/LOBEDEBUG.ps1 first.
 #
 # ---
 #
@@ -33,16 +33,18 @@ Get-ChildItem lobes/PandoMail.0.8.0
 
 # Expected:
 #
-# Svrn7.Email.lobe.json
+# PandoMail.0.8.0.lobe.json
+# PandoMail.0.8.0.psd1
 # PandoMail.0.8.0.psm1
 
-# Verify Svrn7.Email is in the JIT list:
+# Svrn7.Email (module PandoMail.0.8.0) is a JIT LOBE. JIT LOBEs are auto-discovered
+# from their own *.lobe.json and are never listed in lobes.config.json — that file
+# lists only the eager LOBEs (Svrn7.Common, Svrn7.Federation, Svrn7.Society, Svrn7.UX).
+# Confirm it is absent from the eager list:
 
-Get-Content lobes/lobes.config.json | Select-String "Email"
+Get-Content lobes/lobes.config.json | Select-String "PandoMail"
 
-# Expected:
-#
-#     "PandoMail.0.8.0/PandoMail.0.8.0.psm1"
+# Expected: no output — Svrn7.Email/PandoMail is not eager-loaded.
 #
 # ---
 #
@@ -54,7 +56,7 @@ Write-Host "--- Step 2 — Start the TDA ---"
 dotnet .\Svrn7.TDA.dll --port 8443 --name MyTDA
 
 # Svrn7.Email is a JIT LOBE — it is not imported at startup.  It is loaded into
-# the runspace the first time an email/1.0/* message arrives.  Expect a one-time
+# the runspace the first time a PandoMail.0.8.0/* message arrives.  Expect a one-time
 # import log line on first delivery.
 #
 # ---
@@ -100,7 +102,7 @@ $body = @{
 $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
-    type = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/message"
+    type = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail"
     from = "did:drn:foundation.svrn7.net"
     to   = @("did:drn:bindloss.svrn7.net")
     body = $body
@@ -108,11 +110,13 @@ $msg = @{
 
 Send-LocalDIDCommMessage -Body $msg
 
-# Expected response: Status: Accepted
+# Expected response: Sent to ws://localhost:8443/localcomm-ws (<N> bytes)
+# (Send-LocalDIDCommMessage returns this confirmation string on success — see
+# Svrn7.Common.0.8.0.psm1. It does not return an HTTP-style "Status: Accepted".)
 #
 # Expected TDA log (timestamps vary):
 #
-# 20:49:13.432 info: Svrn7.TDA.DIDCommMessageSwitchboard[0] Switchboard: routing ... (type=.../PandoMail.0.8.0/message) → Dequeue-PandoMail [Svrn7.Email]
+# 20:49:13.432 info: Svrn7.TDA.DIDCommMessageSwitchboard[0] Switchboard: routing ... (type=.../PandoMail.0.8.0/Signal-PandoMail) → Dequeue-PandoMail [Svrn7.Email]
 # 20:49:13.441 dbug: Svrn7.TDA.LobeManager[0] LobeManager: EnsureLoadedAsync - JIT '...\lobes\PandoMail.0.8.0\PandoMail.0.8.0.psm1'.
 # 20:49:13.512 info: Svrn7.TDA.LobeManager[0] LobeManager: import complete - ...\PandoMail.0.8.0.psm1
 # 20:49:13.518 dbug: Svrn7.TDA.DIDCommMessageSwitchboard[0]   [PS Verbose] Email LOBE: stored email from did:drn:foundation.svrn7.net — 'Hello from the Foundation'
@@ -135,7 +139,7 @@ $body = @{
 $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
-    type = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/message"
+    type = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail"
     from = "did:drn:foundation.svrn7.net"
     to   = @("did:drn:bindloss.svrn7.net")
     body = $body
@@ -149,7 +153,7 @@ Send-LocalDIDCommMessage -Body $msg
 #
 # Step 6 — Send an email delivery receipt
 #
-# The email/1.0/receipt protocol is also handled by Dequeue-PandoMail.  A receipt
+# The issue-receipt protocol is also handled by Dequeue-PandoMail.  A receipt
 # body conventionally carries originalMessageId and deliveredAt:
 
 Write-Host "--- Step 6 — Send an email delivery receipt ---"
@@ -164,7 +168,7 @@ $body = @{
 $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
-    type = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/receipt"
+    type = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/issue-receipt"
     from = "did:drn:foundation.svrn7.net"
     to   = @("did:drn:bindloss.svrn7.net")
     body = $body
@@ -174,10 +178,10 @@ Send-LocalDIDCommMessage -Body $msg
 
 # Expected TDA log:
 #
-# 20:49:14.101 info: ... Switchboard: routing ... (type=.../PandoMail.0.8.0/receipt) → Dequeue-PandoMail [Svrn7.Email]
+# 20:49:14.101 info: ... Switchboard: routing ... (type=.../PandoMail.0.8.0/issue-receipt) → Dequeue-PandoMail [Svrn7.Email]
 # 20:49:14.104 dbug: ...   [PS Verbose] Email LOBE: stored email from did:drn:foundation.svrn7.net — 'Delivery receipt'
 #
-# Both email/1.0/message and email/1.0/receipt route to Dequeue-PandoMail —
+# Both Signal-PandoMail and issue-receipt route to Dequeue-PandoMail —
 # the handler stores whichever arrives and returns the record for pipeline chaining.
 #
 # ---
@@ -205,7 +209,18 @@ Send-LocalDIDCommMessage -Body $msg
 #
 # Step 8 — Missing rfc5322Body field (error path)
 #
-# Send a malformed message with no rfc5322Body to verify the handler degrades gracefully:
+# Send a malformed message with no rfc5322Body to see how the handler behaves.
+#
+# NOTE (verified against source): Dequeue-PandoMail reads $body.rfc5322Body via plain
+# dot-notation (PandoMail.0.8.0.psm1) rather than the Assert-BodyFields/Get-BodyField
+# helpers. Set-StrictMode -Version Latest is active at the top of this LOBE, and under
+# StrictMode a missing property on a ConvertFrom-Json object throws — it does not
+# return $null. (Confirmed directly: accessing an absent property on such an object
+# under Set-StrictMode -Version Latest raises "The property '...' cannot be found on
+# this object.") So this message does NOT degrade gracefully with a warning — it
+# throws, the Switchboard's dispatch try/catch marks it Failed, and it is retried
+# (Signal-PandoMail is not in Svrn7Constants.TransactionalProtocols, so retry: true,
+# up to NonTransactionalMaxAttempts) rather than left Processed.
 
 Write-Host "--- Step 8 — Missing rfc5322Body field (error path) ---"
 $body = @{
@@ -216,7 +231,7 @@ $body = @{
 $msg = @{
     typ  = "application/didcomm-plain+json"
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
-    type = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/message"
+    type = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail"
     from = "did:drn:foundation.svrn7.net"
     to   = @("did:drn:bindloss.svrn7.net")
     body = $body
@@ -226,10 +241,10 @@ Send-LocalDIDCommMessage -Body $msg
 
 # Expected TDA log:
 #
-# warn: ...   [PS Warning] Email LOBE: message did:drn:societytest.svrn7.net/inbox/msg/<id> has no rfc5322Body field.
+# fail: Svrn7.TDA.DIDCommMessageSwitchboard[0] Switchboard: dispatch failed for message ... (attempt 1, transactional=False).
+#       ... The property 'rfc5322Body' cannot be found on this object. Verify that the property exists. ...
 #
-# The message is marked Processed (not failed) — the handler returns $null rather
-# than throwing, so the Switchboard considers it a clean completion.
+# The message is marked Failed and retried — not a clean Processed completion.
 #
 # ---
 #
@@ -245,7 +260,7 @@ dotnet .\Svrn7.TDA.dll --port 8443 --name MyTDA
 Remove-Item -Path "mem\*.db" -ErrorAction SilentlyContinue
 dotnet .\Svrn7.TDA.dll --port 8443 --name MyTDA
 
-# After a full reset, repeat the bootstrap in docs/LOBEDEBUG.md Step 4 before
+# After a full reset, repeat the bootstrap in docs/LOBEDEBUG.ps1 Step 4 before
 # re-running these steps.
 #
 # ---
@@ -253,8 +268,10 @@ dotnet .\Svrn7.TDA.dll --port 8443 --name MyTDA
 # Step 10 — List stored emails (List-Emails protocol)
 #
 # Send a List-Emails query to retrieve stored email messages from the TDA inbox.
-# The TDA resolves the sender's DID Document to find the reply endpoint and responds
-# with a Get-PandoMails message.
+# Invoke-PandoMailList replies with a Get-PandoMails message pushed over the local
+# WebSocket hub (ws://local/localcomm-ws) — the same Local UI Attachment Point
+# pattern used by every PandoMail query/reply pair. This is not an HTTP DIDComm
+# delivery to a resolved DID Document endpoint.
 
 Write-Host "--- Step 10 — List stored emails ---"
 $body = @{
@@ -275,9 +292,10 @@ Send-LocalDIDCommMessage -Body $msg
 # Expected TDA log:
 #
 # info: Svrn7.TDA.DIDCommMessageSwitchboard[0] Switchboard: routing ... (type=.../List-Emails) → Invoke-PandoMailList [Svrn7.Email]
-# dbug: ...   [PS Verbose] Email LOBE: List-Emails returning N messages to http://localhost:8442/didcomm
+# dbug: ...   [PS Verbose] Email LOBE: List-Emails returning N messages via WebSocket.
 #
-# The Get-PandoMails reply is delivered as a DIDComm message to the sender's DID Document endpoint.
+# The Get-PandoMails reply is pushed as a DIDComm plaintext message over the local
+# WebSocket hub (ws://local/localcomm-ws) — see Invoke-PandoMailList in PandoMail.0.8.0.psm1.
 # Each email entry:
 #
 # | Field      | Value                                                        |
@@ -289,8 +307,11 @@ Send-LocalDIDCommMessage -Body $msg
 # | toHeader   | Extracted To: header, or $null                               |
 # | receivedAt | ISO 8601 UTC timestamp                                       |
 #
-# Note: The sender's DID must be registered and resolvable for the reply to be delivered.
-# A standalone PowerShell session cannot receive the reply — send from a running TDA.
+# Note: The reply is pushed over the local WebSocket hub, not delivered via HTTP DIDComm
+# to a resolved DID Document endpoint. Send-LocalDIDCommMessage closes its WebSocket
+# connection immediately after sending, so a standalone PowerShell session will not
+# observe the Get-PandoMails push — connect a WebSocket client (e.g. PandoMail itself)
+# to ws://localhost:{port}/localcomm-ws to see it.
 #
 # ---
 #
@@ -298,8 +319,8 @@ Send-LocalDIDCommMessage -Body $msg
 #
 # | Symptom                                      | Cause                                                 | Fix                                                      |
 # |----------------------------------------------|-------------------------------------------------------|----------------------------------------------------------|
-# | No LOBE registered for @type .../email/1.0/message | Svrn7.Email missing from lobes.config.json or .psm1 not in output | Verify Step 1 |
-# | [PS Warning] has no rfc5322Body field        | Body missing rfc5322Body key                          | Include rfc5322Body in the DIDComm body JSON (see Step 4) |
+# | No LOBE registered for @type .../PandoMail.0.8.0/Signal-PandoMail | @type doesn't match a registered protocol prefix/exact match, or PandoMail.0.8.0.lobe.json/.psm1 missing from output | Verify Step 1; check the "uri" list in PandoMail.0.8.0.lobe.json |
+# | PropertyNotFoundException: 'rfc5322Body' cannot be found on this object | Body missing rfc5322Body key — Dequeue-PandoMail reads it via dot-notation under Set-StrictMode | Include rfc5322Body in the DIDComm body JSON (see Step 4); message is marked Failed/retried, not Processed (see Step 8) |
 # | [PS Warning] message ... not found           | Message expired from cache before handler ran         | Retry; increase MaxMessageAgeSeconds in TdaOptions       |
 # | Subject shows $null in verbose log           | RFC 5322 Subject: header absent or misspelled         | Verify header name casing (Subject: not subject:)        |
 # | Import lines appear on every message         | JIT LOBEs run Import-Module -Force each dispatch      | Expected — see TDA-001a backlog                          |

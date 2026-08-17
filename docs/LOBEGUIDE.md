@@ -798,5 +798,6 @@ Connect-Svrn7Society -SocietyDid "did:drn:bindloss.svrn7.net" -FederationDid "di
 
 ### Full test lifecycle
 
-See `docs/DEBUG.md` for the complete Scenario E bootstrap sequence (federation init →
-society register → citizen onboard) and Scenario F (database teardown).
+See `docs/FEDERATIONDEBUG.ps1` §E.0-E.2 for the federation init → society register
+bootstrap sequence, `docs/CITIZENDEBUG.ps1`/`docs/SOCIETYDEBUG.ps1` for citizen onboarding,
+and `docs/DEBUG.ps1` Scenario F for database teardown.

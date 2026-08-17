@@ -7,7 +7,7 @@
 # Pando.Diagnostics is used as the concrete example throughout.  It is the
 # simplest LOBE in the repo — one protocol, one cmdlet, no dependencies.
 #
-# See docs/LOBEDEBUG.md for the federation/society bootstrap sequence that must
+# See docs/LOBEDEBUG.ps1 for the federation/society bootstrap sequence that must
 # have been completed at least once before sending messages.
 #
 # ---
@@ -22,7 +22,7 @@ $PSVersionTable.PSVersion   # Major must be 7
 #   a LOBE and does not need to be built.  It is imported directly from source.
 #
 # - A TDA database that already has a federation and society record.
-#   If starting fresh, complete Steps 1–4 of docs/LOBEDEBUG.md first.
+#   If starting fresh, complete Steps 1–4 of docs/LOBEDEBUG.ps1 first.
 #
 # ---
 #
@@ -42,6 +42,13 @@ $PSVersionTable.PSVersion   # Major must be 7
 Write-Host "--- Step 1 — Build ---"
 Set-Location C:/SVRN7/repos/SVRN7
 dotnet build src/Svrn7.TDA/Svrn7.TDA.csproj
+
+# Note: this also runs the "BuildLOBEPackages" MSBuild target (AfterTargets="Build" in
+# Svrn7.TDA.csproj), which invokes tools/Build-LOBEPackages.ps1 and packages every LOBE
+# under src/Svrn7.TDA/lobes/ (including Pando.Diagnostics) into ./dist/*.nupkg
+# automatically. Step 5 below repeats this manually for a single LOBE via New-LOBEPackage
+# — that's fine, it just overwrites the same .nupkg — but do not be surprised if
+# Pando.Diagnostics.0.1.0.nupkg already exists in ./dist before Step 5 runs.
 
 # ---
 #
@@ -129,11 +136,11 @@ $nupkg   # should print the full path
 Write-Host "--- Step 6 — Validate ---"
 $nupkg | Test-LOBEPackage
 
-# Expected: 42 PASS  0 WARN  0 FAIL (or with one WARN if .psd1 is absent —
+# Expected: 41 PASS  0 WARN  0 FAIL (or with one WARN if .psd1 is absent —
 # that is expected for Pando.Diagnostics).
 #
 # ──────────────────────────────────────────────────────────
-#   Results:  41 PASS  1 WARN  0 FAIL
+#   Results:  40 PASS  1 WARN  0 FAIL
 # ──────────────────────────────────────────────────────────
 #
 # A non-zero FAIL count means the package is malformed.  Do not proceed — fix
@@ -143,7 +150,7 @@ $nupkg | Test-LOBEPackage
 #
 # Step 7 — Verify the protocol is NOT yet registered (Terminal B)
 #
-# Send a date-query message to the running TDA.  Because Pando.Diagnostics
+# Send a Query-TOD message to the running TDA.  Because Pando.Diagnostics
 # is not installed, the Switchboard will dead-letter the message immediately
 # (MarkFailedAsync with retry: false).
 
@@ -154,7 +161,7 @@ Import-Module .\lobes\Svrn7.Federation.0.8.0\Svrn7.Federation.0.8.0.psm1
 $msg = @{
     typ  = 'application/didcomm-plain+json'
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
-    type = 'did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/date-query'
+    type = 'did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/Query-TOD'
     from = 'did:drn:societytest.svrn7.net'
     to   = @('did:drn:societytest.svrn7.net')
     body = '{}'
@@ -166,7 +173,7 @@ Send-LocalDIDCommMessage -Body $msg
 #
 # warn: Svrn7.TDA.DIDCommMessageSwitchboard[0]
 #       Switchboard: no LOBE registered for @type
-#       'did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/date-query' — failing message.
+#       'did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/Query-TOD' — failing message.
 #
 # The message is dead-lettered, not dropped — it is recorded in the inbox store
 # with Failed status.  This confirms the LOBE is absent.
@@ -189,14 +196,19 @@ Install-LOBEPackage -Path $nupkg -LobesDirectory $lobesDir
 #
 # Installed: Pando.Diagnostics -> ...\lobes\Pando.Diagnostics.0.1.0
 
+# Note: Install-LOBEPackage reads the version back out of the package's own .lobe.json
+# and names the destination folder "{Name}.{version}", matching the source-tree convention
+# used under src/Svrn7.TDA/lobes/ (fixed 2026-08-17 — it previously used the bare package
+# ID with no version, e.g. "Pando.Diagnostics").
+
 # Confirm the files are on disk:
 
-Get-ChildItem $lobesDir\Pando.Diagnostics
+Get-ChildItem $lobesDir\Pando.Diagnostics.0.1.0
 
 # Expected:
 #
 # Pando.Diagnostics.Impl.0.1.0.psm1
-# Pando.Diagnostics.lobe.json
+# Pando.Diagnostics.0.1.0.lobe.json
 # Pando.Diagnostics.0.1.0.psm1
 #
 # ---
@@ -208,7 +220,7 @@ Get-ChildItem $lobesDir\Pando.Diagnostics
 #
 # info: Svrn7.TDA.LobeManager[0]
 #       LobeManager: descriptor change —
-#       ...\lobes\Pando.Diagnostics.0.1.0\Pando.Diagnostics.lobe.json.
+#       ...\lobes\Pando.Diagnostics.0.1.0\Pando.Diagnostics.0.1.0.lobe.json.
 #       Re-registering protocols.
 #
 # info: Svrn7.TDA.LobeManager[0]
@@ -222,13 +234,13 @@ Get-ChildItem $lobesDir\Pando.Diagnostics
 #
 # ---
 #
-# Step 10 — Trigger JIT import: send a date-query (Terminal B)
+# Step 10 — Trigger JIT import: send a Query-TOD message (Terminal B)
 
 Write-Host "--- Step 10 — Trigger JIT import ---"
 $msg = @{
     typ  = 'application/didcomm-plain+json'
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
-    type = 'did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/date-query'
+    type = 'did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/Query-TOD'
     from = 'did:drn:societytest.svrn7.net'
     to   = @('did:drn:societytest.svrn7.net')
     body = '{}'
@@ -248,9 +260,21 @@ Send-LocalDIDCommMessage -Body $msg
 #      LobeManager: import complete — ...\Pando.Diagnostics.0.1.0.psm1
 #
 # info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#      Invoke-PandoDiagnosticsDateQuery: replying ...
+#      Switchboard: routing did:drn:societytest.svrn7.net/inbox/msg/<id>
+#      (type=did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/Query-TOD)
+#      → Invoke-PandoDiagnosticsDateQuery [Pando.Diagnostics]
 #
-# The JIT import succeeded.  The LOBE cmdlets are now live in the runspace.
+# info: [PS Info] Pando.Diagnostics: serverUtc=<timestamp> epoch=0
+#
+# warn: [PS Warning] Invoke-PandoDiagnosticsDateQuery: cannot resolve endpoint for
+#       sender 'did:drn:societytest.svrn7.net' — result not delivered.
+#
+# The JIT import succeeded — the LOBE cmdlets are now live in the runspace, which is
+# what this step is verifying. The trailing [PS Warning] is expected here: it appears
+# because the sender DID has no registered DIDCommMessaging service endpoint in this
+# minimal test body, not because anything failed. See docs/LOBEDEBUG.ps1 Steps 5–6
+# (verified against Invoke-PandoDiagnosticsDateQuery source) for how to register a
+# serviceEndpointUrl and actually receive an Issue-TOD reply.
 #
 # ---
 #
@@ -275,7 +299,7 @@ Write-Host "--- Step 11.2 — Resend the message (verify hot-update) ---"
 $msg = @{
     typ  = 'application/didcomm-plain+json'
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
-    type = 'did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/date-query'
+    type = 'did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/Query-TOD'
     from = 'did:drn:societytest.svrn7.net'
     to   = @('did:drn:societytest.svrn7.net')
     body = '{}'
@@ -338,7 +362,7 @@ Install-LOBEPackage `
 # the lobes/ parent.  The folder must contain exactly one *.lobe.json file.
 
 Get-ChildItem .\src\Svrn7.TDA\lobes\Pando.Diagnostics.0.1.0 -Filter '*.lobe.json'
-# Must return: Pando.Diagnostics.lobe.json
+# Must return: Pando.Diagnostics.0.1.0.lobe.json
 
 # Test-LOBEPackage reports FAIL
 #
@@ -370,7 +394,7 @@ Get-ChildItem .\src\Svrn7.TDA\lobes\Pando.Diagnostics.0.1.0 -Filter '*.lobe.json
 # Check the TDA log for a parse warning:
 #
 # warn: Svrn7.TDA.LobeManager[0]
-#       LobeManager: could not parse descriptor — ...\Pando.Diagnostics.lobe.json.
+#       LobeManager: could not parse descriptor — ...\Pando.Diagnostics.0.1.0.lobe.json.
 #
 # Validate the .lobe.json is well-formed JSON and the protocols array is
 # non-empty.  The uri, match, and entrypoint fields are required per entry.

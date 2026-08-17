@@ -5,8 +5,15 @@
 # - Single inbound endpoint: POST http://localhost:{port}/didcomm
 # - Protocol: HTTP/2 cleartext (h2c) — the server only speaks HTTP/2; HTTP/1.1 requests are rejected
 # - No TLS cert configured → cleartext development mode (see Program.cs and KestrelListenerService.cs)
-# - UnpackAsync has a plaintext branch: if the JSON body has a "type" property at the root, it passes
-#   through without decryption — no keys needed for dev testing
+# - Content-Type gate (P-008): Content-Type must be application/didcomm-encrypted+json or
+#   application/didcomm-plain+json — anything else is rejected 415 before the body is even read
+# - Plaintext (application/didcomm-plain+json) on POST /didcomm is admitted ONLY when @type is a
+#   DID discovery protocol (did-resolve-request / did-resolve-response) — any other plaintext
+#   @type is rejected 403. UnpackAsync itself does have a plaintext branch (a root "type"
+#   property bypasses JWE decryption, no keys needed), but KestrelListenerService's Content-Type
+#   + whitelist gate runs first and decides whether a plaintext body ever reaches it.
+# - For unrestricted plaintext dev testing (any @type, no whitelist), use Send-LocalDIDCommMessage
+#   against ws://localhost:{port}/localcomm-ws instead — that path has no content-type gate.
 # - A valid message returns 202 Accepted and is enqueued; the Switchboard routes it asynchronously
 #
 # ---
@@ -15,15 +22,15 @@
 #
 # Each TDA role has a dedicated guide.  Run them in order:
 #
-# | Guide              | Role               | Port (default) | Prerequisite                        |
-# |--------------------|--------------------|----------------|-------------------------------------|
-# | FEDERATIONDEBUG.md | Federation TDA     | 8441           | None — run first                    |
-# | SOCIETYDEBUG.md    | Society TDA        | 8442           | FEDERATIONDEBUG.md complete         |
-# | CITIZENDEBUG.md    | Citizen TDA        | 8443           | SOCIETYDEBUG.md complete            |
-# | WANDERERDEBUG.md   | Wanderer TDA       | 8445, 8446     | Standalone — no Federation required |
-# | DNSDEBUG.md        | drn.directory DNS  | —              | TDA built                           |
-# | DIDDEBUG.md        | DID Document types | —              | Reference                           |
-# | LOBEDEBUG.md       | LOBE authoring     | —              | Reference                           |
+# | Guide                | Role               | Port (default) | Prerequisite                        |
+# |----------------------|--------------------|----------------|--------------------------------------|
+# | FEDERATIONDEBUG.ps1  | Federation TDA     | 8441           | None — run first                    |
+# | SOCIETYDEBUG.ps1     | Society TDA        | 8442           | FEDERATIONDEBUG.ps1 complete        |
+# | CITIZENDEBUG.ps1     | Citizen TDA        | 8443           | SOCIETYDEBUG.ps1 complete           |
+# | WANDERERDEBUG.ps1    | Wanderer TDA       | 8445, 8446     | Standalone — no Federation required |
+# | DNSDEBUG.ps1         | drn.directory DNS  | —              | TDA built                           |
+# | DIDDEBUG.ps1         | DID Document types | —              | Reference                           |
+# | LOBEDEBUG.ps1        | LOBE authoring     | —              | Reference                           |
 #
 # ---
 #
@@ -100,7 +107,7 @@ Remove-Item -Recurse -Force "*\mem" -ErrorAction SilentlyContinue
 dotnet .\Svrn7.TDA.dll --port 8441 --name Federation --reset
 
 # After a full reset, run the role-specific guides in order:
-# FEDERATIONDEBUG.md → SOCIETYDEBUG.md → CITIZENDEBUG.md.
+# FEDERATIONDEBUG.ps1 → SOCIETYDEBUG.ps1 → CITIZENDEBUG.ps1.
 #
 # ---
 #
@@ -114,7 +121,7 @@ dotnet .\Svrn7.TDA.dll --port 8441 --name Federation --reset
 # | .../Svrn7.Federation.0.8.0/society-list-result      | Invoke-Web7SocietyListResult     | Citizen / Society |
 # | .../Svrn7.Federation.0.8.0/register-society         | Invoke-Web7RegisterSociety       | Federation        |
 # | .../Svrn7.Federation.0.8.0/register-society-result  | Invoke-Web7RegisterSocietyResult | Society           |
-# | .../Svrn7.Onboarding.0.8.0/register-citizen         | ConvertFrom-Web7OnboardRequest   | Society           |
+# | .../Svrn7.Onboarding.0.8.0/register-citizen         | Invoke-Web7RegisterCitizen       | Society           |
 # | .../Svrn7.Onboarding.0.8.0/receipt                  | Invoke-Web7OnboardReceipt        | Citizen           |
 # | .../Svrn7.Society.0.8.0/society-query               | Invoke-Web7SocietyQuery          | Society           |
 # | .../Svrn7.Society.0.8.0/member-query                | Invoke-Web7MemberQuery           | Society           |
@@ -138,6 +145,7 @@ dotnet .\Svrn7.TDA.dll --port 8441 --name Federation --reset
 # | 400 Bad Request            | Empty body, invalid JSON, or DIDComm unpack failed                             |
 # | 415 Unsupported Media Type | Content-Type is not application/didcomm-encrypted+json or application/didcomm-plain+json |
 # | 403 Forbidden              | Plaintext message with @type not in PlaintextDiscoveryProtocols                |
+# | 503 Service Unavailable    | Inbox store threw on EnqueueAsync — response includes Retry-After: 5           |
 #
 # ---
 #
@@ -178,7 +186,7 @@ dotnet .\Svrn7.TDA.dll --port 8441 --name Federation --reset
 # | 202 but log shows No LOBE registered for @type        | type URI does not match any registered protocol    | Check lobes.config.json and .lobe.json protocol URIs                     |
 # | 202 but log shows CitizenAlreadyRegisteredException   | Citizen DID already registered                     | Expected — use a new key pair and DID                                    |
 # | 202 but log shows SocietyEndowmentDepletedException   | Society overdraft ceiling reached                  | Check overdraft-query; await Federation top-up                           |
-# | Agent 2 log: No DIDComm service endpoint for <DID>   | Citizen DID document has no DIDComm service entry  | Register the citizen's DID document before sending the receipt           |
+# | [PS Warning] New-Web7OnboardReceipt: no DIDComm service endpoint for '<DID>' — reply skipped | Citizen DID document has no DIDComm service entry  | Register the citizen's DID document before sending the receipt           |
 # | 415 Unsupported Media Type                            | Content-Type header not recognized                 | Use application/didcomm-encrypted+json or application/didcomm-plain+json |
 # | 403 Forbidden on plaintext POST                       | @type is not did-resolve-request or -response      | Only DID discovery protocols may be sent as plaintext                    |
 #
@@ -206,11 +214,11 @@ Remove-Svrn7Databases -WhatIf
 
 # Expected output:
 #
-# Path                   Existed Removed
-# ----                   ------- -------
-# svrn7.db               True    True
-# svrn7.db-log           False   False
-# svrn7-dids.db          True    True
+# Path                        Existed Removed
+# ----                        ------- -------
+# data/svrn7.db                True    True
+# data/svrn7.db-log            False   False
+# data/svrn7-dids.db           True    True
 # ...
 
 # F.4 — Custom data directory
@@ -240,10 +248,10 @@ Remove-Svrn7Databases -Confirm:$false
 
 # Parameters
 #
-# | Parameter      | Default          | Description                                    |
-# |----------------|------------------|------------------------------------------------|
-# | -Svrn7DbPath   | svrn7.db         | Main wallet / UTXO / Merkle log database       |
-# | -DidsDbPath    | svrn7-dids.db    | DID Document registry                          |
-# | -VcsDbPath     | svrn7-vcs.db     | Verifiable Credential registry                 |
-# | -MsgDbPath   | svrn7-msg.db   | DIDComm inbox, outbox, processed orders        |
-# | -SchemasDbPath | svrn7-schemas.db | JSON Schema 2020-12 registry                   |
+# | Parameter      | Default               | Description                                    |
+# |----------------|-----------------------|------------------------------------------------|
+# | -Svrn7DbPath   | data/svrn7.db         | Main wallet / UTXO / Merkle log database       |
+# | -DidsDbPath    | data/svrn7-dids.db    | DID Document registry                          |
+# | -VcsDbPath     | data/svrn7-vcs.db     | Verifiable Credential registry                 |
+# | -MsgDbPath   | data/svrn7-msg.db   | DIDComm inbox, outbox, processed orders        |
+# | -SchemasDbPath | data/svrn7-schemas.db | JSON Schema 2020-12 registry                   |

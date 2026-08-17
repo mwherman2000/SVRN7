@@ -368,8 +368,8 @@ if (!string.IsNullOrEmpty(tdaOpts.FederationDomain) && string.IsNullOrEmpty(tdaO
     }
     else
     {
-        Console.WriteLine($"  Federation  : (not yet initialised — see DEBUG.md §E.0 to generate keys and POST federation/1.0/init to :{port}/didcomm)");
-        Console.WriteLine($"  Societies   : (not yet initialised — see DEBUG.md §B.1 to onboard the first society)");
+        Console.WriteLine($"  Federation  : (not yet initialised — see FEDERATIONDEBUG.ps1 §E.0 to generate keys and POST federation/1.0/init to :{port}/didcomm)");
+        Console.WriteLine($"  Societies   : (not yet initialised — see FEDERATIONDEBUG.ps1 §E.2 to register the first society)");
     }
     Console.WriteLine(hr);
     Console.WriteLine();

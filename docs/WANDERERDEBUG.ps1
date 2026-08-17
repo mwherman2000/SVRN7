@@ -22,14 +22,18 @@ $PSVersionTable.PSVersion   # Major must be 7
 # Set-Location C:/SVRN7/repos/SVRN7
 # dotnet build src/Svrn7.TDA/Svrn7.TDA.csproj
 
-# - Verify `Pando.Diagnostics` is in the JIT list:
+# - Verify `Pando.Diagnostics` is present as a LOBE. Note: lobes.config.json only lists
+#   the eager LOBEs (Svrn7.Common, Svrn7.Federation, Svrn7.Society, Svrn7.UX) — it will
+#   NOT contain "Pando" and that's correct. JIT LOBEs like Pando.Diagnostics are never
+#   listed there; LobeManager auto-discovers any *.lobe.json descriptor on disk that
+#   isn't in the eager list and treats it as JIT. Check for the descriptor file instead:
 
 Set-Location src/Svrn7.TDA/bin/Debug/net8.0
-Get-Content lobes/lobes.config.json | Select-String "Pando"
+Test-Path lobes/Pando.Diagnostics.0.1.0/Pando.Diagnostics.0.1.0.lobe.json
 
 # Expected:
 #
-#     "Pando.Diagnostics.0.1.0/Pando.Diagnostics.0.1.0.psm1"
+#     True
 #
 # ---
 #
@@ -50,14 +54,18 @@ Get-Content lobes/lobes.config.json | Select-String "Pando"
 cls
 Write-Host "--- Step 1 — Start W5 and W6 ---"
 Set-Location C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0
-#Start-Process cmd.exe -ArgumentList '/k title W5 [Wanderer]:8445 && dotnet ".\Svrn7.TDA.dll" --port 8445 --name W5 --reset'
+Start-Process cmd.exe -ArgumentList '/k title W5 [Wanderer]:8445 && dotnet ".\Svrn7.TDA.dll" --port 8445 --name W5 --reset'
 Start-Process cmd.exe -ArgumentList '/k title W6 [Wanderer]:8446 && dotnet ".\Svrn7.TDA.dll" --port 8446 --name W6 --reset'
-pause 
+pause
 
 # **Production / staging:** Add `--federationdomain svrn7.net` to auto-discover the
 # Federation TDA endpoint via drn.directory DNS at startup.  The discovered URL is shown
 # in the banner (`Fed Endpoint`) and exposed as `$SVRN7.FederationEndpointUrl` in every
 # LOBE runspace.  Omit for standalone dev runs with no live drn.directory DNS record.
+#
+# ---
+#
+# Step 2 — Verify the startup banners (Terminals A and B)
 #
 # W5 has no prior databases — this is a first run.  Expected startup banner:
 #
@@ -87,18 +95,21 @@ pause
 #
 # Step 3 — Read the Wanderer DIDs (Terminal C)
 #
-# W5 and W6 each generate a unique public-key-derived DID on first run.  Read W6's DID
-# (the self-send scenario uses W6 as both sender and recipient):
+# W5 and W6 each generate a unique public-key-derived DID on first run.  Read both —
+# Step 5 uses W6 as both sender and recipient (self-send); Step 10 onward uses W5:
 
 Write-Host "--- Step 3 — Read the Wanderer DIDs ---"
 Set-Location C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0
 
+$w5Did = (Get-Content 8445/mem/agent-identity.json | ConvertFrom-Json).did
 $w6Did = (Get-Content 8446/mem/agent-identity.json | ConvertFrom-Json).did
 
+Write-Host "W5 DID: $w5Did"
 Write-Host "W6 DID: $w6Did"
 
 # Expected:
 #
+# W5 DID: did:drn:wanderer.svrn7.net/agent/1.0/<genesis-hash-W5>
 # W6 DID: did:drn:wanderer.svrn7.net/agent/1.0/<genesis-hash-W6>
 #
 # ---
@@ -210,6 +221,27 @@ Send-LocalDIDCommMessage -Port 8446 -Body $msg
 #
 # ---
 #
+# Step 9 — Reset between runs
+#
+# Stop both TDAs (Ctrl+C in Terminal A and B), then delete their data directories:
+
+Write-Host "--- Step 9 — Reset between runs ---"
+Remove-Item -Recurse -Force 8445/mem -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force 8446/mem -ErrorAction SilentlyContinue
+
+# Restart with `--reset` to let the TDA delete its own data on startup (equivalent):
+
+dotnet .\Svrn7.TDA.dll --port 8445 --name W5 --reset
+dotnet .\Svrn7.TDA.dll --port 8446 --name W6 --reset
+
+# `--reset` deletes all files in `{port}/mem/` before startup, forcing a new first-run
+# Wanderer bootstrap with a fresh GUID-based DID.
+#
+# Run this only if you want to start over — Steps 10-14 below continue using the SAME
+# W5/W6 instances started in Step 1, so skip this step if you're continuing the walkthrough.
+#
+# ---
+#
 # Steps 10-14 — Register W5 with a Society (Wanderer → Citizen)
 #
 # This section shows how a Wanderer TDA discovers available Societies from the Federation
@@ -218,7 +250,7 @@ Send-LocalDIDCommMessage -Port 8446 -Body $msg
 # Citizen and Society DID Documents.
 #
 # **Prerequisites:**  A Federation TDA and at least one Society TDA must already be running
-# and bootstrapped.  Complete DEBUG.md Scenario E steps E.0-E.2 first (Federation init +
+# and bootstrapped.  Complete FEDERATIONDEBUG.ps1 §E.0-E.2 first (Federation init +
 # Society registration).  Simplest setup — in two new titled terminals:
 
 Write-Host "--- Steps 10-14 — Register W5 with a Society (Wanderer → Citizen) ---"
@@ -230,8 +262,9 @@ Start-Process cmd.exe -ArgumentList '/k title Federation:8441 && dotnet ".\Svrn7
 # Terminal E — Society TDA on port 8442
 Start-Process cmd.exe -ArgumentList '/k title Society:8442 && dotnet ".\Svrn7.TDA.dll" --port 8442 --name Bindloss'
 
-# Then complete E.0 (initialize-federation) and E.2 (register-society) from DEBUG.md
-# before continuing here.  W5 on port 8445 must already be running from Step 1.
+# Then complete E.0 (initialize-federation) and E.2 (register-society) from
+# FEDERATIONDEBUG.ps1 before continuing here.  W5 on port 8445 must already be running
+# from Step 1.
 #
 # ---
 #
@@ -256,11 +289,16 @@ $msg = @{
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = 'did:drn:svrn7.net/protocols/Svrn7.Federation.0.8.0/society-list'
     from = $w5Did
-    to   = @('did:drn:foundation.svrn7.net')
+    to   = @('did:drn:federation.svrn7.net/federation/1.0/<genesis-hash>')   # informational only — see note below
     body = '{}'
 } | ConvertTo-Json
 
 Send-LocalDIDCommMessage -Port 8441 -Body $msg
+
+# Note: `to` is not validated on this path — Send-LocalDIDCommMessage delivers straight to
+# the TDA listening on -Port, and the Switchboard routes purely by `@type` (it never checks
+# `to`). The placeholder above just illustrates the real Federation DID format; substitute
+# the actual value from FEDERATIONDEBUG.ps1 §E.0.2 if you want it to be accurate.
 
 # Expected log — Terminal D (Federation TDA):
 #
@@ -292,7 +330,7 @@ Send-LocalDIDCommMessage -Port 8441 -Body $msg
 
 Write-Host "--- Step 11 — Generate Citizen key material ---"
 $citizenKp  = New-Svrn7KeyPair
-$citizenDid = New-Svrn7Did -KeyPair $citizenKp -MethodName 'bindloss'
+$citizenDid = New-Svrn7Did -KeyPair $citizenKp -Role 'Citizen' -SocietyName 'bindloss'
 
 Write-Host "Citizen DID : $($citizenDid.Did)"
 Write-Host "Public key  : $($citizenKp.PublicKeyHex)"
@@ -300,9 +338,15 @@ Write-Host "Private key : $($citizenKp.PrivateKeyHex)   <-- store securely"
 
 # Example output (values will differ):
 #
-# Citizen DID : did:bindloss:3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy
+# Citizen DID : did:drn:bindloss.svrn7.net/citizen/1.0/a3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4
 # Public key  : 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
 # Private key : <32-byte hex — keep secret>
+#
+# Note: this local $citizenDid is display-only — the Society derives its own citizen DID
+# server-side from publicKeyHex during register-citizen (inside Invoke-Web7RegisterCitizen /
+# ConvertFrom-Web7OnboardRequest in Svrn7.Onboarding.0.8.0.psm1). It uses the identical
+# formula, so the two match, but the `citizenDid` field sent in Step 12's body below is not
+# actually read by the Society.
 #
 # ---
 #
@@ -325,7 +369,7 @@ $msg = @{
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = 'did:drn:svrn7.net/protocols/Svrn7.Onboarding.0.8.0/register-citizen'
     from = $citizenDid.Did
-    to   = @('did:drn:bindloss.svrn7.net')
+    to   = @('did:drn:federation.svrn7.net/bindloss/1.0/<genesis-hash>')   # informational only, see Step 10 note
     body = $body
 } | ConvertTo-Json
 
@@ -335,9 +379,9 @@ Send-LocalDIDCommMessage -Port 8442 -Body $msg
 #
 # info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
 #       Switchboard: routing ... (type=.../Svrn7.Onboarding.0.8.0/register-citizen)
-#           → ConvertFrom-Web7OnboardRequest [Svrn7.Onboarding]
+#           → Invoke-Web7RegisterCitizen [Svrn7.Onboarding]
 # info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       [PS Info] Onboarding LOBE: receipt for did:bindloss:3J98... — 1000000000 grana
+#       [PS Verbose] Onboarding LOBE: receipt for did:drn:bindloss.svrn7.net/citizen/1.0/<hash> — 1000 grana
 # info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
 #       Switchboard: outbound delivered to http://localhost:8445/didcomm (202).
 #
@@ -352,7 +396,7 @@ Send-LocalDIDCommMessage -Port 8442 -Body $msg
 #       Switchboard: routing ... (type=.../Svrn7.Onboarding.0.8.0/receipt)
 #           → Invoke-Web7OnboardReceipt [Svrn7.Onboarding]
 # info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       [PS Info] Invoke-Web7OnboardReceipt: registered with did:drn:bindloss.svrn7.net at http://localhost:8442/didcomm
+#       [PS Info] Invoke-Web7OnboardReceipt: registered with did:drn:federation.svrn7.net/bindloss/1.0/<hash> at http://localhost:8442/didcomm
 #
 # ---
 #
@@ -365,31 +409,13 @@ Get-Content 8445/mem/agent-identity.json | ConvertFrom-Json | Select-Object did,
 
 # Expected:
 #
-# did                  parentTdaDid                   parentTdaEndpointUrl
-# ---                  ------------                   --------------------
-# did:drn:wanderer...  did:drn:bindloss.svrn7.net     http://localhost:8442/didcomm
+# did                  parentTdaDid                                       parentTdaEndpointUrl
+# ---                  ------------                                       --------------------
+# did:drn:wanderer...  did:drn:federation.svrn7.net/bindloss/1.0/<hash>  http://localhost:8442/didcomm
 #
 # W5 is now a Citizen TDA.  On the next restart it reads `parentTdaDid` and
 # `parentTdaEndpointUrl` from `agent-identity.json` automatically — no `appsettings.json`
 # entries needed.
-#
-# ---
-#
-# Step 9 — Reset between runs
-#
-# Stop both TDAs (Ctrl+C in Terminal A and B), then delete their data directories:
-
-Write-Host "--- Step 9 — Reset between runs ---"
-Remove-Item -Recurse -Force 8445/mem -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force 8446/mem -ErrorAction SilentlyContinue
-
-# Restart with `--reset` to let the TDA delete its own data on startup (equivalent):
-
-dotnet .\Svrn7.TDA.dll --port 8445 --name W5 --reset
-dotnet .\Svrn7.TDA.dll --port 8446 --name W6 --reset
-
-# `--reset` deletes all files in `{port}/mem/` before startup, forcing a new first-run
-# Wanderer bootstrap with a fresh GUID-based DID.
 #
 # ---
 #

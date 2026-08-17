@@ -4,11 +4,11 @@
 # generating Citizen key material, sending the registration request, and verifying the
 # onboarding receipt.
 #
-# Prerequisite: Complete SOCIETYDEBUG.md first — at least one Society must be
+# Prerequisite: Complete SOCIETYDEBUG.ps1 first — at least one Society must be
 # registered with the Federation before a Citizen can join.
 #
 # For the Wanderer → Citizen promotion flow using a running TDA instance, also see
-# WANDERERDEBUG.md Steps 10–14.  This guide covers the same flow from first
+# WANDERERDEBUG.ps1 Steps 10–14.  This guide covers the same flow from first
 # principles, useful when scripting or testing without a running Citizen TDA.
 #
 # ---
@@ -85,12 +85,18 @@ $msg = @{
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = 'did:drn:svrn7.net/protocols/Svrn7.Federation.0.8.0/society-list'
     from = $wandererDid
-    to   = @('did:drn:foundation.svrn7.net')
+    to   = @('did:drn:federation.svrn7.net/federation/1.0/<genesis-hash>')   # informational only — see note below
     body = '{}'
 } | ConvertTo-Json
 
 Send-LocalDIDCommMessage -Port 8441 -Body $msg
 
+# Note: `to` is not validated on this path — Send-LocalDIDCommMessage delivers straight to
+# the TDA listening on -Port, and the Switchboard routes purely by `@type` (it never checks
+# `to`). The placeholder above just illustrates the real Federation DID format
+# (did:drn:federation.svrn7.net/federation/1.0/{genesis-hash}); substitute the actual value
+# if you want it to be accurate.
+#
 # Expected log — Federation TDA (port 8441):
 #
 # info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
@@ -138,6 +144,12 @@ Write-Host "Private key : $($citizenKp.PrivateKeyHex)   <-- store securely"
 # Public key  : 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
 # Private key : <32-byte hex — keep secret>
 #
+# Note: this local $citizenDid is display-only — the Society derives its own citizen DID
+# server-side from publicKeyHex during register-citizen (inside Invoke-Web7RegisterCitizen /
+# ConvertFrom-Web7OnboardRequest in Svrn7.Onboarding.0.8.0.psm1). It uses the identical
+# formula, so the two match, but the `citizenDid` field sent in E.4's body below is not
+# actually read by the Society.
+#
 # ---
 #
 # E.4 — Send register-citizen to the Society
@@ -158,7 +170,7 @@ $msg = @{
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = 'did:drn:svrn7.net/protocols/Svrn7.Onboarding.0.8.0/register-citizen'
     from = $citizenDid.Did
-    to   = @('did:drn:bindloss.svrn7.net')
+    to   = @('did:drn:federation.svrn7.net/bindloss/1.0/<genesis-hash>')   # informational only — see note above
     body = $body
 } | ConvertTo-Json
 
@@ -168,11 +180,19 @@ Send-LocalDIDCommMessage -Port 8442 -Body $msg
 #
 # info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
 #       Switchboard: routing ... (type=.../Svrn7.Onboarding.0.8.0/register-citizen)
-#           → ConvertFrom-Web7OnboardRequest [Svrn7.Onboarding]
-# info: ...
-#       [PS Info] Citizen did:bindloss:3J98... registered. Endowment: 1000000000 grana.
-# info: ...
+#           → Invoke-Web7RegisterCitizen [Svrn7.Onboarding]
+# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
+#       [PS Verbose] Onboarding LOBE: receipt for did:drn:bindloss.svrn7.net/citizen/1.0/<hash> — 1000 grana
+# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
 #       Switchboard: outbound delivered to http://localhost:8443/didcomm (202).
+#
+# Invoke-Web7RegisterCitizen (Svrn7.Onboarding.0.8.0.psm1) is the registered Switchboard
+# entrypoint for this @type — it runs the full chain itself (ConvertFrom-Web7OnboardRequest
+# -> Register-Svrn7CitizenInSociety -> New-Web7OnboardReceipt) because the Switchboard invokes
+# exactly one cmdlet per @type match, not a piped chain (DIDCommMessageSwitchboard.
+# InvokeCmdletPipelineAsync). Previously the entrypoint was ConvertFrom-Web7OnboardRequest
+# directly, which only parsed the request and never registered the citizen or sent a reply —
+# fixed 2026-08-17.
 #
 # ---
 #
@@ -184,8 +204,8 @@ Send-LocalDIDCommMessage -Port 8442 -Body $msg
 #       Switchboard: routing ... (type=.../Svrn7.Onboarding.0.8.0/receipt)
 #           → Invoke-Web7OnboardReceipt [Svrn7.Onboarding]
 # info: ...
-#       [PS Info] Invoke-Web7OnboardReceipt: registered with did:drn:bindloss.svrn7.net
-#           at http://localhost:8442/didcomm
+#       [PS Info] Invoke-Web7OnboardReceipt: registered with
+#           did:drn:federation.svrn7.net/bindloss/1.0/<hash> at http://localhost:8442/didcomm
 #
 # On receipt the Citizen TDA:
 # 1. Stores citizenDidDocument in its local DID registry
@@ -203,9 +223,9 @@ Get-Content 8443/mem/agent-identity.json | ConvertFrom-Json |
 
 # Expected:
 #
-# did                  parentTdaDid                   parentTdaEndpointUrl
-# ---                  ------------                   --------------------
-# did:drn:wanderer...  did:drn:bindloss.svrn7.net     http://localhost:8442/didcomm
+# did                  parentTdaDid                                    parentTdaEndpointUrl
+# ---                  ------------                                    --------------------
+# did:drn:wanderer...  did:drn:federation.svrn7.net/bindloss/1.0/<hash> http://localhost:8442/didcomm
 #
 # The Citizen TDA is now registered.  On the next restart it reads parentTdaDid and
 # parentTdaEndpointUrl from agent-identity.json automatically — no appsettings.json
@@ -240,6 +260,6 @@ dotnet .\Svrn7.TDA.dll --port 8443 --name mwherman --reset
 # | Symptom                                          | Cause                                              | Fix                                                  |
 # |--------------------------------------------------|----------------------------------------------------|------------------------------------------------------|
 # | No society-list-result received                  | Citizen TDA Kestrel not yet listening on port 8443 | Wait for KestrelListenerService started on port 8443 |
-# | society-list-result stored 0 societies           | No Societies registered with Federation            | Complete SOCIETYDEBUG.md §E.2r first                 |
+# | society-list-result stored 0 societies           | No Societies registered with Federation            | Complete SOCIETYDEBUG.ps1 §E.2r first                |
 # | No receipt received after register-citizen       | Society TDA could not reach port 8443              | Confirm Citizen TDA is running and listening         |
 # | agent-identity.json missing parentTdaDid         | Invoke-Web7OnboardReceipt did not run              | Check Citizen TDA log for routing errors             |

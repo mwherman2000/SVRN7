@@ -2,7 +2,7 @@
 #
 # This guide covers building, running, and testing the Pando.Diagnostics example LOBE
 # end-to-end against a live TDA.  It is self-contained from the point of starting the TDA
-# in debug mode.  See docs/DEBUG.md for general TDA background and additional scenarios.
+# in debug mode.  See docs/DEBUG.ps1 for general TDA background and additional scenarios.
 #
 # ---
 #
@@ -37,16 +37,18 @@ Get-ChildItem lobes/Pando.Diagnostics.0.1.0
 # Expected:
 #
 # Pando.Diagnostics.Impl.0.1.0.psm1
-# Pando.Diagnostics.lobe.json
+# Pando.Diagnostics.0.1.0.lobe.json
 # Pando.Diagnostics.0.1.0.psm1
 
-# Verify Pando.Diagnostics is in the JIT list:
+# Verify Pando.Diagnostics is NOT listed in lobes.config.json. It is a JIT LOBE —
+# lobes.config.json's schema has only an "eager" array (no "jit" key exists at all);
+# JIT LOBEs are auto-discovered at startup from their *.lobe.json descriptor and are
+# never listed in this file. See LobeManager.cs, LobeConfig doc comment.
 
 Get-Content lobes/lobes.config.json | Select-String "Pando"
 
-# Expected:
-#
-#     "Pando.Diagnostics.0.1.0/Pando.Diagnostics.0.1.0.psm1"
+# Expected: no output. If "Pando" appears here, it was added to the eager array by
+# mistake — Pando.Diagnostics is meant to load JIT, on first dispatch (Step 2).
 #
 # ---
 #
@@ -194,6 +196,14 @@ Send-LocalDIDCommMessage -Body $msg
 Write-Host "--- Step 4.5 — List all societies in the federation ---"
 Import-Module .\lobes\Svrn7.Federation.0.8.0\Svrn7.Federation.0.8.0.psm1
 
+# NOTE (verified against source): Invoke-Web7SocietyList (Svrn7.Federation.0.8.0.psm1)
+# does not read "replyEndpoint" or any other body field — the field below has no effect
+# and is not required (the .lobe.json descriptor says "No body fields required").
+# The reply endpoint is resolved solely from the sender ("from") DID's registered
+# DIDCommMessaging service entry, via Resolve-SocietySenderEndpoint (Svrn7.Common.0.8.0.psm1).
+# The federation DID created in Step 4.2 above has no registered service endpoint unless
+# a "serviceEndpointUrl" field is added to that step's body — without it, this step (and
+# §4.3) will produce a "cannot resolve endpoint" warning instead of the reply shown below.
 $body = @{
     replyEndpoint = "http://localhost:8443"
 } | ConvertTo-Json -Compress
@@ -234,10 +244,13 @@ Send-LocalDIDCommMessage -Body $msg
 #
 # ---
 #
-# Step 5 — Send a Query-TOD message (no reply)
+# Step 5 — Send a Query-TOD message (minimal body)
 #
-# The simplest test — no replyEndpoint, so the handler runs and logs the server time
-# but does not attempt outbound delivery.
+# The simplest test. NOTE (verified against source): Invoke-PandoDiagnosticsDateQuery
+# ignores the request body entirely — it is parsed but never referenced — so it always
+# attempts to resolve a reply endpoint from the sender DID's registered DIDCommMessaging
+# service entry, regardless of body content. Whether delivery actually succeeds depends
+# only on that DID Document lookup, not on a "replyEndpoint" field (see Step 6 note).
 
 Write-Host "--- Step 5 — Send a Query-TOD message (no reply) ---"
 $msg = @{
@@ -261,14 +274,19 @@ Send-LocalDIDCommMessage -Body $msg
 # info:    [PS Info] Pando.Diagnostics: serverUtc=2026-05-30T... epoch=0
 # warn:    [PS Warning] Invoke-PandoDiagnosticsDateQuery: no reply endpoint — result not delivered.
 #
-# The [PS Warning] line confirms the handler ran successfully — it is expected when no
-# replyEndpoint is provided and the sender DID has no DID Document registered.
+# The [PS Warning] line confirms the handler ran successfully. It appears because the
+# sender DID has no registered DIDCommMessaging service endpoint — not because of
+# anything in the request body (the body is never read; see note above).
 #
 # ---
 #
-# Step 6 — Send a Query-TOD message (with reply endpoint)
+# Step 6 — Send a Query-TOD message (same body-ignoring handler)
 #
-# Include replyEndpoint pointing at the local TDA to exercise the full reply path.
+# NOTE (verified against source): as in Step 5, Invoke-PandoDiagnosticsDateQuery does
+# not read "replyEndpoint" or any other body field — this field has no effect. The
+# reply path below succeeds or fails based solely on whether the sender DID
+# ("did:drn:societytest.svrn7.net") has a registered DIDCommMessaging service endpoint,
+# which requires "serviceEndpointUrl" to have been included in Step 4.2's body.
 
 Write-Host "--- Step 6 — Send a Query-TOD message (with reply endpoint) ---"
 $body = @{
@@ -341,7 +359,7 @@ dotnet .\Svrn7.TDA.dll --port 8443 --name MyTDA
 #
 # | Symptom                                                      | Cause                                                   | Fix                                           |
 # |--------------------------------------------------------------|---------------------------------------------------------|-----------------------------------------------|
-# | No LOBE registered for @type .../Pando.Diagnostics.0.1.0/Query-TOD | Pando.Diagnostics missing from lobes.config.json or files not in output | Verify Step 1 |
+# | No LOBE registered for @type .../Pando.Diagnostics.0.1.0/Query-TOD | Pando.Diagnostics.0.1.0.lobe.json missing from output, or protocol URI mismatch | Verify Step 1 |
 # | The term 'Get-TDADate' is not recognized                     | Pando.Diagnostics.Impl.0.1.0.psm1 not found at $PSScriptRoot | Verify all three files are in lobes/Pando.Diagnostics.0.1.0/ |
 # | Invoke-PandoDiagnosticsDateQuery: message '...' not found.   | Message expired from cache before handler ran           | Retry; check inbox store                      |
 # | [PS Warning] no reply endpoint — result not delivered.       | Expected when replyEndpoint absent and sender has no DID Document | Normal for Step 5 (no-reply variant)   |
