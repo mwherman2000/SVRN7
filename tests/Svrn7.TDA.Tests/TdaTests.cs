@@ -1367,6 +1367,44 @@ public class SwitchboardStartupTests : IDisposable
     }
 
     [Fact]
+    public async Task StartupAsync_Marks_ReEnqueued_Records_As_Retried()
+    {
+        // Regression test: without this, GetPendingAsync (filtered on !IsRetried) returns the
+        // same record on every future startup forever, and if the retry fails again the normal
+        // outbound-failure path inserts a brand new dead-letter record for it — silently
+        // duplicating every persistently undeliverable message once per restart.
+        var inbox = new TrackingInboxStore();
+        var pending = new[]
+        {
+            new Svrn7.Core.Models.DeadLetterRecord
+            {
+                Id            = TdaResourceId.Build("test.svrn7.net", "inbox", "outbox",
+                                    LiteDB.ObjectId.NewObjectId().ToString()),
+                PeerEndpoint  = "https://peer.example",
+                PackedMessage = "packed-1",
+                MessageType   = "outbound",
+                AttemptCount  = 3,
+            },
+            new Svrn7.Core.Models.DeadLetterRecord
+            {
+                Id            = TdaResourceId.Build("test.svrn7.net", "inbox", "outbox",
+                                    LiteDB.ObjectId.NewObjectId().ToString()),
+                PeerEndpoint  = "https://peer2.example",
+                PackedMessage = "packed-2",
+                MessageType   = "outbound",
+                AttemptCount  = 3,
+            },
+        };
+        var outbox      = new TrackingDeadLetterStore(pending);
+        var switchboard = CreateSwitchboard(inbox, outbox);
+
+        await switchboard.StartupAsync(CancellationToken.None);
+
+        outbox.MarkedRetriedIds.Should().BeEquivalentTo(pending.Select(r => r.Id),
+            because: "every re-enqueued dead letter must be marked retried so it is not re-processed and re-duplicated on the next startup");
+    }
+
+    [Fact]
     public async Task StartupAsync_Continues_If_InboxStore_Throws()
     {
         var inbox      = new ThrowingResetInboxStore();
@@ -1590,11 +1628,12 @@ internal sealed class TrackingInboxStore : IInboxStore
     }
 }
 
-/// <summary>IDeadLetterStore stub: returns a pre-configured list of pending records; tracks whether GetPendingAsync was called.</summary>
+/// <summary>IDeadLetterStore stub: returns a pre-configured list of pending records; tracks whether GetPendingAsync was called and which ids were marked retried.</summary>
 internal sealed class TrackingDeadLetterStore : Svrn7.Core.Interfaces.IDeadLetterStore
 {
     private readonly IReadOnlyList<Svrn7.Core.Models.DeadLetterRecord> _pending;
     public bool GetPendingCalled { get; private set; }
+    public List<string> MarkedRetriedIds { get; } = new();
 
     public TrackingDeadLetterStore(IEnumerable<Svrn7.Core.Models.DeadLetterRecord> pending)
         => _pending = pending.ToList();
@@ -1609,7 +1648,10 @@ internal sealed class TrackingDeadLetterStore : Svrn7.Core.Interfaces.IDeadLette
     }
 
     public Task MarkRetriedAsync(string id, CancellationToken ct = default)
-        => Task.CompletedTask;
+    {
+        MarkedRetriedIds.Add(id);
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>IInboxStore stub: ResetStuckMessagesAsync throws to simulate a failed store.</summary>

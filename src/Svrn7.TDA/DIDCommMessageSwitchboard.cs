@@ -128,7 +128,18 @@ public sealed class DIDCommMessageSwitchboard
                     "Switchboard: re-enqueuing {Count} dead-lettered outbound message(s) from prior session.",
                     pending.Count);
                 foreach (var record in pending)
+                {
                     _outboundQueue.Enqueue(new OutboundMessage(record.PeerEndpoint, record.PackedMessage));
+
+                    // Mark retried immediately, not after the outcome is known — matches
+                    // IDeadLetterStore.MarkRetriedAsync's documented contract ("whether retry
+                    // succeeded or not"). GetPendingAsync filters on IsRetried, so without this
+                    // the same record is re-enqueued on every future startup forever, and if the
+                    // retry fails again the normal outbound-failure path (below) inserts a brand
+                    // new record for it — the two together silently duplicate every persistently
+                    // undeliverable message once per restart.
+                    await _deadLetter.MarkRetriedAsync(record.Id, ct);
+                }
             }
         }
         catch (Exception ex)
