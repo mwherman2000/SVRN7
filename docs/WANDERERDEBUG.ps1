@@ -54,6 +54,16 @@ Test-Path lobes/Pando.Diagnostics.0.1.0/Pando.Diagnostics.0.1.0.lobe.json
 cls
 Write-Host "--- Step 1 — Start W5 and W6 ---"
 Set-Location C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0
+
+# Remove any databases/identity files left over from a previous run so W5 and W6 boot
+# with fresh, unique DIDs. --reset below does the same thing per-process at startup, but
+# doing it explicitly here first means a stale did:drn:wanderer.svrn7.net/agent/1.0/<hash>
+# from an earlier run can never be mistaken for the current one (e.g. copied into another
+# app or doc before this run) — that mismatch is exactly what produces "No DIDComm service
+# endpoint found for recipient '<old-DID>'" on the sending side.
+Remove-Item -Recurse -Force 8445/mem -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force 8446/mem -ErrorAction SilentlyContinue
+
 Start-Process cmd.exe -ArgumentList '/k title W5 [Wanderer]:8445 && dotnet ".\Svrn7.TDA.dll" --port 8445 --name W5 --reset'
 Start-Process cmd.exe -ArgumentList '/k title W6 [Wanderer]:8446 && dotnet ".\Svrn7.TDA.dll" --port 8446 --name W6 --reset'
 pause
