@@ -159,6 +159,10 @@ public sealed class DIDCommPackingService : IDIDCommService
     public Task<string> PackPlaintextAsync(DIDCommMessage message, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        // message.Body holds pre-serialized JSON text; parse it back so it's embedded as a
+        // raw JSON object per the DIDComm v2 spec ("body... MUST be a JSON object") — not as
+        // a string-typed property, which would double-encode it.
+        using var bodyDoc = JsonDocument.Parse(message.Body);
         return Task.FromResult(JsonSerializer.Serialize(new
         {
             typ  = "application/didcomm-plain+json",
@@ -167,7 +171,7 @@ public sealed class DIDCommPackingService : IDIDCommService
             type = message.Type,
             from = message.From,
             to   = message.To is not null ? new[] { message.To } : null,
-            body = message.Body,
+            body = bodyDoc.RootElement,
         }, _jsonOpts));
     }
 
@@ -177,6 +181,7 @@ public sealed class DIDCommPackingService : IDIDCommService
         byte[] senderPrivateKey, bool secp256k1 = false, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        using var bodyDoc = JsonDocument.Parse(message.Body);
         var alg     = secp256k1 ? "ES256K" : "EdDSA";
         var header  = B64(JsonSerializer.SerializeToUtf8Bytes(new { alg, typ = "JWM" }));
         var payload = B64(JsonSerializer.SerializeToUtf8Bytes(new
@@ -186,7 +191,7 @@ public sealed class DIDCommPackingService : IDIDCommService
             type = message.Type,
             from = message.From,
             to   = message.To is not null ? new[] { message.To } : null,
-            body = message.Body,
+            body = bodyDoc.RootElement,
         }));
         var sigInput = Encoding.ASCII.GetBytes($"{header}.{payload}");
         var sig      = secp256k1
@@ -212,6 +217,7 @@ public sealed class DIDCommPackingService : IDIDCommService
     {
         ct.ThrowIfCancellationRequested();
 
+        using var bodyDoc = JsonDocument.Parse(message.Body);
         var plaintext = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
         {
             id   = message.Id,
@@ -219,7 +225,7 @@ public sealed class DIDCommPackingService : IDIDCommService
             type = message.Type,
             from = message.From,
             to   = message.To is not null ? new[] { message.To } : null,
-            body = message.Body,
+            body = bodyDoc.RootElement,
         }, _jsonOpts));
 
         return Task.FromResult(EncryptJwe(plaintext, recipientPublicKey));
@@ -410,9 +416,7 @@ public sealed class DIDCommPackingService : IDIDCommService
         var msgThid = pr.TryGetProperty("thid", out var thidEl) ? thidEl.GetString()          : null;
         var msgType = pr.TryGetProperty("type", out var typeEl) ? typeEl.GetString() ?? ""    : "";
         var msgFrom = pr.TryGetProperty("from", out var fromEl) ? fromEl.GetString()           : null;
-        var msgBody = pr.TryGetProperty("body", out var bodyEl)
-            ? bodyEl.ValueKind == JsonValueKind.String ? bodyEl.GetString() ?? "{}" : bodyEl.GetRawText()
-            : "{}";
+        var msgBody = pr.TryGetProperty("body", out var bodyEl) ? bodyEl.GetRawText() : "{}";
 
         // Verify signature when we have a resolver and a sender DID
         if (_resolver is not null && msgFrom is not null)
@@ -467,9 +471,9 @@ public sealed class DIDCommPackingService : IDIDCommService
             Thid = root.TryGetProperty("thid", out var thidEl) ? thidEl.GetString()          : null,
             Type = typeEl.GetString() ?? string.Empty,
             From = root.TryGetProperty("from", out var fromEl) ? fromEl.GetString()          : null,
-            Body = root.TryGetProperty("body", out var bodyEl)
-            ? bodyEl.ValueKind == JsonValueKind.String ? bodyEl.GetString() ?? "{}" : bodyEl.GetRawText()
-            : "{}",
+            // DIDComm v2: body, if present, MUST be a JSON object — GetRawText() preserves it
+            // as-is. No string fallback: every producer in this codebase emits a real object.
+            Body = root.TryGetProperty("body", out var bodyEl) ? bodyEl.GetRawText() : "{}",
             Mode = mode,
         };
 

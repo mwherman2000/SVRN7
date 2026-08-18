@@ -202,6 +202,22 @@ public class DIDCommTests
         unpacked.Type.Should().Be("https://example.com/test");
     }
 
+    [Fact] public async Task PackPlaintext_Body_Is_A_Real_JsonObject_On_The_Wire()
+    {
+        // DIDComm v2 spec: "body... MUST be a JSON object". Regression test for a bug where
+        // body was embedded as a JSON string (double-encoded) instead of a raw object —
+        // substring assertions like unpacked.Body.Should().Contain("42") don't catch this,
+        // since "42" appears either way; this checks the actual wire-level JSON type.
+        var msg    = _svc.NewMessage().Type("https://example.com/test").Body(new { limit = 50 }).Build();
+        var packed = await _svc.PackPlaintextAsync(msg);
+
+        using var doc = JsonDocument.Parse(packed);
+        var bodyEl = doc.RootElement.GetProperty("body");
+        bodyEl.ValueKind.Should().Be(JsonValueKind.Object,
+            because: "a spec-compliant plaintext envelope must carry body as a JSON object, not a JSON string");
+        bodyEl.GetProperty("limit").GetInt32().Should().Be(50);
+    }
+
     [Fact] public async Task PackEncrypted_ReturnsNonEmptyString()
     {
         var crypto = new CryptoService();

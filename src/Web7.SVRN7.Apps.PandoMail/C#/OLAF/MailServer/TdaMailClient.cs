@@ -624,14 +624,22 @@ namespace Web7.SVRN7.Apps
         /// _pending *before* calling this method, and match the reply by its 'thid' (which
         /// the TDA sets to this id) — see docs/BACKLOG.md TDA-014.
         /// </summary>
+        /// <param name="body">
+        /// Pre-serialized JSON text (e.g. from JsonSerializer.Serialize(new {...})). Parsed
+        /// back into a JsonElement here so it's embedded in the envelope as a raw JSON object
+        /// per the DIDComm v2 spec ("body... MUST be a JSON object") — not as a string-typed
+        /// property, which would double-encode it (e.g. "body":"{\"limit\":50}" instead of
+        /// "body":{"limit":50}).
+        /// </param>
         private async Task SendEnvelopeAsync(string type, string id, string body, CancellationToken ct)
         {
+            using JsonDocument bodyDoc = JsonDocument.Parse(body);
             string envelope = JsonSerializer.Serialize(new
             {
                 typ = "application/didcomm-plain+json",
                 id,
                 type,
-                body
+                body = bodyDoc.RootElement
             });
             byte[] bytes = Encoding.UTF8.GetBytes(envelope);
             _log.LogDebug("WS SEND type={Type} bytes={Bytes} state={State}", type, bytes.Length, _ws.State);

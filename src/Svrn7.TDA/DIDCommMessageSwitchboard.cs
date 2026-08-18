@@ -554,11 +554,8 @@ public sealed class DIDCommMessageSwitchboard
         var msgId   = root.TryGetProperty("id",   out var idEl)   ? idEl.GetString()    : null;
         var msgType = root.TryGetProperty("type", out var typeEl) ? typeEl.GetString() ?? "" : "";
         var msgFrom = root.TryGetProperty("from", out var fromEl) ? fromEl.GetString()   : _opts.LocalDid;
-        string msgBody;
-        if (root.TryGetProperty("body", out var bodyEl))
-            msgBody = bodyEl.ValueKind == JsonValueKind.String ? bodyEl.GetString() ?? "{}" : bodyEl.GetRawText();
-        else
-            msgBody = "{}";
+        // DIDComm v2: body, if present, MUST be a JSON object — no string fallback.
+        var msgBody = root.TryGetProperty("body", out var bodyEl) ? bodyEl.GetRawText() : "{}";
 
         var message = new DIDCommMessage
         {
