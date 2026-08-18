@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using NBitcoin;
 using NBitcoin.Crypto;
 using NSec.Cryptography;
@@ -24,6 +25,12 @@ public enum DIDCommPackMode
 public record DIDCommMessage
 {
     public string  Id      { get; init; } = Svrn7.Core.TdaResourceId.DIDCommMessage(Guid.NewGuid().ToString("N"));
+
+    // Every pack method (PackPlaintextAsync/PackSignedAsync/PackEncryptedAsync) already builds
+    // the wire envelope's "type" key by hand via an anonymous object, so this attribute is inert
+    // today — it's a defensive guard against a future refactor that serializes this record
+    // directly, which would otherwise default to "Type" (capital T) with no naming policy set.
+    [JsonPropertyName("type")]
     public string  Type    { get; init; } = string.Empty;
     public string? From    { get; init; }
     public string? To      { get; init; }
@@ -42,6 +49,10 @@ public record DIDCommMessage
 public record DIDCommUnpackedMessage
 {
     public string? Id      { get; init; }
+
+    // Same defensive rationale as DIDCommMessage.Type above — ToFormattedJson() already
+    // hand-builds "type" correctly; this guards a future direct-serialization refactor.
+    [JsonPropertyName("type")]
     public string  Type    { get; init; } = string.Empty;
     public string? From    { get; init; }
     public string  Body    { get; init; } = "{}";
