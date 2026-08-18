@@ -20,6 +20,7 @@ namespace Web7.SVRN7.Apps
         string   Subject,
         string   FromHeader,
         string   ToHeader,
+        string   CcHeader,
         DateTime ReceivedAt);
 
     public sealed record EmailBody(
@@ -896,6 +897,7 @@ namespace Web7.SVRN7.Apps
                         Subject:     GetStrOrNull(e, "subject"),
                         FromHeader:  GetStrOrNull(e, "fromHeader"),
                         ToHeader:    GetStrOrNull(e, "toHeader"),
+                        CcHeader:    GetStrOrNull(e, "ccHeader"),
                         ReceivedAt:  e.TryGetProperty("receivedAt", out JsonElement rv)
                                      && DateTime.TryParse(rv.GetString(), out DateTime dt)
                                      ? dt.ToLocalTime() : DateTime.Now));

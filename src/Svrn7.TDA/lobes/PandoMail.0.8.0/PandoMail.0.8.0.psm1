@@ -289,6 +289,7 @@ function Invoke-PandoMailList {
                 subject    = (Get-Rfc5322Header -Raw $rfc5322 -Header 'Subject')
                 fromHeader = (Get-Rfc5322Header -Raw $rfc5322 -Header 'From')
                 toHeader   = (Get-Rfc5322Header -Raw $rfc5322 -Header 'To')
+                ccHeader   = (Get-Rfc5322Header -Raw $rfc5322 -Header 'Cc')
                 receivedAt = $e.ReceivedAt.ToString('o')
             }
         })
@@ -472,19 +473,40 @@ function Invoke-Svrn7EmailGetEmailBody {
         }
 
         $emailMsg = $SVRN7.GetMessageAsync($targetDid).GetAwaiter().GetResult()
-        if (-not $emailMsg) {
-            Write-Warning "Email LOBE: Get-EmailBody target message $targetDid not found."
-            return $null
+
+        if ($emailMsg) {
+            # Inbox/Sent: PackedPayload is already the unpacked inner body — {rfc5322Body, ...}
+            # for Inbox, {bodyText, ...} for Sent (handled below).
+            $emailBody = $emailMsg.PackedPayload | ConvertFrom-Json -ErrorAction SilentlyContinue
+            $rfc5322   = Get-BodyField $emailBody 'rfc5322Body' ''
+        } else {
+            # Not a live inbox/sent message — check the dead-letter store. Dead Letters rows
+            # use the DeadLetterRecord's own Id as messageDid (a separate store from the
+            # inbox), and PackedMessage is the FULL envelope (never unpacked, since it was
+            # never actually sent or received) — one extra unwrap to reach the inner body
+            # versus the inbox/sent PackedPayload case above.
+            $deadLetter = @($SVRN7.ListDeadLettersAsync().GetAwaiter().GetResult()) |
+                Where-Object { $_.Id -eq $targetDid } | Select-Object -First 1
+            if (-not $deadLetter) {
+                Write-Warning "Email LOBE: Get-EmailBody target message $targetDid not found."
+                return $null
+            }
+            $dlEnvelope = $deadLetter.PackedMessage | ConvertFrom-Json -ErrorAction SilentlyContinue
+            $emailBody  = if ($dlEnvelope) { Get-BodyField $dlEnvelope 'body' $null } else { $null }
+            $rfc5322    = if ($emailBody) { Get-BodyField $emailBody 'rfc5322Body' '' } else { '' }
         }
 
-        $emailBody = $emailMsg.PackedPayload | ConvertFrom-Json -ErrorAction SilentlyContinue
-        $rfc5322   = Get-BodyField $emailBody 'rfc5322Body' ''
-
         # Extract plain-text body — everything after the first blank line in RFC 5322.
+        # Inbox messages (Signal-PandoMail) carry rfc5322Body. Sent Items are stored as the
+        # original Enqueue-PandoMail compose request instead — no RFC 5322 envelope was ever
+        # persisted back onto that record (it's built per-recipient at delivery time and only
+        # travels on the wire) — so fall back to the raw bodyText the compose UI submitted.
         $bodyText = ''
         if ($rfc5322) {
             $parts = $rfc5322 -split "`r?`n`r?`n", 2
             if ($parts.Count -ge 2) { $bodyText = $parts[1].Trim() }
+        } else {
+            $bodyText = Get-BodyField $emailBody 'bodyText' ''
         }
 
         $envelope = [ordered]@{
@@ -680,6 +702,7 @@ function Invoke-PandoMailListSent {
                 subject    = Get-BodyField $eBody 'subject' '(no subject)'
                 fromHeader = if (Get-BodyField $eBody 'senderDisplay' '') { Get-BodyField $eBody 'senderDisplay' '' } else { $SVRN7.LocalDid }
                 toHeader   = if (Get-BodyField $eBody 'recipientDisplay' '') { Get-BodyField $eBody 'recipientDisplay' '' } else { Get-BodyField $eBody 'recipientDid' '' }
+                ccHeader   = Get-BodyField $eBody 'ccDisplay' ''
                 receivedAt = $e.ReceivedAt.ToString('o')
             }
         })
@@ -737,13 +760,22 @@ function Invoke-PandoMailListDeadLetters {
 
         $records = $SVRN7.ListDeadLettersAsync().GetAwaiter().GetResult()
 
+        # PackedMessage is the authentic, unpacked Signal-PandoMail envelope built by
+        # Enqueue-PandoMail before delivery was attempted — same plaintext rfc5322Body shape
+        # as a normal Inbox message, so it's parsed identically. This is the real content the
+        # user composed; $r.PeerEndpoint/LastError describe the failure, not the message.
         $emailList = @(foreach ($r in $records) {
+            $rEnvelope  = $r.PackedMessage | ConvertFrom-Json -ErrorAction SilentlyContinue
+            $rInnerBody = if ($rEnvelope) { Get-BodyField $rEnvelope 'body' $null } else { $null }
+            $rfc5322    = if ($rInnerBody) { Get-BodyField $rInnerBody 'rfc5322Body' '' } else { '' }
+
             [ordered]@{
                 messageDid = $r.Id
                 senderDid  = $SVRN7.LocalDid
-                subject    = if ($r.LastError) { "FAILED: $($r.LastError)" } else { $r.MessageType }
-                fromHeader = $SVRN7.LocalDid
-                toHeader   = $r.PeerEndpoint
+                subject    = if ($rfc5322) { (Get-Rfc5322Header -Raw $rfc5322 -Header 'Subject') } else { "FAILED: $($r.LastError)" }
+                fromHeader = if ($rfc5322) { (Get-Rfc5322Header -Raw $rfc5322 -Header 'From') } else { $SVRN7.LocalDid }
+                toHeader   = if ($rfc5322) { (Get-Rfc5322Header -Raw $rfc5322 -Header 'To') } else { $r.PeerEndpoint }
+                ccHeader   = if ($rfc5322) { (Get-Rfc5322Header -Raw $rfc5322 -Header 'Cc') } else { '' }
                 receivedAt = $r.FailedAt.ToString('o')
             }
         })

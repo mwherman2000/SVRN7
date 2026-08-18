@@ -245,6 +245,7 @@ namespace Web7.SVRN7.Apps
 				{
 					From     = s.FromHeader ?? s.SenderDid,
 					To       = s.ToHeader ?? string.Empty,
+					Cc       = s.CcHeader ?? string.Empty,
 					Subject  = s.Subject ?? "(no subject)",
 					SentDate = s.ReceivedAt,
 					Path     = s.MessageDid,
