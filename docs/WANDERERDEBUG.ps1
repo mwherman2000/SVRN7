@@ -49,6 +49,25 @@ Test-Path lobes/Pando.Diagnostics.0.1.0/Pando.Diagnostics.0.1.0.lobe.json
 #
 # ---
 #
+# Helper — launches a titled pwsh window running the TDA. Uses -EncodedCommand so the
+# window title (which contains spaces/brackets/colons) can never be corrupted by
+# Start-Process's -ArgumentList quoting — a bare quoted string here is unreliable across
+# PowerShell versions and can silently mangle --name into its own command (e.g. "W6" run
+# as if it were a cmdlet).
+
+function Start-TdaWindow {
+    param(
+        [Parameter(Mandatory)] [string] $Title,
+        [Parameter(Mandatory)] [string] $WorkDir,
+        [Parameter(Mandatory)] [string] $DotnetArgs
+    )
+    $script = "Set-Location `"$WorkDir`"; `$Host.UI.RawUI.WindowTitle = `"$Title`"; dotnet `".\Svrn7.TDA.dll`" $DotnetArgs"
+    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($script))
+    Start-Process pwsh.exe -ArgumentList "-NoExit -EncodedCommand $encoded"
+}
+
+# ---
+#
 # Step 1 — Start W5 and W6 (Terminals A and B)
 
 cls
@@ -64,8 +83,8 @@ Set-Location C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0
 Remove-Item -Recurse -Force 8445/mem -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force 8446/mem -ErrorAction SilentlyContinue
 
-Start-Process cmd.exe -ArgumentList '/k title W5 [Wanderer]:8445 && dotnet ".\Svrn7.TDA.dll" --port 8445 --name W5 --reset'
-Start-Process cmd.exe -ArgumentList '/k title W6 [Wanderer]:8446 && dotnet ".\Svrn7.TDA.dll" --port 8446 --name W6 --reset'
+Start-TdaWindow -Title 'W5 [Wanderer]:8445' -WorkDir 'C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0' -DotnetArgs '--port 8445 --name W5 --reset'
+Start-TdaWindow -Title 'W6 [Wanderer]:8446' -WorkDir 'C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0' -DotnetArgs '--port 8446 --name W6 --reset'
 pause
 
 # **Production / staging:** Add `--federationdomain svrn7.net` to auto-discover the
@@ -241,8 +260,21 @@ Remove-Item -Recurse -Force 8446/mem -ErrorAction SilentlyContinue
 
 # Restart with `--reset` to let the TDA delete its own data on startup (equivalent):
 
-dotnet .\Svrn7.TDA.dll --port 8445 --name W5 --reset
-dotnet .\Svrn7.TDA.dll --port 8446 --name W6 --reset
+# Re-declare the helper if this is a fresh terminal session (it's a no-op if Step 1's
+# definition is still in scope):
+function Start-TdaWindow {
+    param(
+        [Parameter(Mandatory)] [string] $Title,
+        [Parameter(Mandatory)] [string] $WorkDir,
+        [Parameter(Mandatory)] [string] $DotnetArgs
+    )
+    $script = "Set-Location `"$WorkDir`"; `$Host.UI.RawUI.WindowTitle = `"$Title`"; dotnet `".\Svrn7.TDA.dll`" $DotnetArgs"
+    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($script))
+    Start-Process pwsh.exe -ArgumentList "-NoExit -EncodedCommand $encoded"
+}
+
+Start-TdaWindow -Title 'W5 [Wanderer]:8445' -WorkDir 'C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0' -DotnetArgs '--port 8445 --name W5 --reset'
+Start-TdaWindow -Title 'W6 [Wanderer]:8446' -WorkDir 'C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0' -DotnetArgs '--port 8446 --name W6 --reset'
 
 # `--reset` deletes all files in `{port}/mem/` before startup, forcing a new first-run
 # Wanderer bootstrap with a fresh GUID-based DID.
@@ -266,11 +298,24 @@ dotnet .\Svrn7.TDA.dll --port 8446 --name W6 --reset
 Write-Host "--- Steps 10-14 — Register W5 with a Society (Wanderer → Citizen) ---"
 Set-Location C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0
 
+# Re-declare the helper if this is a fresh terminal session (it's a no-op if Step 1's
+# definition is still in scope):
+function Start-TdaWindow {
+    param(
+        [Parameter(Mandatory)] [string] $Title,
+        [Parameter(Mandatory)] [string] $WorkDir,
+        [Parameter(Mandatory)] [string] $DotnetArgs
+    )
+    $script = "Set-Location `"$WorkDir`"; `$Host.UI.RawUI.WindowTitle = `"$Title`"; dotnet `".\Svrn7.TDA.dll`" $DotnetArgs"
+    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($script))
+    Start-Process pwsh.exe -ArgumentList "-NoExit -EncodedCommand $encoded"
+}
+
 # Terminal D — Federation TDA on port 8441
-Start-Process cmd.exe -ArgumentList '/k title Federation:8441 && dotnet ".\Svrn7.TDA.dll" --port 8441 --name Federation'
+Start-TdaWindow -Title 'Federation:8441' -WorkDir 'C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0' -DotnetArgs '--port 8441 --name Federation'
 
 # Terminal E — Society TDA on port 8442
-Start-Process cmd.exe -ArgumentList '/k title Society:8442 && dotnet ".\Svrn7.TDA.dll" --port 8442 --name Bindloss'
+Start-TdaWindow -Title 'Society:8442' -WorkDir 'C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0' -DotnetArgs '--port 8442 --name Bindloss'
 
 # Then complete E.0 (initialize-federation) and E.2 (register-society) from
 # FEDERATIONDEBUG.ps1 before continuing here.  W5 on port 8445 must already be running
