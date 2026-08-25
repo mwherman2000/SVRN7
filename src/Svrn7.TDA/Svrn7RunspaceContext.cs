@@ -304,10 +304,10 @@ public sealed class Svrn7RunspaceContext
     {
         const string inboxType = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail";
         const string sentType  = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Enqueue-PandoMail";
-        var inbox = await _inbox.ListByTypeAsync(inboxType, 5000, ct);
-        var sent  = await _inbox.ListByTypeAsync(sentType,  5000, ct);
-        var dead  = await _deadLetter.GetPendingAsync(ct);
-        return new FolderCounts(inbox.Count, sent.Count, dead.Count);
+        var inbox = await _inbox.CountByTypeAsync(inboxType, ct);
+        var sent  = await _inbox.CountByTypeAsync(sentType,  ct);
+        var dead  = await _deadLetter.CountPendingAsync(ct);
+        return new FolderCounts(inbox, sent, dead);
     }
 
     // ── Pass-by-reference message resolution ─────────────────────────────────

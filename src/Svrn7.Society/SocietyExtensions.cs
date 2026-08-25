@@ -131,9 +131,9 @@ public static class SocietyServiceCollectionExtensions
                 sp.GetRequiredService<Svrn7LiteContext>(),
                 sp.GetRequiredService<ICryptoService>()));
         services.TryAddSingleton<IDidDocumentRegistry>(sp =>
-            new LiteDidDocumentRegistry(
+            new Svrn7.Identity.DIDDocumentService(new LiteDidDocumentRegistry(
                 sp.GetRequiredService<DidRegistryLiteContext>(),
-                sp.GetRequiredService<ILogger<LiteDidDocumentRegistry>>()));
+                sp.GetRequiredService<ILogger<LiteDidDocumentRegistry>>())));
         services.TryAddSingleton<IVcRegistry>(sp =>
             new LiteVcRegistry(sp.GetRequiredService<VcRegistryLiteContext>()));
         services.TryAddSingleton<IFederationStore>(sp =>
@@ -267,7 +267,9 @@ public static class SocietyServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers the DIDCommMessageProcessorService background service.
+    /// Registers the DIDCommMessageProcessorService background service — periodic
+    /// VC-expiry and Merkle-log auto-sign sweeps. Does not touch the DIDComm inbox;
+    /// DIDCommMessageSwitchboard (TDA host) is the sole inbox reader/dispatcher.
     /// Call after AddSvrn7Society().
     /// </summary>
     public static IServiceCollection AddSvrn7SocietyBackgroundServices(

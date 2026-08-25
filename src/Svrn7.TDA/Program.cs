@@ -6,7 +6,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using OpenTelemetry;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using Svrn7.Core;
 using Svrn7.Core.Models;
+using Svrn7.Identity;
 using Svrn7.Society;
 using Svrn7.TDA;
 
@@ -43,6 +48,10 @@ using Svrn7.TDA;
 //                  Leave unset for testnet / manual endpoint configuration.
 // --reset          Delete all databases and agent-identity.json for this port before
 //                  starting, forcing a clean first-run Wanderer bootstrap.
+// --jaeger         Export DIDComm pipeline traces to Jaeger (OTLP/gRPC) instead of
+//                  the console. Default endpoint: http://localhost:4317.
+// --jaeger-endpoint <url>
+//                  OTLP/gRPC endpoint to use with --jaeger. Implies --jaeger.
 // --help           Display this help and exit.
 
 if (Array.IndexOf(args, "--help") >= 0 || Array.IndexOf(args, "-h") >= 0)
@@ -52,7 +61,8 @@ if (Array.IndexOf(args, "--help") >= 0 || Array.IndexOf(args, "-h") >= 0)
         Web 7.0 Foundation — https://svrn7.net
 
         Usage:
-          Svrn7.TDA --port <n> --name <string> [--url <url>] [--reset] [--help]
+          Svrn7.TDA --port <n> --name <string> [--url <url>] [--reset]
+                    [--jaeger [--jaeger-endpoint <url>]] [--help]
 
         Parameters:
           --port <n>        (required) TCP/IP port this TDA listens on.
@@ -79,6 +89,13 @@ if (Array.IndexOf(args, "--help") >= 0 || Array.IndexOf(args, "-h") >= 0)
           --reset           Delete all databases and agent-identity.json for this
                             port before starting, forcing a clean first-run
                             Wanderer bootstrap. Use with caution — irreversible.
+
+          --jaeger          Export DIDComm pipeline traces to Jaeger via OTLP/gRPC
+                            instead of the console exporter. Default endpoint:
+                            http://localhost:4317 (Jaeger's native OTLP receiver).
+
+          --jaeger-endpoint <url>
+                            OTLP/gRPC endpoint to use with --jaeger. Implies --jaeger.
 
           --help | -h       Display this help and exit.
         """);
@@ -143,6 +160,16 @@ if (forceReset)
     }
 }
 
+string? jaegerEndpointArg;
+{
+    var jeIdx = Array.IndexOf(args, "--jaeger-endpoint");
+    jaegerEndpointArg = jeIdx >= 0 && jeIdx + 1 < args.Length && !string.IsNullOrWhiteSpace(args[jeIdx + 1])
+        ? args[jeIdx + 1].Trim()
+        : null;
+}
+bool useJaeger = Array.IndexOf(args, "--jaeger") >= 0 || jaegerEndpointArg is not null;
+var jaegerEndpoint = jaegerEndpointArg ?? "http://localhost:4317";
+
 var host = Host.CreateDefaultBuilder(args)
     .UseConsoleLifetime()
     .ConfigureLogging(logging =>
@@ -157,6 +184,42 @@ var host = Host.CreateDefaultBuilder(args)
     })
     .ConfigureServices((ctx, services) =>
     {
+        // ── 0. OpenTelemetry tracing — console exporter ───────────────────────
+        // Registered first so its hosted service builds the TracerProvider (and
+        // registers the process-wide ActivityListener) before any hosted service
+        // that accepts traffic — KestrelListenerService, SwitchboardHostedService —
+        // gets a chance to start. Otherwise an early didcomm.receive/dispatch/invoke
+        // span racing the TracerProvider's own startup would be silently dropped
+        // (Source.StartActivity returns null until a listener is registered).
+        // Traces the DIDComm pipeline end to end: KestrelListenerService.HandleInboundAsync /
+        // ProcessWebSocketMessageAsync (didcomm.receive) → LiteInboxStore's didcomm.storage
+        // spans (Svrn7.Society/MsgStore.cs) → DIDCommMessageSwitchboard's didcomm.dispatch /
+        // lobe.import / didcomm.invoke / didcomm.deliver spans (Svrn7Telemetry.cs, Svrn7.Core).
+        // --jaeger ships spans to Jaeger via OTLP/gRPC (Jaeger's native OTLP receiver —
+        // the standalone OpenTelemetry.Exporter.Jaeger package was retired years ago).
+        // Default: console exporter (prints each span as it completes).
+        services.AddOpenTelemetry()
+            .ConfigureResource(r => r.AddService(
+                serviceName:       Svrn7Telemetry.SourceName,
+                serviceVersion:    Svrn7Telemetry.SourceVersion,
+                serviceInstanceId: $"{tdaName}:{port}"))
+            .WithTracing(tracing =>
+            {
+                // ASP.NET Core creates its own ambient (unsampled, since no ASP.NET
+                // Core instrumentation is registered) Activity per inbound request.
+                // The default ParentBasedSampler would inherit that "don't record"
+                // decision onto didcomm.receive (its child). AlwaysOnSampler forces
+                // every Svrn7.TDA span to record regardless of ambient parent state.
+                tracing.SetSampler(new AlwaysOnSampler())
+                       .AddSource(Svrn7Telemetry.SourceName)
+                       .AddSource(DIDDocumentService.ActivitySource.Name);
+
+                if (useJaeger)
+                    tracing.AddOtlpExporter(o => o.Endpoint = new Uri(jaegerEndpoint));
+                else
+                    tracing.AddConsoleExporter();
+            });
+
         // ── 1. SVRN7 Society stack ────────────────────────────────────────────
         // Derived from the SVRN7 LOBE (inside Agent 1 Runspace) — DSA 0.24.
         services.AddSvrn7Society(opts =>
@@ -201,6 +264,14 @@ var host = Host.CreateDefaultBuilder(args)
         });
     })
     .Build();
+
+// Force the TracerProvider to build now (registers the process-wide ActivityListener)
+// before any DID Document operations run below. Bootstrap runs between .Build() and
+// .RunAsync() — before hosted services start — so without this, DIDDocumentService's
+// Activity spans for the Wanderer's own first-run identity creation would be silently
+// dropped (StartActivity returns null with no listener registered yet), the same race
+// the didcomm.* spans are protected against by registering OpenTelemetry first above.
+host.Services.GetRequiredService<TracerProvider>();
 
 var driver  = host.Services.GetRequiredService<ISvrn7SocietyDriver>();
 var tdaOpts = host.Services.GetRequiredService<IOptions<TdaOptions>>().Value;

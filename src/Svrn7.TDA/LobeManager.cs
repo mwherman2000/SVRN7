@@ -1,10 +1,12 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
 using System.Reflection;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Svrn7.Core;
 
 namespace Svrn7.TDA;
 
@@ -125,9 +127,16 @@ public sealed class LobeManager : IDisposable
                 _log.LogWarning("LobeManager: eager LOBE not found — {Path}. Skipping.", resolved);
                 continue;
             }
+
+            using var activity = Svrn7Telemetry.Source.StartActivity(
+                Svrn7Telemetry.ActivityImport, ActivityKind.Internal);
+            activity?.SetTag(Svrn7Telemetry.TagLobeModulePath, resolved)
+                     .SetTag(Svrn7Telemetry.TagLobeKind, "eager-iss");
+
             iss.ImportPSModule(resolved);
             _importedModules[resolved] = true;
             _log.LogInformation("LobeManager: eager LOBE imported — {Path}", resolved);
+            activity?.SetStatus(ActivityStatusCode.Ok);
         }
 
         _iss = iss;
@@ -223,12 +232,22 @@ public sealed class LobeManager : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         bool isEager = _importedModules.ContainsKey(modulePath);
+
+        using var activity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityImport, ActivityKind.Internal);
+        activity?.SetTag(Svrn7Telemetry.TagLobeModulePath, modulePath)
+                 .SetTag(Svrn7Telemetry.TagLobeKind, isEager ? "eager" : "jit");
+
         _log.LogDebug("LobeManager: EnsureLoadedAsync — {Kind} '{Path}'.",
             isEager ? "eager" : "JIT", modulePath);
 
         if (!File.Exists(modulePath))
-            throw new FileNotFoundException(
+        {
+            var notFound = new FileNotFoundException(
                 $"LobeManager: module not found — '{modulePath}'.", modulePath);
+            activity?.SetStatus(ActivityStatusCode.Error, notFound.Message);
+            throw notFound;
+        }
 
         _log.LogInformation("LobeManager: importing into isolated runspace ({Kind}) — {Path}",
             isEager ? "eager/verify" : "JIT", modulePath);
@@ -245,11 +264,13 @@ public sealed class LobeManager : IDisposable
         if (ps.HadErrors)
         {
             var errors = string.Join("; ", ps.Streams.Error.Select(e => e.ToString()));
+            activity?.SetStatus(ActivityStatusCode.Error, errors);
             throw new InvalidOperationException(
                 $"LobeManager: Import-Module failed for '{modulePath}': {errors}");
         }
 
         _log.LogInformation("LobeManager: import complete — {Path}", modulePath);
+        activity?.SetStatus(ActivityStatusCode.Ok);
     }
 
     // ── Protocol registry lookup ──────────────────────────────────────────────

@@ -29,7 +29,7 @@
     <Content Update="lobes/**" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="lobes/**/*.psm1" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="lobes/**/*.psd1" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="lobes/**/*.ps1"  CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="lobes/**/*.ps1" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Svrn7.Core\Svrn7.Core.csproj" />
@@ -47,24 +47,25 @@
     <_LobeSource Include="$(MSBuildProjectDirectory)\lobes\**\*.psm1" />
     <_LobeSource Include="$(MSBuildProjectDirectory)\lobes\**\*.psd1" />
   </ItemGroup>
-  <Target Name="BuildLOBEPackages" AfterTargets="Build"
-          Inputs="@(_LobeSource)"
-          Outputs="$(LobePackagesStamp)">
+  <Target Name="BuildLOBEPackages" AfterTargets="Build" Inputs="@(_LobeSource)" Outputs="$(LobePackagesStamp)">
     <Exec Command="pwsh -NoProfile -File &quot;$(RepoRoot)\tools\Build-LOBEPackages.ps1&quot; -LobesDir &quot;$(MSBuildProjectDirectory)\lobes&quot; -OutDir &quot;$(LobeDistDir)&quot;" />
     <Touch Files="$(LobePackagesStamp)" AlwaysCreate="true" />
   </Target>
 
   <ItemGroup>
-    <PackageReference Include="DnsClient"                                        Version="1.7.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting"                     Version="8.0.1" />
-    <PackageReference Include="Microsoft.Extensions.Http"                        Version="8.0.1" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions"        Version="8.0.1" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection"         Version="8.0.1" />
+    <PackageReference Include="DnsClient" Version="1.7.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
-    <PackageReference Include="Microsoft.Extensions.Options"                     Version="8.0.2" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions"        Version="8.0.2" />
-    <PackageReference Include="Microsoft.Extensions.Caching.Memory"              Version="8.0.1" />
-    <PackageReference Include="System.Management.Automation"                     Version="7.4.6" />
-    <PackageReference Include="Microsoft.PowerShell.Commands.Utility"            Version="7.4.1" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.1" />
+    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.18.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.18.0" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.18.0" />
+    <PackageReference Include="System.Management.Automation" Version="7.4.6" />
+    <PackageReference Include="Microsoft.PowerShell.Commands.Utility" Version="7.4.1" />
   </ItemGroup>
 </Project>

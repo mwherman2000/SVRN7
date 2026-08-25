@@ -16,7 +16,7 @@
 - **DID method governance** — self-service registration and deregistration of additional DID method names
 - **DIDComm SignThenEncrypt transfers** — cross-Society citizen-to-citizen transfers via `TransferOrderCredential`
 - **Overdraft management** — revolving credit facility from the Federation when the Society wallet is low; delivered via DIDComm HTTP transport when `FederationEndpointUrl` is configured
-- **Message store** — `LiteInboxStore` backed by `svrn7-msg.db`; `DIDCommMessageProcessorService` background service. `InboundMessage` stores `FromDid` (sender DID) and `WireId` (DIDComm wire `id`; null for encrypted messages), both threaded from `KestrelListenerService` via `IInboxStore.EnqueueAsync`.
+- **Message store** — `LiteInboxStore` backed by `svrn7-msg.db`. `InboundMessage` stores `FromDid` (sender DID) and `WireId` (DIDComm wire `id`; null for encrypted messages), both threaded from `KestrelListenerService` via `IInboxStore.EnqueueAsync`. Inbox dequeue/dispatch is owned exclusively by `DIDCommMessageSwitchboard` (in the TDA host) — nothing in `Svrn7.Society` reads from the inbox.
 - **Schema Registry** — JSON Schema 2020-12 registry for credential schemas (Society TDA only)
 - **Cross-Society VC queries** — `FindVcsBySubjectAcrossSocietiesAsync` via DIDComm
 
@@ -59,7 +59,7 @@ builder.Services.AddSvrn7Society(opts =>
     opts.MsgDbPath    = "data/svrn7-msg.db";
 });
 
-// Optional: enable inbox background processor
+// Optional: enable periodic maintenance sweeps (VC expiry, Merkle log auto-sign)
 builder.Services.AddSvrn7SocietyBackgroundServices();
 
 // Optional: enable DIDComm HTTP transport for overdraft draws

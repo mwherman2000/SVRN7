@@ -169,21 +169,21 @@ public sealed class DIDCommTransferHandler : IDIDCommTransferHandler
 // ── DIDCommMessageProcessorService ───────────────────────────────────────────
 
 /// <summary>
-/// Background service that processes the durable DIDComm inbox (IInboxStore / svrn7-msg.db).
+/// Background service for periodic Society-level maintenance sweeps — VC expiry and
+/// Merkle log auto-signing. Delegates to ISvrn7Driver; touches no DIDComm transport state.
 ///
 /// Each sweep:
 ///   1. VC expiry sweep (delegates to ISvrn7Driver.ExpireStaleVcsAsync).
 ///   2. Merkle log auto-sign (delegates to ISvrn7Driver.SignMerkleTreeHeadAsync).
-///   3. DIDComm inbox drain: dequeues a batch from IInboxStore, dispatches each
-///      message to IDIDCommTransferHandler, marks Processed or Failed.
 ///
-/// Reliability:
-///   • On startup, ResetStuckMessagesAsync recovers any messages left in
-///     Processing state by an unclean prior shutdown.
-///   • Failed messages are retried up to MaxAttempts (Svrn7Constants.InboxMaxAttempts) times before
-///     being moved to the Failed dead-letter state for operator inspection.
-///   • The inbox database (svrn7-msg.db) is separate from svrn7.db so inbox
-///     I/O never contends with wallet or identity operations.
+/// This service does NOT read from IInboxStore. Per DSA 0.24, DIDCommMessageSwitchboard
+/// is the sole inbox reader — it already routes TransferRequest/TransferOrder/
+/// TransferOrderReceipt to the Svrn7.Society LOBE (see Svrn7.Society.0.8.0.lobe.json),
+/// which is the same coverage this service's inbox-drain step used to duplicate. A second
+/// consumer dequeuing from the same store raced the Switchboard for messages and could
+/// dead-letter one it grabbed first but didn't recognize (only 3 hardcoded types were
+/// handled — everything else was marked Failed with no retry). Removed entirely rather
+/// than gated behind "no TDA host", since every dequeue should go through the Switchboard.
 /// </summary>
 public sealed class DIDCommMessageProcessorService : BackgroundService
 {
@@ -191,9 +191,6 @@ public sealed class DIDCommMessageProcessorService : BackgroundService
     private readonly IInboxStore          _inbox;
     private readonly Svrn7SocietyOptions  _opts;
     private readonly ILogger<DIDCommMessageProcessorService> _log;
-
-    private const int BatchSize   = 20;
-    private const int MaxAttempts = Svrn7.Core.Svrn7Constants.InboxMaxAttempts;
 
     public DIDCommMessageProcessorService(
         IServiceScopeFactory scopeFactory,
@@ -208,19 +205,17 @@ public sealed class DIDCommMessageProcessorService : BackgroundService
     }
 
     /// <summary>
-    /// Enqueues an incoming packed DIDComm message into the durable inbox.
-    /// Returns immediately; processing happens asynchronously on the next sweep.
+    /// Enqueues an incoming packed DIDComm message into the durable inbox for the
+    /// Switchboard to pick up. Write path only — does not conflict with "sole inbox
+    /// reader" since it never dequeues.
     /// </summary>
     public Task EnqueueAsync(string messageType, string packedMessage,
-        string? fromDid = null, string? wireId = null, string? thid = null, string? jweEnvelope = null, CancellationToken ct = default)
-        => _inbox.EnqueueAsync(messageType, packedMessage, fromDid, wireId, thid, jweEnvelope, ct);
+        string? fromDid = null, string? wireId = null, string? thid = null, string? jweEnvelope = null, string? traceContext = null, CancellationToken ct = default)
+        => _inbox.EnqueueAsync(messageType, packedMessage, fromDid, wireId, thid, jweEnvelope, traceContext, ct);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _log.LogInformation("DIDCommMessageProcessorService started.");
-
-        // Recover any messages stuck in Processing from a prior unclean shutdown
-        await _inbox.ResetStuckMessagesAsync(stoppingToken);
 
         using var timer = new PeriodicTimer(_opts.BackgroundSweepInterval);
 
@@ -233,8 +228,7 @@ public sealed class DIDCommMessageProcessorService : BackgroundService
     private async Task RunSweepAsync(CancellationToken ct)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var driver  = scope.ServiceProvider.GetRequiredService<ISvrn7Driver>();
-        var handler = scope.ServiceProvider.GetRequiredService<IDIDCommTransferHandler>();
+        var driver = scope.ServiceProvider.GetRequiredService<ISvrn7Driver>();
 
         // 1. VC expiry sweep
         try
@@ -257,66 +251,6 @@ public sealed class DIDCommMessageProcessorService : BackgroundService
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             _log.LogError(ex, "Merkle auto-sign failed.");
-        }
-
-        // 3. Process inbox batch
-        var batch = await _inbox.DequeueBatchAsync(BatchSize, ct);
-        if (batch.Count == 0) return;
-
-        _log.LogInformation("DIDComm inbox: processing {Count} message(s).", batch.Count);
-
-        foreach (var message in batch)
-        {
-            if (ct.IsCancellationRequested) break;
-            await ProcessMessageAsync(handler, message, ct);
-        }
-    }
-
-    private async Task ProcessMessageAsync(
-        IDIDCommTransferHandler handler, InboundMessage message, CancellationToken ct)
-    {
-        try
-        {
-            switch (message.MessageType)
-            {
-                case var t when t == Svrn7Constants.Protocols.TransferRequest:
-                    await handler.HandleTransferRequestAsync(message.PackedPayload, ct);
-                    break;
-
-                case var t when t == Svrn7Constants.Protocols.TransferOrder:
-                    await handler.HandleTransferOrderAsync(message.PackedPayload, ct);
-                    break;
-
-                case var t when t == Svrn7Constants.Protocols.TransferOrderReceipt:
-                    await handler.HandleTransferReceiptAsync(message.PackedPayload, ct);
-                    break;
-
-                default:
-                    _log.LogWarning("Inbox: unknown message type '{Type}' — marking failed (no retry).",
-                        message.MessageType);
-                    await _inbox.MarkFailedAsync(
-                        message.Id,
-                        $"Unrecognised message type: {message.MessageType}",
-                        retry: false,
-                        maxAttempts: MaxAttempts,
-                        ct);
-                    return;
-            }
-
-            await _inbox.MarkProcessedAsync(message.Id, ct);
-        }
-        catch (Exception ex) when (!ct.IsCancellationRequested)
-        {
-            _log.LogError(ex,
-                "Inbox: failed to process message {Id} (type={Type}, attempt={Attempt}).",
-                message.Id, message.MessageType, message.AttemptCount + 1);
-
-            await _inbox.MarkFailedAsync(
-                message.Id,
-                ex.ToString(),
-                retry: true,
-                maxAttempts: MaxAttempts,
-                ct);
         }
     }
 }

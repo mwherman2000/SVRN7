@@ -205,9 +205,22 @@ public sealed class DIDCommMessageSwitchboard
 
     private async Task DispatchAsync(InboundMessage msg, CancellationToken ct)
     {
+        // This drain loop runs on its own background async context — Activity.Current
+        // is always null here, so didcomm.dispatch always starts a fresh trace regardless
+        // of parentContext. An ActivityLink to the didcomm.receive span that enqueued this
+        // message (captured in msg.TraceContext) lets Jaeger show the two traces as
+        // related without artificially forcing them into one parent-child trace, which
+        // would misrepresent how long the message actually sat queued.
+        ActivityLink[] links = [];
+        if (!string.IsNullOrEmpty(msg.TraceContext) &&
+            ActivityContext.TryParse(msg.TraceContext, null, out var receiveContext))
+            links = [new ActivityLink(receiveContext)];
+
         using var activity = Svrn7Telemetry.Source.StartActivity(
             Svrn7Telemetry.ActivityDispatch,
-            ActivityKind.Consumer);
+            ActivityKind.Consumer,
+            parentContext: default,
+            links: links);
 
         activity?.SetTag(Svrn7Telemetry.TagMessageId,    msg.Id)
                  .SetTag(Svrn7Telemetry.TagMessageType,  msg.MessageType)
@@ -417,6 +430,8 @@ public sealed class DIDCommMessageSwitchboard
         var results = invokeTask.Result; // task is completed at this point
 
         _log.LogTrace("PS complete: {Cmdlet} → {Count} result(s).", cmdletOrScript, results.Count);
+        invokeActivity?.SetTag(Svrn7Telemetry.TagResultCount,  results.Count)
+                       .SetTag(Svrn7Telemetry.TagWarningCount, ps.Streams.Warning.Count);
 
         // Forward PowerShell streams to the .NET logger.
         foreach (var v in ps.Streams.Verbose)

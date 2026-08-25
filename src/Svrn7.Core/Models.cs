@@ -43,7 +43,7 @@ public enum InboundMessageStatus { Pending, Processing, Processed, Failed }
 /// <summary>
 /// A durable DIDComm inbox message stored in svrn7-msg.db.
 /// Messages survive process restarts and are processed exactly once by
-/// DIDCommMessageProcessorService.
+/// DIDCommMessageSwitchboard — the sole inbox reader.
 ///
 /// Lifecycle: Pending → Processing → Processed | Failed
 /// Failed messages retain LastError for operational diagnostics.
@@ -64,6 +64,12 @@ public record InboundMessage
     public DateTimeOffset?             ProcessedAt   { get; set; }
     public string?                     LastError     { get; set; }
     public int                         AttemptCount  { get; set; }
+    // W3C traceparent ("00-{traceId}-{spanId}-{flags}") of the didcomm.receive span that
+    // enqueued this message. The Switchboard's drain loop runs on its own async context
+    // with no ambient Activity.Current, so didcomm.dispatch always starts a fresh trace —
+    // this field lets it attach an ActivityLink back to the receive trace instead of the
+    // two staying permanently disconnected in the trace backend (Svrn7Telemetry, Svrn7.Core).
+    public string?                     TraceContext  { get; set; }
 
     static readonly JsonSerializerOptions _prettyOpts = new() { WriteIndented = true };
 

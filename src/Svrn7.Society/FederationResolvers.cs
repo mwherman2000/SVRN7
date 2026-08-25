@@ -225,7 +225,8 @@ public sealed class FederationVcDocumentResolver : IVcDocumentResolver
             _ = await _didComm.PackPlaintextAsync(requestMsg, taskCts.Token);
 
             // The response is delivered by the transport and processed by
-            // DIDCommMessageProcessorService, which populates the local VC registry.
+            // DIDCommMessageSwitchboard via the Svrn7.Identity LOBE, which populates
+            // the local VC registry.
             // Since we cannot await an async DIDComm response inline without a
             // transport adapter, we return empty here — results arrive via the inbox.
             // Transport adapters replace this with a TaskCompletionSource-based await.

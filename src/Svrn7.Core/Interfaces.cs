@@ -259,7 +259,7 @@ public interface IProcessedOrderStore
 public interface IInboxStore
 {
     /// <summary>Persists a new incoming message with Status = Pending.</summary>
-    Task EnqueueAsync(string messageType, string packedPayload, string? fromDid = null, string? wireId = null, string? thid = null, string? jweEnvelope = null, CancellationToken ct = default);
+    Task EnqueueAsync(string messageType, string packedPayload, string? fromDid = null, string? wireId = null, string? thid = null, string? jweEnvelope = null, string? traceContext = null, CancellationToken ct = default);
 
     /// <summary>
     /// Retrieves a single message by its LiteDB ObjectId string.
@@ -306,6 +306,15 @@ public interface IInboxStore
     /// </summary>
     Task<IReadOnlyList<InboundMessage>> ListByTypeAsync(
         string typePrefix, int limit = 50, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the count of Processed or Processing messages whose
+    /// <see cref="InboundMessage.MessageType"/> starts with <paramref name="typePrefix"/>.
+    /// Same inclusion rule as <see cref="ListByTypeAsync"/> (Processing counted alongside
+    /// Processed). Unlike ListByTypeAsync, does not materialize message bodies — use this
+    /// for count-only callers (e.g. folder-count badges) instead of ListByTypeAsync(...).Count.
+    /// </summary>
+    Task<int> CountByTypeAsync(string typePrefix, CancellationToken ct = default);
 }
 
 public interface ISocietyMembershipStore
@@ -348,5 +357,12 @@ public interface IDeadLetterStore
 
     /// <summary>Marks a record as retried (whether retry succeeded or not).</summary>
     Task MarkRetriedAsync(string id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the count of unretried records without materializing them (each record
+    /// carries a full PackedMessage). Use this for count-only callers (e.g. folder-count
+    /// badges) instead of GetPendingAsync(...).Count.
+    /// </summary>
+    Task<int> CountPendingAsync(CancellationToken ct = default);
 }
 

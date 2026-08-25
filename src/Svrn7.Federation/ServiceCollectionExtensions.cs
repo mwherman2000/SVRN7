@@ -58,9 +58,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IMerkleLog>(sp => new MerkleLog(
             sp.GetRequiredService<Svrn7LiteContext>(),
             sp.GetRequiredService<ICryptoService>()));
-        services.AddSingleton<IDidDocumentRegistry>(sp => new LiteDidDocumentRegistry(
+        services.AddSingleton<IDidDocumentRegistry>(sp => new DIDDocumentService(new LiteDidDocumentRegistry(
             sp.GetRequiredService<DidRegistryLiteContext>(),
-            sp.GetRequiredService<ILogger<LiteDidDocumentRegistry>>()));
+            sp.GetRequiredService<ILogger<LiteDidDocumentRegistry>>())));
         services.AddSingleton<IVcRegistry>(sp => new LiteVcRegistry(sp.GetRequiredService<VcRegistryLiteContext>()));
         services.AddSingleton<IFederationStore>(sp => new LiteFederationStore(sp.GetRequiredService<FederationLiteContext>()));
         services.AddSingleton<IDidDocumentResolver>(sp =>

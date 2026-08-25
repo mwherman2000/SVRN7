@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Svrn7.Core;
 using Svrn7.Core.Interfaces;
 using Svrn7.DIDComm;
 
@@ -179,17 +180,35 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
     /// </summary>
     private async Task HandleInboundAsync(HttpContext http)
     {
+        // ASP.NET Core has already set Activity.Current to its own internal per-request
+        // Activity by this point, even with no OTel ASP.NET Core instrumentation
+        // registered. That framework activity is never exported (we only AddSource
+        // ("Svrn7.TDA")), so an ordinary StartActivity() here would inherit it as parent
+        // and didcomm.receive would carry a ParentSpanId pointing at a span Jaeger never
+        // receives — an unresolvable "root" that Jaeger's trace list can't title (it
+        // falls back to printing the raw trace ID). Clearing Activity.Current first
+        // forces didcomm.receive to start as a genuine root span. (Passing
+        // parentContext: default to StartActivity does NOT do this — the SDK docs
+        // specify that a default ActivityContext there falls back to Activity.Current.)
+        System.Diagnostics.Activity.Current = null;
+        using var activity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityReceive, System.Diagnostics.ActivityKind.Server);
+
         var contentType = http.Request.ContentType;
         bool isEncrypted = contentType is not null &&
             contentType.StartsWith("application/didcomm-encrypted+json", StringComparison.OrdinalIgnoreCase);
         bool isPlaintext = contentType is not null &&
             contentType.StartsWith("application/didcomm-plain+json", StringComparison.OrdinalIgnoreCase);
 
+        activity?.SetTag(Svrn7Telemetry.TagTransport, "http")
+                 .SetTag(Svrn7Telemetry.TagContentType, contentType);
+
         if (!isEncrypted && !isPlaintext)
         {
             _log.LogWarning(
                 "KestrelListenerService: rejected message with unsupported Content-Type '{Ct}'.",
                 contentType);
+            activity?.SetTag(Svrn7Telemetry.TagOutcome, "415_unsupported_media_type");
             http.Response.StatusCode = StatusCodes.Status415UnsupportedMediaType;
             await http.Response.WriteAsync(
                 "POST /didcomm requires Content-Type: application/didcomm-encrypted+json " +
@@ -205,6 +224,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
 
         if (string.IsNullOrWhiteSpace(packedBody))
         {
+            activity?.SetTag(Svrn7Telemetry.TagOutcome, "400_empty_body");
             http.Response.StatusCode = StatusCodes.Status400BadRequest;
             await http.Response.WriteAsync("Empty DIDComm body.", http.RequestAborted);
             return;
@@ -224,6 +244,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
             }
             catch
             {
+                activity?.SetTag(Svrn7Telemetry.TagOutcome, "400_invalid_json");
                 http.Response.StatusCode = StatusCodes.Status400BadRequest;
                 await http.Response.WriteAsync(
                     "Plaintext DIDComm body is not valid JSON.", http.RequestAborted);
@@ -236,6 +257,8 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
                 _log.LogWarning(
                     "KestrelListenerService: rejected plaintext message — @type '{Type}' is not a DID discovery protocol.",
                     messageType ?? "(null)");
+                activity?.SetTag(Svrn7Telemetry.TagMessageType, messageType)
+                         .SetTag(Svrn7Telemetry.TagOutcome, "403_forbidden_plaintext");
                 http.Response.StatusCode = StatusCodes.Status403Forbidden;
                 await http.Response.WriteAsync(
                     "Plaintext DIDComm is only permitted for DID discovery protocols (did-resolve-request/response). " +
@@ -259,12 +282,16 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         catch (Exception ex)
         {
             _log.LogWarning(ex, "KestrelListenerService: UnpackAsync failed — rejecting message.");
+            activity?.SetTag(Svrn7Telemetry.TagOutcome, "400_unpack_failed");
             http.Response.StatusCode = StatusCodes.Status400BadRequest;
             await http.Response.WriteAsync(
                 "DIDComm unpack failed: invalid signature or encryption.",
                 http.RequestAborted);
             return;
         }
+
+        activity?.SetTag(Svrn7Telemetry.TagMessageId, unpacked.Id)
+                 .SetTag(Svrn7Telemetry.TagMessageType, unpacked.Type);
 
         // ── Write-ahead log (Long-Term Message Memory — DSA 0.24) ─────────────
         // Persist the unpacked payload (not the JWE — agents work with plaintext).
@@ -279,11 +306,17 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
                 unpacked.Id,
                 unpacked.Thid,
                 packedBody,
+                activity?.Id,  // W3C traceparent of this didcomm.receive span — lets the
+                               // Switchboard's didcomm.dispatch span (a separate trace,
+                               // started with no ambient parent from its own background
+                               // drain loop) link back to this one instead of the two
+                               // traces staying disconnected in the trace backend.
                 http.RequestAborted);
         }
         catch (Exception ex)
         {
             _log.LogError(ex, "KestrelListenerService: inbox store unavailable — returning 503.");
+            activity?.SetTag(Svrn7Telemetry.TagOutcome, "503_inbox_unavailable");
             http.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
             http.Response.Headers["Retry-After"] = "5";
             await http.Response.WriteAsync(
@@ -296,6 +329,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
             "KestrelListenerService: enqueued message type='{Type}'.", unpacked.Type);
         _log.LogDebug("KestrelListenerService: accepted message:\n{Json}", unpacked.ToFormattedJson());
 
+        activity?.SetTag(Svrn7Telemetry.TagOutcome, "202_accepted");
         http.Response.StatusCode = StatusCodes.Status202Accepted;
     }
 
@@ -410,6 +444,21 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
     {
         if (string.IsNullOrWhiteSpace(json)) return;
 
+        // ASP.NET Core has already set Activity.Current to its own internal per-request
+        // Activity by this point, even with no OTel ASP.NET Core instrumentation
+        // registered. That framework activity is never exported (we only AddSource
+        // ("Svrn7.TDA")), so an ordinary StartActivity() here would inherit it as parent
+        // and didcomm.receive would carry a ParentSpanId pointing at a span Jaeger never
+        // receives — an unresolvable "root" that Jaeger's trace list can't title (it
+        // falls back to printing the raw trace ID). Clearing Activity.Current first
+        // forces didcomm.receive to start as a genuine root span. (Passing
+        // parentContext: default to StartActivity does NOT do this — the SDK docs
+        // specify that a default ActivityContext there falls back to Activity.Current.)
+        System.Diagnostics.Activity.Current = null;
+        using var activity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityReceive, System.Diagnostics.ActivityKind.Server);
+        activity?.SetTag(Svrn7Telemetry.TagTransport, "ws");
+
         _log.LogDebug(
             "KestrelListenerService: WebSocket processing message — length={Length}, preview='{Preview}'.",
             json.Length, json.Length > 120 ? json[..120] : json);
@@ -417,7 +466,10 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         // Svrn7.LocalUI.0.1.0 control frames (Hello/Goodbye) are connection-lifecycle
         // concerns handled directly by the hub — never enqueued to the inbox/Switchboard.
         if (await _hub.TryHandleControlFrameAsync(clientId, json, ct))
+        {
+            activity?.SetTag(Svrn7Telemetry.TagOutcome, "control_frame");
             return;
+        }
 
         DIDCommUnpackedMessage unpacked;
         try
@@ -430,12 +482,16 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         catch (Exception ex)
         {
             _log.LogWarning(ex, "KestrelListenerService: WebSocket UnpackAsync failed — ignoring message.");
+            activity?.SetTag(Svrn7Telemetry.TagOutcome, "unpack_failed");
             return;
         }
 
         _log.LogDebug(
             "KestrelListenerService: WebSocket UnpackAsync OK — type='{Type}', from='{From}'.",
             unpacked.Type, unpacked.From);
+
+        activity?.SetTag(Svrn7Telemetry.TagMessageId, unpacked.Id)
+                 .SetTag(Svrn7Telemetry.TagMessageType, unpacked.Type);
 
         // Track this request's own envelope id → socket before enqueueing, so its eventual
         // reply (envelope thid == this id, e.g. Get-PandoMails) is routed back to this
@@ -455,12 +511,16 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
                 unpacked.Id,
                 unpacked.Thid,
                 json,
+                activity?.Id,  // W3C traceparent of this didcomm.receive span — see the
+                               // HTTP path's EnqueueAsync call for why.
                 ct);
             _log.LogDebug("KestrelListenerService: WebSocket message enqueued (type='{Type}').", unpacked.Type);
+            activity?.SetTag(Svrn7Telemetry.TagOutcome, "enqueued");
         }
         catch (Exception ex)
         {
             _log.LogError(ex, "KestrelListenerService: WebSocket inbox enqueue failed.");
+            activity?.SetTag(Svrn7Telemetry.TagOutcome, "enqueue_failed");
         }
     }
 

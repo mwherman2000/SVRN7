@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using LiteDB;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
+using Svrn7.Core;
 using Svrn7.Core.Interfaces;
 using Svrn7.Core.Models;
 
@@ -127,9 +129,14 @@ public sealed class LiteInboxStore : IInboxStore
 
     /// <inheritdoc/>
     public Task EnqueueAsync(
-        string messageType, string packedPayload, string? fromDid = null, string? wireId = null, string? thid = null, string? jweEnvelope = null, CancellationToken ct = default)
+        string messageType, string packedPayload, string? fromDid = null, string? wireId = null, string? thid = null, string? jweEnvelope = null, string? traceContext = null, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+
+        using var activity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityStorage, ActivityKind.Client);
+        activity?.SetTag(Svrn7Telemetry.TagDbOperation, "enqueue")
+                 .SetTag(Svrn7Telemetry.TagMessageType, messageType);
 
         var message = new InboundMessage
         {
@@ -144,6 +151,7 @@ public sealed class LiteInboxStore : IInboxStore
             FromDid       = fromDid,
             WireId        = wireId,
             Thid          = thid,
+            TraceContext  = traceContext,
             ReceivedAt    = DateTimeOffset.UtcNow,
             Status        = InboundMessageStatus.Pending,
         };
@@ -151,6 +159,9 @@ public sealed class LiteInboxStore : IInboxStore
         _ctx.InboundMessages.Insert(message);
         _log.LogDebug("Inbox: enqueued message{NL}{Body}",
             Environment.NewLine, message.ToFormattedJson());
+
+        activity?.SetTag(Svrn7Telemetry.TagMessageId, message.Id)
+                 .SetStatus(ActivityStatusCode.Ok);
         return Task.CompletedTask;
     }
 
@@ -158,8 +169,17 @@ public sealed class LiteInboxStore : IInboxStore
     public Task<InboundMessage?> GetByIdAsync(string didUrl, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+
+        using var activity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityStorage, ActivityKind.Client);
+        activity?.SetTag(Svrn7Telemetry.TagDbOperation, "get_by_id")
+                 .SetTag(Svrn7Telemetry.TagMessageId, didUrl);
+
         // Id is now a full DID URL. Match directly on the Id field.
         var msg = _ctx.InboundMessages.FindOne(m => m.Id == didUrl);
+
+        activity?.SetTag(Svrn7Telemetry.TagOutcome, msg is null ? "miss" : "hit")
+                 .SetStatus(ActivityStatusCode.Ok);
         return Task.FromResult<InboundMessage?>(msg);
     }
 
@@ -176,8 +196,16 @@ public sealed class LiteInboxStore : IInboxStore
             .Take(batchSize)
             .ToList();
 
+        // No span on an empty result — the drain loop polls this every IdleMs (100ms)
+        // while idle, and tracing every empty tick would flood the exporter with noise.
+        // Only a batch that actually found work is worth a span.
         if (pending.Count == 0)
             return Task.FromResult<IReadOnlyList<InboundMessage>>(Array.Empty<InboundMessage>());
+
+        using var activity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityStorage, ActivityKind.Client);
+        activity?.SetTag(Svrn7Telemetry.TagDbOperation, "dequeue_batch")
+                 .SetTag(Svrn7Telemetry.TagRecordCount, pending.Count);
 
         // Atomically mark batch as Processing
         foreach (var msg in pending)
@@ -187,6 +215,7 @@ public sealed class LiteInboxStore : IInboxStore
         }
 
         _log.LogDebug("Inbox: dequeued {Count} messages for processing", pending.Count);
+        activity?.SetStatus(ActivityStatusCode.Ok);
         return Task.FromResult<IReadOnlyList<InboundMessage>>(pending);
     }
 
@@ -195,11 +224,18 @@ public sealed class LiteInboxStore : IInboxStore
     {
         ct.ThrowIfCancellationRequested();
 
+        using var activity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityStorage, ActivityKind.Client);
+        activity?.SetTag(Svrn7Telemetry.TagDbOperation, "mark_processed")
+                 .SetTag(Svrn7Telemetry.TagMessageId, messageDid);
+
         var col = _ctx.InboundMessages;
         var msg = col.FindOne(m => m.Id == messageDid);
         if (msg is null)
         {
             _log.LogWarning("Inbox: MarkProcessed called for unknown message {Id}", messageDid);
+            activity?.SetTag(Svrn7Telemetry.TagOutcome, "not_found")
+                     .SetStatus(ActivityStatusCode.Error, "message not found");
             return Task.CompletedTask;
         }
 
@@ -208,6 +244,8 @@ public sealed class LiteInboxStore : IInboxStore
         col.Update(msg);
 
         _log.LogDebug("Inbox: message {Id} marked Processed", messageDid);
+        activity?.SetTag(Svrn7Telemetry.TagOutcome, "processed")
+                 .SetStatus(ActivityStatusCode.Ok);
         return Task.CompletedTask;
     }
 
@@ -218,11 +256,18 @@ public sealed class LiteInboxStore : IInboxStore
     {
         ct.ThrowIfCancellationRequested();
 
+        using var activity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityStorage, ActivityKind.Client);
+        activity?.SetTag(Svrn7Telemetry.TagDbOperation, "mark_failed")
+                 .SetTag(Svrn7Telemetry.TagMessageId, messageId);
+
         var col = _ctx.InboundMessages;
         var msg = col.FindOne(m => m.Id == messageId);
         if (msg is null)
         {
             _log.LogWarning("Inbox: MarkFailed called for unknown message {Id}", messageId);
+            activity?.SetTag(Svrn7Telemetry.TagOutcome, "not_found")
+                     .SetStatus(ActivityStatusCode.Error, "message not found");
             return Task.CompletedTask;
         }
 
@@ -235,6 +280,8 @@ public sealed class LiteInboxStore : IInboxStore
             _log.LogWarning(
                 "Inbox: message {Id} failed (attempt {Attempt}/{Max}) — requeued. Error: {Error}",
                 messageId, msg.AttemptCount, maxAttempts, error);
+            activity?.SetTag(Svrn7Telemetry.TagAttemptCount, msg.AttemptCount)
+                     .SetTag(Svrn7Telemetry.TagOutcome, "requeued");
         }
         else
         {
@@ -242,9 +289,12 @@ public sealed class LiteInboxStore : IInboxStore
             _log.LogError(
                 "Inbox: message {Id} permanently failed after {Attempt} attempt(s). Error: {Error}",
                 messageId, msg.AttemptCount, error);
+            activity?.SetTag(Svrn7Telemetry.TagAttemptCount, msg.AttemptCount)
+                     .SetTag(Svrn7Telemetry.TagOutcome, "dead_lettered");
         }
 
         col.Update(msg);
+        activity?.SetStatus(ActivityStatusCode.Ok);
         return Task.CompletedTask;
     }
 
@@ -252,6 +302,10 @@ public sealed class LiteInboxStore : IInboxStore
     public Task ResetStuckMessagesAsync(CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+
+        using var activity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityStorage, ActivityKind.Client);
+        activity?.SetTag(Svrn7Telemetry.TagDbOperation, "reset_stuck");
 
         var col   = _ctx.InboundMessages;
         var stuck = col.Find(m => m.Status == InboundMessageStatus.Processing).ToList();
@@ -267,6 +321,8 @@ public sealed class LiteInboxStore : IInboxStore
                 "Inbox: reset {Count} stuck message(s) from Processing to Pending on startup.",
                 stuck.Count);
 
+        activity?.SetTag(Svrn7Telemetry.TagRecordCount, stuck.Count)
+                 .SetStatus(ActivityStatusCode.Ok);
         return Task.CompletedTask;
     }
 
@@ -294,6 +350,11 @@ public sealed class LiteInboxStore : IInboxStore
     {
         ct.ThrowIfCancellationRequested();
 
+        using var activity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityStorage, ActivityKind.Client);
+        activity?.SetTag(Svrn7Telemetry.TagDbOperation, "list_by_type")
+                 .SetTag(Svrn7Telemetry.TagMessageType, typePrefix);
+
         // Includes Processing (not just Processed) so a folder-counts notification fired
         // from within the LOBE cmdlet handling this very message — e.g. PandoMail's
         // New-FolderCountsNotification, called before the Switchboard's MarkProcessedAsync
@@ -305,7 +366,33 @@ public sealed class LiteInboxStore : IInboxStore
             .Take(limit)
             .ToList();
 
+        activity?.SetTag(Svrn7Telemetry.TagRecordCount, messages.Count)
+                 .SetStatus(ActivityStatusCode.Ok);
         return Task.FromResult<IReadOnlyList<InboundMessage>>(messages);
+    }
+
+    /// <inheritdoc/>
+    public Task<int> CountByTypeAsync(string typePrefix, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        using var activity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityStorage, ActivityKind.Client);
+        activity?.SetTag(Svrn7Telemetry.TagDbOperation, "count_by_type")
+                 .SetTag(Svrn7Telemetry.TagMessageType, typePrefix);
+
+        // Same inclusion rule as ListByTypeAsync (see comment there), but LiteDB's
+        // Count(predicate) never sorts or materializes full InboundMessage objects
+        // (PackedPayload included) — the right choice for count-only callers like
+        // folder-count badges, which previously called ListByTypeAsync(limit: 5000)
+        // and threw away everything but .Count.
+        var count = _ctx.InboundMessages.Count(m =>
+            m.MessageType.StartsWith(typePrefix) &&
+            (m.Status == InboundMessageStatus.Processed || m.Status == InboundMessageStatus.Processing));
+
+        activity?.SetTag(Svrn7Telemetry.TagRecordCount, count)
+                 .SetStatus(ActivityStatusCode.Ok);
+        return Task.FromResult(count);
     }
 }
 
@@ -373,5 +460,14 @@ public sealed class LiteDeadLetterStore : Svrn7.Core.Interfaces.IDeadLetterStore
         record.IsRetried = true;
         _ctx.DeadLetter.Update(record);
         return Task.CompletedTask;
+    }
+
+    public Task<int> CountPendingAsync(CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        // Count(predicate) — unlike GetPendingAsync, never materializes full
+        // DeadLetterRecord objects (each carries a full PackedMessage).
+        var count = _ctx.DeadLetter.Count(r => !r.IsRetried);
+        return Task.FromResult(count);
     }
 }
