@@ -148,6 +148,9 @@ string federationDomainArg;
         : string.Empty;
 }
 
+try
+{
+
 bool forceReset = Array.IndexOf(args, "--reset") >= 0;
 if (forceReset)
 {
@@ -155,7 +158,7 @@ if (forceReset)
     if (Directory.Exists(memDir))
     {
         foreach (var f in Directory.GetFiles(memDir))
-            File.Delete(f);
+            DeleteWithRetry(f);
         Console.WriteLine($"--reset: deleted all files in {memDir}");
     }
 }
@@ -447,6 +450,84 @@ if (!string.IsNullOrEmpty(tdaOpts.FederationDomain) && string.IsNullOrEmpty(tdaO
 }
 
 await host.RunAsync();
+
+}
+catch (Exception ex)
+{
+    WriteFatalError(ex, port);
+    Environment.Exit(1);
+}
+
+// Prints a short, actionable summary for a startup/runtime crash instead of the .NET
+// runtime's default "Unhandled exception." dump — several dozen lines of stack frames
+// through Kestrel/LiteDB/Generic Host internals that bury the one line an operator
+// actually needs. Recognizes the failure mode hit in practice (port already claimed by
+// another TDA) and falls back to the exception's own message for anything else — still
+// one line, not a stack trace, but honest about not having a canned tip. The full
+// exception (with stack trace) is not lost — catching it here for the friendly summary
+// means the runtime never prints its own dump, so this writes the full detail to a
+// crash log instead, the same "friendly summary + details on disk" split PandoMail's
+// FileLoggerProvider uses.
+static void WriteFatalError(Exception ex, int port)
+{
+    Console.Error.WriteLine();
+    Console.Error.WriteLine("────────────────────────────────────────────────────────────────────────────────");
+    if (ex.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase)
+        || ex.GetType().Name.Contains("AddressInUse", StringComparison.OrdinalIgnoreCase))
+    {
+        Console.Error.WriteLine($"  TDA failed to start: port {port} is already in use.");
+        Console.Error.WriteLine($"  Is another TDA already running on --port {port}? Stop it first, or pick a different port.");
+    }
+    else
+    {
+        Console.Error.WriteLine($"  TDA failed to start: {ex.Message}");
+    }
+
+    var crashLogPath = Path.Combine(AppContext.BaseDirectory, port.ToString(), "crash.log");
+    try
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(crashLogPath)!);
+        File.AppendAllText(crashLogPath,
+            $"{DateTimeOffset.UtcNow:O} {ex}{Environment.NewLine}{new string('-', 80)}{Environment.NewLine}");
+        Console.Error.WriteLine($"  Full details written to: {crashLogPath}");
+    }
+    catch
+    {
+        // Best-effort — if the crash log itself can't be written (e.g. the disk problem
+        // that caused the crash), fall back to printing the full exception directly so
+        // the operator isn't left with only the one-line summary above.
+        Console.Error.WriteLine(ex.ToString());
+    }
+    Console.Error.WriteLine("────────────────────────────────────────────────────────────────────────────────");
+    Console.Error.WriteLine();
+}
+
+// Deletes a file for --reset, tolerating a brief IOException instead of crashing the
+// whole process with it. A prior TDA on this port releases its LiteDB file handles as
+// part of the Generic Host's graceful shutdown (UseConsoleLifetime disposes the
+// ServiceProvider, which disposes every registered LiteDB context) — but that release
+// isn't guaranteed to have landed by the time a --reset immediately after it runs, and
+// the same transient lock can come from a virus scanner or indexer touching the file.
+// Retries with a short fixed delay rather than failing --reset's very first startup step.
+static void DeleteWithRetry(string path, int maxAttempts = 20, int delayMs = 250)
+{
+    for (int attempt = 1; attempt <= maxAttempts; attempt++)
+    {
+        try { File.Delete(path); return; }
+        catch (IOException ex)
+        {
+            if (attempt == maxAttempts)
+                // Surface a message that points at the actual cause instead of the .NET
+                // runtime's generic "being used by another process" wording, which gives
+                // no next step.
+                throw new IOException(
+                    $"'{Path.GetFileName(path)}' is still locked after {maxAttempts * delayMs / 1000.0:0.#}s. " +
+                    "A previous TDA on this port may not have fully shut down yet — wait a few seconds and " +
+                    "run --reset again, or check Task Manager for a lingering dotnet.exe.", ex);
+            Thread.Sleep(delayMs);
+        }
+    }
+}
 
 // Resolves a configured DB path against AppContext.BaseDirectory so that relative
 // paths in appsettings.json work regardless of the process working directory.
