@@ -247,6 +247,20 @@ Derived from: "Citizen/Society TDA (Host)" — element type Host — DSA 0.24 Ep
 
 ### C# ↔ PowerShell Layer Model
 
+The split follows a security/trust boundary, not just a "backend vs. plugin" line —
+LOBEs are hot-reloadable and may be authored by anyone, so they're trusted far less
+than the host loading them:
+
+| Layer | Owns | Never does |
+|---|---|---|
+| **C# host** — `KestrelListenerService`, storage (`LiteInboxStore`/DID/VC registries), `DIDCommMessageSwitchboard`, `LobeManager` | Decrypt/verify at the inbound boundary; durable persistence; routing by `@type`; SignThenEncrypt at the outbound boundary; runspace pool lifecycle | Run LOBE-author-supplied business logic |
+| **LOBE** (`.psm1` protocol entrypoints) | Application/protocol logic on an already-decrypted message body; returns a plaintext `[Svrn7.TDA.OutboundMessage]` (or `$null`) | Touch DIDComm envelope crypto (JWE/JWS) or the TDA's own transport signing/key-agreement key material — both stay C#-only |
+
+See `docs/LOBEGUIDE.md`'s "Division of Responsibility" section for the full detail,
+including where this boundary has needed active correction (moving citizen/payer
+key-handling cmdlets out of the eager LOBE modules and into `admin-tools/`, which
+were reachable from any dispatch runspace despite never being a registered entrypoint).
+
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  NETWORK                                                       │
