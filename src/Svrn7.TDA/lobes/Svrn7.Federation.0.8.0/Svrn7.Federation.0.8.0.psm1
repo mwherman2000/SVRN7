@@ -96,8 +96,14 @@ function Initialize-Svrn7FederationDriver {
 .NOTES
     The driver is disposed automatically when the module is removed.
 #>
+    # No [OutputType([Svrn7.Federation.ISvrn7Driver])] here — function attributes resolve at
+    # invocation-binding time, *before* the body's first statement runs, unlike ordinary body
+    # statements. This function's whole job on first call is to Add-Type the assembly that
+    # type comes from — an OutputType referencing it would need that type to already be
+    # loaded before the function could ever run for the first time. Confirmed via minimal
+    # repro: an [OutputType] on an unloaded type breaks invocation even when the body's own
+    # Add-Type call would otherwise succeed.
     [CmdletBinding()]
-    [OutputType([Svrn7.Federation.ISvrn7Driver])]
     param(
         [string] $DbPath        = '',
         [string] $BinPath       = '',
@@ -124,16 +130,22 @@ function Initialize-Svrn7FederationDriver {
               else { Join-Path ([System.IO.Path]::GetTempPath()) 'svrn7-ps' }
     [System.IO.Directory]::CreateDirectory($dbRoot) | Out-Null
 
+    # Explicit static calls, not $svc.AddSvrn7Federation(...)/.BuildServiceProvider() dot-syntax:
+    # these are C# extension methods, and PowerShell's instance dot-syntax does not resolve
+    # extension methods the way C#'s compile-time `using` binding does — confirmed via
+    # reflection (zero AddSvrn7Federation-named methods exist directly on ServiceCollection).
     $svc = [Microsoft.Extensions.DependencyInjection.ServiceCollection]::new()
-    $svc.AddSvrn7Federation([Action[Svrn7.Federation.Svrn7Options]] {
+    [Microsoft.Extensions.DependencyInjection.LoggingServiceCollectionExtensions]::AddLogging($svc) | Out-Null
+    [Svrn7.Federation.ServiceCollectionExtensions]::AddSvrn7Federation($svc, [Action[Svrn7.Federation.Svrn7Options]] {
         param($o)
         $o.Svrn7DbPath   = Join-Path $dbRoot 'svrn7.db'
         $o.DidsDbPath    = Join-Path $dbRoot 'svrn7-dids.db'
         $o.VcsDbPath     = Join-Path $dbRoot 'svrn7-vcs.db'
         $o.DidMethodName = $DidMethodName
     }) | Out-Null
-    $Script:FederationDriver = $svc.BuildServiceProvider()
-                                   .GetRequiredService([Svrn7.Federation.ISvrn7Driver])
+    $provider = [Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions]::BuildServiceProvider($svc)
+    $Script:FederationDriver = [Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions]::GetRequiredService(
+        $provider, [Svrn7.Federation.ISvrn7Driver])
     Write-Verbose "Svrn7.Federation ready. DbRoot: $dbRoot  Method: $DidMethodName"
     if ($PassThru) { return $Script:FederationDriver }
 }

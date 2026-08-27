@@ -45,11 +45,13 @@ public static class ServiceCollectionExtensions
             var opts = sp.GetRequiredService<IOptions<Svrn7Options>>().Value;
             return new VcRegistryLiteContext(opts.VcsDbPath);
         });
+        // Shares Svrn7LiteContext's already-open LiteDatabase handle rather than opening a
+        // second exclusive connection to the same Svrn7DbPath file — LiteDB's default
+        // (non-shared) connection mode does not allow two separate LiteDatabase instances
+        // to hold the same file open at once. Mirrors Svrn7.Society's SocietyExtensions.cs,
+        // which already does this correctly.
         services.AddSingleton<FederationLiteContext>(sp =>
-        {
-            var opts = sp.GetRequiredService<IOptions<Svrn7Options>>().Value;
-            return new FederationLiteContext(opts.Svrn7DbPath);
-        });
+            new FederationLiteContext(sp.GetRequiredService<Svrn7LiteContext>().Database));
 
         services.AddSingleton<ICryptoService, CryptoService>();
         services.AddSingleton<IWalletStore>(sp => new LiteWalletStore(sp.GetRequiredService<Svrn7LiteContext>()));

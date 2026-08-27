@@ -176,8 +176,12 @@ function Connect-Svrn7Society {
         C# API: ISvrn7SocietyDriver / Svrn7SocietyOptions (Svrn7.Society)
         Spec:   draft-herman-web7-society-architecture-00 §4.2, §9.2
     #>
+    # No [OutputType([Svrn7.Society.ISvrn7SocietyDriver])] here — see
+    # Initialize-Svrn7FederationDriver's identical comment in Svrn7.Federation.0.8.0.psm1:
+    # function attributes resolve at invocation-binding time, before Add-Type in the body
+    # ever runs, so an OutputType referencing a not-yet-loaded type breaks the function's
+    # own self-bootstrapping on first call.
     [CmdletBinding()]
-    [OutputType([Svrn7.Society.ISvrn7SocietyDriver])]
     param(
         [Parameter(Mandatory)]
         [ValidateNotNullOrEmpty()]
@@ -239,13 +243,23 @@ function Connect-Svrn7Society {
         [System.Convert]::FromHexString($FederationMessagingPublicKeyEd25519Hex)
     } else { [byte[]]@() }
 
+    # Explicit static calls, not $services.AddSvrn7Society(...)/.BuildServiceProvider()
+    # dot-syntax — see Initialize-Svrn7FederationDriver's identical comment; PowerShell's
+    # instance dot-syntax does not resolve C# extension methods.
     $services = [Microsoft.Extensions.DependencyInjection.ServiceCollection]::new()
+    [Microsoft.Extensions.DependencyInjection.LoggingServiceCollectionExtensions]::AddLogging($services) | Out-Null
 
-    $services.AddSvrn7Society([Action[Svrn7.Society.Svrn7SocietyOptions]] {
+    [Svrn7.Society.SocietyServiceCollectionExtensions]::AddSvrn7Society($services, [Action[Svrn7.Society.Svrn7SocietyOptions]] {
         param($o)
         $o.SocietyDid                         = $SocietyDid
         $o.FederationDid                      = $FederationDid
-        $o.DidMethodNames                     = [System.Collections.Generic.List[string]]$DidMethodNames
+        # Svrn7SocietyOptions has no DidMethodNames (plural) property — only the singular
+        # DidMethodName it inherits from Svrn7Options. -DidMethodNames' first element is
+        # documented as "the primary method name"; use that. Additional elements (documented
+        # as "secondary names") have no property to land in today — Svrn7SocietyOptions was
+        # never extended to support more than one, so multi-method-name Societies aren't
+        # actually supported yet despite the parameter accepting an array.
+        $o.DidMethodName                      = $DidMethodNames[0]
         $o.SocietyMessagingPrivateKeyEd25519  = $msgPriv
         $o.FederationMessagingPublicKeyEd25519 = $fedPub
         $o.DrawAmountGrana                    = $DrawAmountGrana
@@ -255,8 +269,9 @@ function Connect-Svrn7Society {
         $o.VcsDbPath   = Join-Path $dbRoot 'svrn7-vcs.db'
     }) | Out-Null
 
-    $Script:SocietyDriver = $services.BuildServiceProvider()
-        .GetRequiredService([Svrn7.Society.ISvrn7SocietyDriver])
+    $provider = [Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions]::BuildServiceProvider($services)
+    $Script:SocietyDriver = [Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions]::GetRequiredService(
+        $provider, [Svrn7.Society.ISvrn7SocietyDriver])
 
     Write-Verbose "Svrn7.Society connected: $SocietyDid"
     if ($PassThru) { return $Script:SocietyDriver }

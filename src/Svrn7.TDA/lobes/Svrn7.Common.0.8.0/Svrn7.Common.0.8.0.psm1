@@ -16,6 +16,8 @@ Set-StrictMode -Version Latest
 $Script:FederationDriver = $null   # ISvrn7Driver
 $Script:SocietyDriver    = $null   # ISvrn7SocietyDriver
 $Script:AssembliesLoaded = $false
+$Script:AssemblyResolverRegistered = $false
+$Script:Svrn7AssemblyBinPath       = $null
 
 # ── PSTypeName constants ───────────────────────────────────────────────────────
 
@@ -37,6 +39,71 @@ $Script:TypeMerkleHead      = 'Svrn7.MerkleTreeHead'
 $Script:TypeFederation      = 'Svrn7.FederationRecord'
 
 # ── Assembly loader ────────────────────────────────────────────────────────────
+
+function Register-Svrn7AssemblyResolver {
+<#
+.SYNOPSIS
+    Registers a process-wide fallback assembly resolver so transitive NuGet package
+    dependencies (referenced only from within already-loaded assemblies' method bodies,
+    e.g. Microsoft.Extensions.Options.DataAnnotations) can still be found from a bare
+    PowerShell session.
+.DESCRIPTION
+    dotnet Svrn7.TDA.dll resolves its full dependency graph via Svrn7.TDA.deps.json —
+    every NuGet package it transitively needs, whether or not the physical .dll sits next
+    to the .exe. Add-Type/Assembly.LoadFrom in a standalone pwsh.exe session has none of
+    that: it only finds what you hand it explicitly, and some packages Svrn7.Federation.dll
+    genuinely needs (confirmed: Microsoft.Extensions.Options.DataAnnotations.dll) are never
+    even copied into bin/Debug/net8.0/ — dotnet's host resolves them from the NuGet global
+    package cache at runtime instead. This handler probes, in order: (1) the same bin
+    folder Initialize-Svrn7Assemblies already loads from, (2) the NuGet global package
+    cache ($env:NUGET_PACKAGES or ~/.nuget/packages), trying common lib/<tfm> folders for
+    the highest installed version. Registered once per process (AssemblyLoadContext has no
+    "already registered" check of its own).
+
+    Note: this only helps assemblies resolved via genuine runtime CLR reflection (a method
+    body executing `new SomeType()` for the first time). It does NOT help PowerShell's own
+    `[TypeName]` literal syntax, which resolves at parse time — those types must already be
+    loaded via an explicit Add-Type before the script text that references them runs.
+#>
+    if ($Script:AssemblyResolverRegistered) { return }
+
+    # Read $Script:Svrn7AssemblyBinPath and the NuGet root directly inside the handler body
+    # (not via a locally-captured variable) — this delegate is invoked by the CLR's own
+    # assembly loader, not PowerShell's pipeline, so it must not depend on scriptblock
+    # closure semantics working across that native call boundary. $Script: lookups and
+    # environment reads are always safely resolvable regardless.
+    $handler = [Func[System.Runtime.Loader.AssemblyLoadContext, System.Reflection.AssemblyName, System.Reflection.Assembly]] {
+        param($context, $asmName)
+
+        $binPath = $Script:Svrn7AssemblyBinPath
+        $local = Join-Path $binPath ($asmName.Name + '.dll')
+        if (Test-Path -LiteralPath $local) {
+            return [System.Reflection.Assembly]::LoadFrom($local)
+        }
+
+        $nugetRoot = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE '.nuget\packages' }
+        if (Test-Path -LiteralPath $nugetRoot) {
+            $pkgDir = Join-Path $nugetRoot $asmName.Name.ToLowerInvariant()
+            if (Test-Path -LiteralPath $pkgDir) {
+                $verDirs = Get-ChildItem -LiteralPath $pkgDir -Directory -ErrorAction SilentlyContinue |
+                    Sort-Object { try { [version]$_.Name } catch { [version]'0.0' } } -Descending
+                foreach ($verDir in $verDirs) {
+                    foreach ($tfm in 'net8.0', 'net7.0', 'net6.0', 'netstandard2.1', 'netstandard2.0') {
+                        $candidate = Join-Path $verDir.FullName "lib\$tfm\$($asmName.Name).dll"
+                        if (Test-Path -LiteralPath $candidate) {
+                            return [System.Reflection.Assembly]::LoadFrom($candidate)
+                        }
+                    }
+                }
+            }
+        }
+
+        return $null
+    }
+
+    [System.Runtime.Loader.AssemblyLoadContext]::Default.add_Resolving($handler)
+    $Script:AssemblyResolverRegistered = $true
+}
 
 function Initialize-Svrn7Assemblies {
     [CmdletBinding()]
@@ -62,7 +129,19 @@ function Initialize-Svrn7Assemblies {
             "Set `$env:SVRN7_BIN_PATH or place DLLs in: '$binPath'.")
     }
 
+    $Script:Svrn7AssemblyBinPath = $binPath
+    Register-Svrn7AssemblyResolver
+
+    # The Microsoft.Extensions.* DLLs are loaded explicitly (not left to the resolver
+    # above) because PowerShell's [TypeName] literal syntax resolves at parse time —
+    # Initialize-Svrn7FederationDriver/Connect-Svrn7Society reference
+    # [Microsoft.Extensions.DependencyInjection.ServiceCollection] etc. directly, and that
+    # must already be loaded before the script text containing that literal executes.
     foreach ($dll in @(
+        'Microsoft.Extensions.DependencyInjection.Abstractions.dll',
+        'Microsoft.Extensions.DependencyInjection.dll',
+        'Microsoft.Extensions.Logging.Abstractions.dll',
+        'Microsoft.Extensions.Logging.dll',
         'Svrn7.Core.dll','Svrn7.Crypto.dll','Svrn7.Store.dll',
         'Svrn7.Ledger.dll','Svrn7.Identity.dll','Svrn7.DIDComm.dll',
         'Svrn7.Federation.dll','Svrn7.Society.dll')) {
