@@ -194,14 +194,6 @@ Send-LocalDIDCommMessage -Port 8441 -Body $msg
 #       Switchboard: routing ... (type=.../Svrn7.Federation.0.8.0/federation-query)
 #           → Invoke-Web7FederationQuery [Svrn7.Federation]
 #
-# KNOWN SOURCE BUG — the found:true branch of Invoke-Web7FederationQuery reads
-# $fed.PrimaryDidMethodName (Svrn7.Federation.0.8.0.psm1:1305), but FederationRecord
-# (src\Svrn7.Core\Models.cs) has no PrimaryDidMethodName property. Under
-# Set-StrictMode -Version Latest this throws a PropertyNotFoundException, so once the
-# Federation is initialised this handler currently errors instead of returning the
-# reply below. The JSON shows the intended/designed shape once that field reference
-# is fixed in source — do not expect this exact reply today.
-#
 # Reply body (federation-query-result), as currently assembled by the handler:
 #
 # {
