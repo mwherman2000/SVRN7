@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Svrn7.Core;
 
 namespace Svrn7.TDA;
 
@@ -115,16 +117,38 @@ public sealed class IsolatedPipeline : IDisposable
     public PowerShell Ps { get; }
 
     private readonly Runspace _runspace;
+    private readonly Activity? _lifetimeActivity;
     private bool              _disposed;
 
+    /// <summary>
+    /// Spans this instance's full lifetime — started here at creation, stopped in
+    /// Dispose() — rather than a single bounded operation like the other
+    /// Svrn7Telemetry activities. Its duration is exactly how long this dispatch held
+    /// its own isolated runspace, the same metric that would surface a leak (a
+    /// pipeline created but never disposed) or the JIT-LOBE reimport overhead
+    /// (docs/BACKLOG.md TDA-001a) in a trace backend.
+    /// </summary>
     internal IsolatedPipeline(InitialSessionState iss, ILogger? log = null)
     {
         _runspace = RunspaceFactory.CreateRunspace(iss);
-        _runspace.Open();
-        Ps = PowerShell.Create();
-        Ps.Runspace = _runspace;
-        if (log is not null)
-            log.LogDebug("IsolatedPipeline: {Probe}", ProbeRunspace());
+        _lifetimeActivity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityRunspace, ActivityKind.Internal);
+        _lifetimeActivity?.SetTag(Svrn7Telemetry.TagRunspaceId, _runspace.InstanceId.ToString());
+        try
+        {
+            _runspace.Open();
+            Ps = PowerShell.Create();
+            Ps.Runspace = _runspace;
+            if (log is not null)
+                log.LogDebug("IsolatedPipeline: {Probe}", ProbeRunspace());
+            _lifetimeActivity?.SetTag(Svrn7Telemetry.TagOutcome, "open");
+        }
+        catch (Exception ex)
+        {
+            _lifetimeActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            _lifetimeActivity?.Dispose();
+            throw;
+        }
     }
 
     private string ProbeRunspace()
@@ -150,5 +174,11 @@ public sealed class IsolatedPipeline : IDisposable
         try { Ps.Dispose(); }         catch { /* best-effort */ }
         try { _runspace.Close(); }    catch { /* best-effort */ }
         try { _runspace.Dispose(); }  catch { /* best-effort */ }
+
+        // Stops the span — its recorded duration is this instance's full lifetime,
+        // creation through disposal.
+        _lifetimeActivity?.SetTag(Svrn7Telemetry.TagOutcome, "disposed")
+                          .SetStatus(ActivityStatusCode.Ok);
+        _lifetimeActivity?.Dispose();
     }
 }

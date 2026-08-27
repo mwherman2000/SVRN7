@@ -26,6 +26,7 @@ public static class Svrn7Telemetry
     public const string ActivityDeliver   = "didcomm.deliver";
     public const string ActivityImport    = "lobe.import";
     public const string ActivityStorage   = "didcomm.storage";
+    public const string ActivityRunspace  = "runspace.lifetime";
 
     // ── Tag names (follow OpenTelemetry messaging/db semconv where possible) ──
     public const string TagMessageId      = "messaging.message_id";
@@ -43,4 +44,5 @@ public static class Svrn7Telemetry
     public const string TagRecordCount    = "svrn7.record_count";
     public const string TagResultCount    = "svrn7.result_count";
     public const string TagWarningCount   = "svrn7.warning_count";
+    public const string TagRunspaceId     = "svrn7.runspace_id";
 }
