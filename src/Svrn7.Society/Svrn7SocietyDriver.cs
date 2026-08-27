@@ -456,6 +456,7 @@ public sealed class Svrn7SocietyDriver : ISvrn7SocietyDriver
     public Task<int> ExpireStaleVcsAsync(CancellationToken ct = default)                         => _inner.ExpireStaleVcsAsync(ct);
     public Task<string>   AppendToLogAsync(string t, string p, CancellationToken ct = default)   => _inner.AppendToLogAsync(t, p, ct);
     public Task<string>   GetMerkleRootAsync(CancellationToken ct = default)                     => _inner.GetMerkleRootAsync(ct);
+    public bool            HasFoundationSigningKey                                                => _inner.HasFoundationSigningKey;
     public Task<TreeHead> SignMerkleTreeHeadAsync(CancellationToken ct = default)                 => _inner.SignMerkleTreeHeadAsync(ct);
     public Task<long>     GetLogSizeAsync(CancellationToken ct = default)                        => _inner.GetLogSizeAsync(ct);
     public Task<TreeHead?> GetLatestTreeHeadAsync(CancellationToken ct = default)                => _inner.GetLatestTreeHeadAsync(ct);

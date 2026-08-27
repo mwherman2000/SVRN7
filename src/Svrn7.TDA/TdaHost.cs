@@ -24,7 +24,14 @@ public sealed class TdaOptions
 {
     // ── Role ──────────────────────────────────────────────────────────────────
 
-    /// <summary>Functional role of this TDA instance. Always Wanderer at startup.</summary>
+    /// <summary>
+    /// Functional role of this TDA instance. Defaults to Wanderer; Program.cs refreshes
+    /// this from the resolved DID Document's Role once this TDA's own identity is known
+    /// (Wanderer on a fresh instance, or Citizen/Society/Federation once the relevant
+    /// registration/init flow has updated the DID Document). Societies and Federation are
+    /// not yet fully implemented (see docs/BACKLOG.md), so in practice every TDA observed
+    /// today still resolves to Wanderer — see TdaOptionsTests.Role_DefaultsToWanderer.
+    /// </summary>
     public Svrn7Role Role { get; set; } = Svrn7Role.Wanderer;
 
     // ── Society identity ──────────────────────────────────────────────────────

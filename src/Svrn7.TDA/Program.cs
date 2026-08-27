@@ -248,7 +248,7 @@ var host = Host.CreateDefaultBuilder(args)
             opts.SocietyDid                        = ctx.Configuration["Tda:SocietyDid"] ?? string.Empty;
             opts.SocietyMessagingPrivateKeyEd25519 = []; // supplied at runtime
             opts.ListenPort                        = port;
-            opts.Role                              = Svrn7Role.Wanderer;
+            opts.Role                              = Svrn7Role.Wanderer; // default — refreshed below once this TDA's own DID Document is resolved
             opts.TlsCertificatePath                = ctx.Configuration["Tda:TlsCertPath"];
             opts.TlsCertificatePassword            = ctx.Configuration["Tda:TlsCertPassword"];
             opts.RequireMutualTls                  = bool.Parse(
@@ -301,6 +301,7 @@ if (await driver.DidRegistry.CountAsync() == 0)
                      $"{tdaUrl}:{port}/didcomm", Svrn7Role.Wanderer, svrn7Name,
                      x25519PublicKeyHex: kaKp.PublicKeyHex);
     await driver.CreateDidAsync(didDoc);
+    tdaOpts.Role = Svrn7Role.Wanderer; // matches the role just given to didDoc above
 
     await File.WriteAllTextAsync(identityPath,
         JsonSerializer.Serialize(new
@@ -329,6 +330,13 @@ else
         agentDid   = elem.GetProperty("did").GetString();
         var result = await driver.DidRegistry.ResolveAsync(agentDid!);
         svrn7Name  = result.Document?.Svrn7Name;
+        // TdaOptions.Role was hardcoded to Wanderer at service-registration time (before
+        // this TDA's real identity was known) — refresh it from the resolved DID Document,
+        // which correctly reflects Citizen/Society/Federation once the relevant
+        // registration/init flow has updated it. Svrn7RunspaceContext (built lazily during
+        // host.StartAsync, after this line runs) reads tdaOpts.Role once at construction,
+        // so LOBEs see the real role via $SVRN7.Role — not the pre-bootstrap default.
+        tdaOpts.Role = result.Document?.Role ?? Svrn7Role.Wanderer;
 
         // Restore X25519 key agreement private key for JWE decryption.
         if (elem.TryGetProperty("x25519PrivateKeyHex", out var kaHex) && kaHex.GetString() is { Length: > 0 } kaHexStr)

@@ -242,15 +242,24 @@ public sealed class DIDCommMessageProcessorService : BackgroundService
             _log.LogError(ex, "VC expiry sweep failed.");
         }
 
-        // 2. Merkle auto-sign
-        try
+        // 2. Merkle auto-sign — only a genuine Federation authority has the foundation
+        // signing key this requires. Every other role (Wanderer/Citizen/Society) would
+        // fail this on every sweep forever, so skip quietly rather than log an error hourly.
+        if (driver.HasFoundationSigningKey)
         {
-            var head = await driver.SignMerkleTreeHeadAsync(ct);
-            _log.LogDebug("Merkle tree head signed. Root: {Root}", head.RootHash);
+            try
+            {
+                var head = await driver.SignMerkleTreeHeadAsync(ct);
+                _log.LogDebug("Merkle tree head signed. Root: {Root}", head.RootHash);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                _log.LogError(ex, "Merkle auto-sign failed.");
+            }
         }
-        catch (Exception ex) when (!ct.IsCancellationRequested)
+        else
         {
-            _log.LogError(ex, "Merkle auto-sign failed.");
+            _log.LogDebug("Merkle auto-sign skipped — no foundation signing key configured (not a Federation authority).");
         }
     }
 }

@@ -136,6 +136,15 @@ public interface ISvrn7Driver : IAsyncDisposable
     Task<string> AppendToLogAsync(string entryType, string payloadJson,
         CancellationToken ct = default);
     Task<string> GetMerkleRootAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// True when this driver was constructed with real Foundation signing key
+    /// material (32-byte secp256k1 private key) — i.e. this is a genuine Federation
+    /// authority, not a Wanderer/Citizen/Society TDA. SignMerkleTreeHeadAsync can
+    /// only succeed when this is true; callers that run unattended (background
+    /// sweeps) should check it first rather than let signing fail every interval.
+    /// </summary>
+    bool HasFoundationSigningKey { get; }
     Task<TreeHead> SignMerkleTreeHeadAsync(CancellationToken ct = default);
     Task<long> GetLogSizeAsync(CancellationToken ct = default);
     Task<TreeHead?> GetLatestTreeHeadAsync(CancellationToken ct = default);

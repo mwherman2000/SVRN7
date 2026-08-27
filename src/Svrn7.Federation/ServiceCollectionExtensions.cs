@@ -169,8 +169,15 @@ public sealed class Svrn7BackgroundService : BackgroundService
                 if (expired > 0)
                     _log.LogInformation("VC expiry sweep: {Count} credentials expired", expired);
 
-                await driver.SignMerkleTreeHeadAsync(stoppingToken);
-                _log.LogDebug("Merkle tree head signed");
+                if (driver.HasFoundationSigningKey)
+                {
+                    await driver.SignMerkleTreeHeadAsync(stoppingToken);
+                    _log.LogDebug("Merkle tree head signed");
+                }
+                else
+                {
+                    _log.LogDebug("Merkle auto-sign skipped — no foundation signing key configured (not a Federation authority).");
+                }
             }
             catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
             {

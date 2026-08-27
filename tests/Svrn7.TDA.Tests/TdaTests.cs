@@ -154,6 +154,31 @@ public class TdaResourceIdTests
     }
 }
 
+// ── TdaOptions Tests ─────────────────────────────────────────────────────────
+
+public class TdaOptionsTests
+{
+    /// <summary>
+    /// Societies and Federation are not yet fully implemented (docs/BACKLOG.md), so every
+    /// TDA in practice — Wanderer, or one that has completed onboarding — currently
+    /// resolves to Svrn7Role.Wanderer: Program.cs seeds this default at service
+    /// registration, then refreshes it from the resolved DID Document's Role once this
+    /// TDA's own identity is known, but no live registration/init flow yet ever writes
+    /// Citizen/Society/Federation onto that document's Role for a running TDA to pick up.
+    /// This test pins today's observable behavior (the property's own default) as a
+    /// marker: once Societies/Federation land and a TDA can genuinely resolve to a
+    /// non-Wanderer role, this assumption — and the HasFoundationSigningKey-based Merkle
+    /// auto-sign gate in DIDCommMessageProcessorService.RunSweepAsync and
+    /// Svrn7BackgroundService that stands in for role-based gating in the meantime —
+    /// should be revisited.
+    /// </summary>
+    [Fact]
+    public void Role_DefaultsToWanderer()
+    {
+        new TdaOptions().Role.Should().Be(Svrn7Role.Wanderer);
+    }
+}
+
 // ── LiteInboxStore DID URL Tests ──────────────────────────────────────────────
 
 public class LiteInboxStoreDIDUrlTests : IDisposable
@@ -908,6 +933,7 @@ internal sealed class NullSocietyDriver : Svrn7.Society.ISvrn7SocietyDriver
     public Task<int> ExpireStaleVcsAsync(CancellationToken ct = default) => throw new NotImplementedException();
     public Task<string> AppendToLogAsync(string entryType, string payloadJson, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<string> GetMerkleRootAsync(CancellationToken ct = default) => throw new NotImplementedException();
+    public bool HasFoundationSigningKey => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.TreeHead> SignMerkleTreeHeadAsync(CancellationToken ct = default) => throw new NotImplementedException();
     public Task<long> GetLogSizeAsync(CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.TreeHead?> GetLatestTreeHeadAsync(CancellationToken ct = default) => throw new NotImplementedException();

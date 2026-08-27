@@ -644,6 +644,7 @@ public sealed class Svrn7Driver : ISvrn7Driver
     { ThrowIfDisposed(); return _merkle.AppendAsync(t, p, ct); }
     public Task<string>  GetMerkleRootAsync(CancellationToken ct = default)
     { ThrowIfDisposed(); return _merkle.ComputeRootAsync(ct); }
+    public bool HasFoundationSigningKey => _foundationPrivateKey.Length == 32; // secp256k1 private key size
     public Task<TreeHead> SignMerkleTreeHeadAsync(CancellationToken ct = default)
     { ThrowIfDisposed(); return _merkle.SignTreeHeadAsync(_foundationPrivateKey, ct); }
     public Task<long>    GetLogSizeAsync(CancellationToken ct = default)
