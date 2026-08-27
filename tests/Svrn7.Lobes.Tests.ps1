@@ -77,6 +77,92 @@ Describe 'Send-LocalDIDCommMessage exported by Svrn7.Society' {
     }
 }
 
+# ── Svrn7.AdminTools: private-key-bearing cmdlets isolated from eager LOBEs ───
+#
+# Regression guard for the LOBEGUIDE.md "Division of Responsibility" split: these
+# cmdlets used to live inside Svrn7.Federation.0.8.0.psm1 / Svrn7.Society.0.8.0.psm1 —
+# eager LOBEs, meaning every function they define is loaded into the shared
+# InitialSessionState every dispatch runspace is built from, reachable by name from any
+# handler's runspace regardless of which protocol triggered it. Moving them to
+# admin-tools/Svrn7.AdminTools.psm1 (outside lobes/, no .lobe.json descriptor) makes
+# "no inbound DIDComm message can reach these" structural instead of resting on
+# "no registered handler happens to call this today." These tests fail loudly if
+# anyone re-adds one of the moved names back into either eager module.
+
+Describe 'Svrn7.AdminTools cmdlets are absent from the eager LOBE modules' {
+    BeforeAll {
+        $LobesDir = Join-Path $PSScriptRoot '..\src\Svrn7.TDA\lobes'
+        Import-Module (Join-Path $LobesDir 'Svrn7.Federation.0.8.0\Svrn7.Federation.0.8.0.psm1') -Force -WarningAction SilentlyContinue
+        Import-Module (Join-Path $LobesDir 'Svrn7.Society.0.8.0\Svrn7.Society.0.8.0.psm1') -Force -WarningAction SilentlyContinue
+    }
+
+    AfterAll {
+        Remove-Module Svrn7.Federation -ErrorAction SilentlyContinue
+        Remove-Module Svrn7.Society -ErrorAction SilentlyContinue
+    }
+
+    It 'Svrn7.Federation no longer exports <_>' -ForEach @(
+        'New-Svrn7KeyPair'
+        'Invoke-Svrn7SignSecp256k1'
+        'Invoke-Svrn7Transfer'
+        'Invoke-Svrn7BatchTransfer'
+    ) {
+        Get-Command $_ -Module Svrn7.Federation -ErrorAction SilentlyContinue |
+            Should -BeNullOrEmpty
+    }
+
+    It 'Svrn7.Society no longer exports <_>' -ForEach @(
+        'Invoke-Svrn7ExternalTransfer'
+        'Invoke-Svrn7FederationTransfer'
+    ) {
+        Get-Command $_ -Module Svrn7.Society -ErrorAction SilentlyContinue |
+            Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Svrn7.AdminTools module' {
+    BeforeAll {
+        $AdminToolsPsm1 = Join-Path $PSScriptRoot '..\src\Svrn7.TDA\admin-tools\Svrn7.AdminTools\Svrn7.AdminTools.psm1'
+        Import-Module $AdminToolsPsm1 -Force -WarningAction SilentlyContinue
+    }
+
+    AfterAll {
+        Remove-Module Svrn7.AdminTools -ErrorAction SilentlyContinue
+    }
+
+    It 'exports <_>' -ForEach @(
+        'New-Svrn7KeyPair'
+        'Invoke-Svrn7SignSecp256k1'
+        'Invoke-Svrn7Transfer'
+        'Invoke-Svrn7BatchTransfer'
+        'Invoke-Svrn7ExternalTransfer'
+        'Invoke-Svrn7FederationTransfer'
+    ) {
+        Get-Command $_ -Module Svrn7.AdminTools -ErrorAction SilentlyContinue |
+            Should -Not -BeNullOrEmpty
+    }
+
+    It 'Invoke-Svrn7Transfer takes an explicit -Driver parameter, not an ambient singleton' {
+        # Untyped by design: a [Svrn7.Federation.ISvrn7Driver] type constraint here would
+        # be resolved at module *parse* time, forcing Svrn7.AdminTools.psm1 to eagerly load
+        # every Svrn7 assembly just to be imported — a hard dependency the original
+        # Svrn7.Federation.0.8.0.psm1 never had, since it referenced the driver only via an
+        # untyped $Script: singleton. Presence of the parameter is what this test checks.
+        $cmd = Get-Command Invoke-Svrn7Transfer
+        $cmd.Parameters.ContainsKey('Driver') | Should -BeTrue
+    }
+
+    It 'Invoke-Svrn7ExternalTransfer takes an explicit -SocietyDriver parameter' {
+        $cmd = Get-Command Invoke-Svrn7ExternalTransfer
+        $cmd.Parameters.ContainsKey('SocietyDriver') | Should -BeTrue
+    }
+
+    It 'Invoke-Svrn7FederationTransfer takes an explicit -SocietyDriver parameter' {
+        $cmd = Get-Command Invoke-Svrn7FederationTransfer
+        $cmd.Parameters.ContainsKey('SocietyDriver') | Should -BeTrue
+    }
+}
+
 # ── Build-CanonicalTransferJson ───────────────────────────────────────────────
 # Common.psm1 is dot-sourced directly in BeforeAll above.
 

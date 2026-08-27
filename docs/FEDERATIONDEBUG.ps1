@@ -78,9 +78,12 @@ dotnet .\Svrn7.TDA.dll --port 8441 --name Federation
 Write-Host "--- Step 2 — Load the send helper ---"
 Set-Location C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0
 
-# Import the LOBE that provides Send-LocalDIDCommMessage:
+# Import the LOBE that provides Send-LocalDIDCommMessage, and admin-tools for
+# New-Svrn7KeyPair (moved out of Svrn7.Federation.0.8.0.psm1 — see
+# docs/LOBEGUIDE.md "Division of Responsibility" for why):
 
 Import-Module .\lobes\Svrn7.Federation.0.8.0\Svrn7.Federation.0.8.0.psm1
+Import-Module .\admin-tools\Svrn7.AdminTools\Svrn7.AdminTools.psm1
 
 # Invoke-RestMethod -HttpVersion 2.0 does not work with cleartext HTTP/2 (h2c):
 # PowerShell uses HttpVersionPolicy.RequestVersionOrLower, which falls back to

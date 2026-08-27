@@ -142,11 +142,17 @@ function Connect-Svrn7Society {
     .PARAMETER Force
         Dispose the existing Society driver (if any) and reinitialise.
 
+    .PARAMETER PassThru
+        Also outputs the ISvrn7SocietyDriver instance — needed to pass it explicitly to
+        Svrn7.AdminTools.psm1 cmdlets (Invoke-Svrn7ExternalTransfer,
+        Invoke-Svrn7FederationTransfer), which take the driver as a parameter rather
+        than reaching for this module's own private singleton.
+
     .INPUTS
         None. This cmdlet does not accept pipeline input.
 
     .OUTPUTS
-        None. The ISvrn7SocietyDriver is stored as a module-level singleton.
+        None by default. With -PassThru, the ISvrn7SocietyDriver singleton.
 
     .EXAMPLE
         PS> Initialize-Svrn7FederationDriver
@@ -171,6 +177,7 @@ function Connect-Svrn7Society {
         Spec:   draft-herman-web7-society-architecture-00 §4.2, §9.2
     #>
     [CmdletBinding()]
+    [OutputType([Svrn7.Society.ISvrn7SocietyDriver])]
     param(
         [Parameter(Mandatory)]
         [ValidateNotNullOrEmpty()]
@@ -201,11 +208,13 @@ function Connect-Svrn7Society {
         [Parameter()]
         [string] $DbPath = '',
 
-        [switch] $Force
+        [switch] $Force,
+        [switch] $PassThru
     )
 
     if ($Script:SocietyDriver -and -not $Force) {
         Write-Verbose 'Svrn7.Society already connected. Use -Force to reconnect.'
+        if ($PassThru) { return $Script:SocietyDriver }
         return
     }
 
@@ -250,6 +259,7 @@ function Connect-Svrn7Society {
         .GetRequiredService([Svrn7.Society.ISvrn7SocietyDriver])
 
     Write-Verbose "Svrn7.Society connected: $SocietyDid"
+    if ($PassThru) { return $Script:SocietyDriver }
 }
 
 #endregion
@@ -610,290 +620,17 @@ function Invoke-Svrn7IncomingTransfer {
 #endregion
 
 ###############################################################################
-#region CROSS-SOCIETY TRANSFERS
-# ISvrn7SocietyDriver.TransferToExternalCitizenAsync / TransferToFederationAsync
+#region CROSS-SOCIETY TRANSFERS (MOVED)
+# Invoke-Svrn7ExternalTransfer and Invoke-Svrn7FederationTransfer moved to
+# src/Svrn7.TDA/admin-tools/Svrn7.AdminTools.psm1 — they handle caller-supplied
+# citizen/payer private key material and take the driver as an explicit -SocietyDriver
+# parameter instead of this module's private $Script:SocietyDriver singleton. See that
+# file's header comment for why: this module is eager-loaded into the Switchboard's
+# shared InitialSessionState, so anything defined here is reachable by name from any
+# dispatch runspace even if never routed to — moving key-bearing cmdlets out of eager
+# LOBE modules entirely makes that unreachable structurally, not just by omission from
+# a .lobe.json protocols list.
 ###############################################################################
-
-function Invoke-Svrn7ExternalTransfer {
-    <#
-    .SYNOPSIS
-        Initiates a cross-Society Epoch 1 transfer from a citizen in this Society
-        to a citizen in another Society via DIDComm SignThenEncrypt.
-
-    .DESCRIPTION
-        Wraps ISvrn7SocietyDriver.TransferToExternalCitizenAsync(). Validates
-        through the nine-step Society transfer validator (which adds Society
-        membership verification as Step 8 to the standard eight-step pipeline),
-        debits the payer UTXO, issues a TransferOrderCredential VC, appends a
-        CrossSocietyTransferDebit Merkle log entry, and dispatches the credential
-        via DIDComm SignThenEncrypt to the target Society.
-
-        The transfer is fire-and-forget: the originating Society debits
-        immediately and the receipt arrives asynchronously via the DIDComm inbox
-        processing service. Idempotency is guaranteed by TransferId (Blake3 hex
-        of the canonical JSON): if the DIDComm delivery is retried, the receiving
-        Society returns the cached receipt without double-crediting the payee.
-
-        Requires the ecosystem to be in Epoch 1 or higher. In Epoch 0 use
-        Invoke-Svrn7FederationTransfer.
-
-    .PARAMETER PayerDid
-        DID of the payer. Must be an active citizen of this Society.
-
-    .PARAMETER PayerKeyPair
-        Svrn7.KeyPair (secp256k1) for the payer, used to sign the canonical JSON.
-
-    .PARAMETER PayeeDid
-        DID of the payee. Must be an active citizen of the target Society.
-
-    .PARAMETER TargetSocietyDid
-        DID of the Society where the payee is registered.
-
-    .PARAMETER AmountSvrn7
-        Transfer amount in SVRN7. Mutually exclusive with -AmountGrana.
-
-    .PARAMETER AmountGrana
-        Transfer amount in grana. Mutually exclusive with -AmountSvrn7.
-
-    .PARAMETER Memo
-        Optional memo, maximum 256 characters.
-
-    .PARAMETER Nonce
-        Optional idempotency nonce. A UUID is auto-generated if omitted.
-
-    .INPUTS
-        None. This cmdlet does not accept pipeline input.
-
-    .OUTPUTS
-        PSCustomObject [Svrn7.ExternalTransferResult]
-            TransferId       [string]   Blake3 hex of the canonical JSON.
-            PayerDid         [string]
-            PayeeDid         [string]
-            TargetSocietyDid [string]
-            AmountGrana      [long]
-            AmountSvrn7      [decimal]
-            Nonce            [string]
-            Timestamp        [string]
-            Memo             [string]
-            Status           [string]   'OrderSent' (receipt arrives asynchronously).
-            Success          [bool]     Always $true (throws on failure).
-
-    .EXAMPLE
-        PS> Invoke-Svrn7ExternalTransfer `
-                -PayerDid         $myDid `
-                -PayerKeyPair     $kp `
-                -PayeeDid         'did:othersoc:alice...' `
-                -TargetSocietyDid 'did:othersoc:their-society' `
-                -AmountSvrn7      50
-
-    .EXAMPLE
-        PS> Invoke-Svrn7ExternalTransfer `
-                -PayerDid $d -PayerKeyPair $kp -PayeeDid $p `
-                -TargetSocietyDid $t -AmountGrana 50000000 `
-                -Memo 'Q1 contribution' -WhatIf
-
-    .NOTES
-        C# API: ISvrn7SocietyDriver.TransferToExternalCitizenAsync(TransferRequest, string)
-        Spec:   draft-herman-didcomm-svrn7-transfer-00 §8
-                draft-herman-svrn7-monetary-protocol-00 §7.2
-    #>
-    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium',
-                   DefaultParameterSetName = 'BySvrn7')]
-    [OutputType([PSCustomObject])]
-    param(
-        [Parameter(Mandatory)] [string]        $PayerDid,
-        [Parameter(Mandatory)] [PSCustomObject] $PayerKeyPair,
-        [Parameter(Mandatory)] [string]        $PayeeDid,
-        [Parameter(Mandatory)] [string]        $TargetSocietyDid,
-
-        [Parameter(Mandatory, ParameterSetName = 'BySvrn7')]
-        [ValidateRange(0.000001, 1e15)]
-        [double] $AmountSvrn7,
-
-        [Parameter(Mandatory, ParameterSetName = 'ByGrana')]
-        [ValidateRange(1L, [long]::MaxValue)]
-        [long] $AmountGrana,
-
-        [Parameter()]
-        [ValidateLength(0, 256)]
-        [string] $Memo = '',
-
-        [Parameter()]
-        [string] $Nonce = ''
-    )
-
-    Assert-SocietyDriver
-
-    $grana = if ($PSCmdlet.ParameterSetName -eq 'BySvrn7') {
-        [long][Math]::Round($AmountSvrn7 * 1000000)
-    } else { $AmountGrana }
-    $svrn7          = [decimal]$grana / 1000000
-    $effectiveNonce = if ($Nonce) { $Nonce } else { [Guid]::NewGuid().ToString('N') }
-    $timestamp      = [DateTimeOffset]::UtcNow.ToString('O')
-    $memo           = if ($Memo) { $Memo } else { $null }
-
-    $json    = Build-CanonicalTransferJson $PayerDid $PayeeDid $grana $effectiveNonce $timestamp $memo
-    $payload = [System.Text.Encoding]::UTF8.GetBytes($json)
-    $sig     = $Script:SocietyDriver.SignSecp256k1($payload, $PayerKeyPair.PrivateKeyBytes)
-
-    Write-Verbose "Cross-Society transfer: $svrn7 SVRN7 → $PayeeDid via $TargetSocietyDid"
-
-    if (-not $PSCmdlet.ShouldProcess($PayerDid,
-            "Transfer $svrn7 SVRN7 to $PayeeDid (Society: $TargetSocietyDid)")) { return }
-
-    $request = [Svrn7.Core.Models.TransferRequest]@{
-        PayerDid    = $PayerDid
-        PayeeDid    = $PayeeDid
-        AmountGrana = $grana
-        Nonce       = $effectiveNonce
-        Timestamp   = [DateTimeOffset]::Parse($timestamp)
-        Signature   = $sig
-        Memo        = $memo
-    }
-
-    $result = $Script:SocietyDriver.TransferToExternalCitizenAsync(
-        $request, $TargetSocietyDid).GetAwaiter().GetResult()
-    Resolve-OperationResult -Result $result -Operation 'ExternalTransfer' | Out-Null
-
-    $txId = $Script:SocietyDriver.Blake3HexAsync($payload).GetAwaiter().GetResult()
-    Write-Verbose "Cross-Society order sent. TransferId: $txId"
-
-    [PSCustomObject]@{
-        PSTypeName       = 'Svrn7.ExternalTransferResult'
-        TransferId       = $txId
-        PayerDid         = $PayerDid
-        PayeeDid         = $PayeeDid
-        TargetSocietyDid = $TargetSocietyDid
-        AmountGrana      = $grana
-        AmountSvrn7      = $svrn7
-        Nonce            = $effectiveNonce
-        Timestamp        = $timestamp
-        Memo             = $Memo
-        Status           = 'OrderSent'
-        Success          = $true
-    }
-}
-
-function Invoke-Svrn7FederationTransfer {
-    <#
-    .SYNOPSIS
-        Transfers SVRN7 from a citizen in this Society to the Federation wallet.
-
-    .DESCRIPTION
-        Wraps ISvrn7SocietyDriver.TransferToFederationAsync(). Permitted in both
-        Epoch 0 (where citizen-to-Federation is one of only two allowed payees)
-        and Epoch 1. This makes it the only cross-boundary transfer available
-        before the ecosystem reaches Epoch 1.
-
-        The payer signs the canonical JSON (field order: PayerDid, PayeeDid,
-        AmountGrana, Nonce, Timestamp, Memo) with their secp256k1 private key.
-        The transfer is validated through the standard eight-step pipeline.
-
-    .PARAMETER PayerDid
-        DID of the payer. Must be an active citizen of this Society.
-
-    .PARAMETER PayerKeyPair
-        Svrn7.KeyPair (secp256k1) for the payer.
-
-    .PARAMETER AmountSvrn7
-        Amount in SVRN7. Mutually exclusive with -AmountGrana.
-
-    .PARAMETER AmountGrana
-        Amount in grana. Mutually exclusive with -AmountSvrn7.
-
-    .PARAMETER Memo
-        Optional memo, maximum 256 characters.
-
-    .PARAMETER Nonce
-        Optional idempotency nonce. Auto-generated if omitted.
-
-    .INPUTS
-        None. This cmdlet does not accept pipeline input.
-
-    .OUTPUTS
-        PSCustomObject [Svrn7.FederationTransferResult]
-            PayerDid    [string]
-            PayeeDid    [string]   The Federation wallet DID.
-            AmountGrana [long]
-            AmountSvrn7 [decimal]
-            Nonce       [string]
-            Timestamp   [string]
-            Memo        [string]
-            Success     [bool]
-
-    .EXAMPLE
-        PS> Invoke-Svrn7FederationTransfer `
-                -PayerDid     $citizen `
-                -PayerKeyPair $kp `
-                -AmountSvrn7  10 `
-                -Memo         'Monthly Federation dues'
-
-    .NOTES
-        C# API: ISvrn7SocietyDriver.TransferToFederationAsync(string, long, string, string, string?)
-        Spec:   draft-herman-svrn7-monetary-protocol-00 §6 Step 2 (Epoch 0 permitted payees)
-    #>
-    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium',
-                   DefaultParameterSetName = 'BySvrn7')]
-    [OutputType([PSCustomObject])]
-    param(
-        [Parameter(Mandatory)] [string]        $PayerDid,
-        [Parameter(Mandatory)] [PSCustomObject] $PayerKeyPair,
-
-        [Parameter(Mandatory, ParameterSetName = 'BySvrn7')]
-        [ValidateRange(0.000001, 1e15)]
-        [double] $AmountSvrn7,
-
-        [Parameter(Mandatory, ParameterSetName = 'ByGrana')]
-        [ValidateRange(1L, [long]::MaxValue)]
-        [long] $AmountGrana,
-
-        [Parameter()]
-        [ValidateLength(0, 256)]
-        [string] $Memo = '',
-
-        [Parameter()]
-        [string] $Nonce = ''
-    )
-
-    Assert-SocietyDriver
-
-    $grana          = if ($PSCmdlet.ParameterSetName -eq 'BySvrn7') {
-        [long][Math]::Round($AmountSvrn7 * 1000000) } else { $AmountGrana }
-    $svrn7          = [decimal]$grana / 1000000
-    $effectiveNonce = if ($Nonce) { $Nonce } else { [Guid]::NewGuid().ToString('N') }
-    $timestamp      = [DateTimeOffset]::UtcNow.ToString('O')
-    $memo           = if ($Memo) { $Memo } else { $null }
-
-    # Derive Federation DID from the Society's own record
-    $soc    = $Script:SocietyDriver.GetOwnSocietyAsync().GetAwaiter().GetResult()
-    $fedDid = if ($soc -and $soc.FederationDid) { $soc.FederationDid } else { 'did:drn:federation' }
-
-    # Sign canonical JSON
-    $json    = Build-CanonicalTransferJson $PayerDid $fedDid $grana $effectiveNonce $timestamp $memo
-    $payload = [System.Text.Encoding]::UTF8.GetBytes($json)
-    $sig     = $Script:SocietyDriver.SignSecp256k1($payload, $PayerKeyPair.PrivateKeyBytes)
-
-    if (-not $PSCmdlet.ShouldProcess($PayerDid, "Transfer $svrn7 SVRN7 to Federation")) { return }
-
-    $result = $Script:SocietyDriver.TransferToFederationAsync(
-        $PayerDid, $grana, $effectiveNonce, $sig, $memo).GetAwaiter().GetResult()
-    Resolve-OperationResult -Result $result -Operation 'FederationTransfer' | Out-Null
-
-    Write-Verbose "Federation transfer committed: $grana grana"
-
-    [PSCustomObject]@{
-        PSTypeName  = 'Svrn7.FederationTransferResult'
-        PayerDid    = $PayerDid
-        PayeeDid    = $fedDid
-        AmountGrana = $grana
-        AmountSvrn7 = $svrn7
-        Nonce       = $effectiveNonce
-        Timestamp   = $timestamp
-        Memo        = $Memo
-        Success     = $true
-    }
-}
-
 #endregion
 
 ###############################################################################
@@ -1970,8 +1707,6 @@ Export-ModuleMember -Function @(
     'Register-Svrn7CitizenInSociety'
     'Add-Svrn7CitizenDid'
     'Invoke-Svrn7IncomingTransfer'
-    'Invoke-Svrn7ExternalTransfer'
-    'Invoke-Svrn7FederationTransfer'
     'Get-Svrn7OverdraftStatus'
     'Get-Svrn7OverdraftRecord'
     'Get-Svrn7SocietyMembers'

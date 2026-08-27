@@ -30,6 +30,11 @@
     <Content Include="lobes/**/*.psm1" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="lobes/**/*.psd1" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="lobes/**/*.ps1" CopyToOutputDirectory="PreserveNewest" />
+    <!-- admin-tools is deliberately NOT under lobes/ — LobeManager only discovers
+         *.lobe.json under the lobes/ directory tree, so this module is never eager or
+         JIT loaded into the Switchboard's dispatch InitialSessionState. It exists only
+         for a human to Import-Module directly in a standalone PowerShell session. -->
+    <Content Include="admin-tools/**/*.psm1" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Svrn7.Core\Svrn7.Core.csproj" />

@@ -81,25 +81,35 @@ function Initialize-Svrn7FederationDriver {
     DID method name for this Federation. Must match [a-z0-9]+. Default: 'drn'.
 .PARAMETER Force
     Disposes and recreates the driver even if one already exists.
+.PARAMETER PassThru
+    Also outputs the ISvrn7Driver instance — needed to pass it explicitly to
+    Svrn7.AdminTools.psm1 cmdlets (Invoke-Svrn7Transfer, etc.), which take the driver
+    as a parameter rather than reaching for this module's own private singleton.
 .EXAMPLE
     Initialize-Svrn7FederationDriver
 .EXAMPLE
     Initialize-Svrn7FederationDriver -DbPath 'C:\data\svrn7' -DidMethodName 'drn' -Verbose
+.EXAMPLE
+    $drv = Initialize-Svrn7FederationDriver -PassThru
 .OUTPUTS
-    None. Driver stored as a module-level singleton.
+    None by default. With -PassThru, the ISvrn7Driver singleton.
 .NOTES
     The driver is disposed automatically when the module is removed.
 #>
     [CmdletBinding()]
+    [OutputType([Svrn7.Federation.ISvrn7Driver])]
     param(
         [string] $DbPath        = '',
         [string] $BinPath       = '',
         [ValidatePattern('^[a-z0-9]+$')]
         [string] $DidMethodName = 'drn',
-        [switch] $Force
+        [switch] $Force,
+        [switch] $PassThru
     )
     if ($Script:FederationDriver -and -not $Force) {
-        Write-Verbose 'Svrn7.Federation already initialised. Use -Force to reinitialise.'; return
+        Write-Verbose 'Svrn7.Federation already initialised. Use -Force to reinitialise.'
+        if ($PassThru) { return $Script:FederationDriver }
+        return
     }
     if ($Script:FederationDriver -and $Force) {
         $Script:FederationDriver.DisposeAsync().GetAwaiter().GetResult()
@@ -125,54 +135,13 @@ function Initialize-Svrn7FederationDriver {
     $Script:FederationDriver = $svc.BuildServiceProvider()
                                    .GetRequiredService([Svrn7.Federation.ISvrn7Driver])
     Write-Verbose "Svrn7.Federation ready. DbRoot: $dbRoot  Method: $DidMethodName"
+    if ($PassThru) { return $Script:FederationDriver }
 }
 #endregion
 
 ###############################################################################
 #region CRYPTOGRAPHY
 ###############################################################################
-function New-Svrn7KeyPair {
-<#
-.SYNOPSIS
-    Generates a secp256k1 key pair for signing SVRN7 transfer requests.
-.DESCRIPTION
-    Calls ISvrn7Driver.GenerateSecp256k1KeyPair(). The returned object can be piped
-    directly into New-Svrn7Did, Initialize-Svrn7Society, Register-Svrn7CitizenInSociety, and
-    Invoke-Svrn7Transfer. Handle PrivateKeyBytes with care.
-.EXAMPLE
-    $kp = New-Svrn7KeyPair
-    $kp.PublicKeyHex
-.EXAMPLE
-    New-Svrn7KeyPair | New-Svrn7Did -MethodName 'sovronia'
-.OUTPUTS
-    [PSCustomObject] Svrn7.KeyPair
-        PublicKeyHex    [string]   33-byte compressed secp256k1 public key (hex).
-        PrivateKeyBytes [byte[]]   32-byte raw private key.
-        PrivateKeyHex   [string]   Hex of the private key.
-        Algorithm       [string]   'Secp256k1'.
-.NOTES
-    ISvrn7Driver method: GenerateSecp256k1KeyPair()
-#>
-    [CmdletBinding()]
-    [OutputType([PSCustomObject])]
-    param()
-    # Key generation is pure crypto — no database connection required.
-    # Use the driver if already initialised; otherwise instantiate CryptoService directly.
-    $kp = if ($Script:FederationDriver) {
-        $Script:FederationDriver.GenerateSecp256k1KeyPair()
-    } else {
-        Initialize-Svrn7Assemblies -ModuleRoot $PSScriptRoot
-        [Svrn7.Crypto.CryptoService]::new().GenerateSecp256k1KeyPair()
-    }
-    [PSCustomObject]@{
-        PSTypeName      = $Script:TypeKeyPair
-        PublicKeyHex    = $kp.PublicKeyHex
-        PrivateKeyBytes = $kp.PrivateKeyBytes
-        PrivateKeyHex   = [System.Convert]::ToHexString($kp.PrivateKeyBytes).ToLower()
-        Algorithm       = 'Secp256k1'
-    }
-}
-
 function New-Svrn7Ed25519KeyPair {
 <#
 .SYNOPSIS
@@ -209,37 +178,6 @@ function New-Svrn7Ed25519KeyPair {
         PrivateKeyHex   = [System.Convert]::ToHexString($kp.PrivateKeyBytes).ToLower()
         Algorithm       = 'Ed25519'
     }
-}
-
-function Invoke-Svrn7SignSecp256k1 {
-<#
-.SYNOPSIS
-    Signs a byte payload with a secp256k1 private key (CESR-encoded output).
-.DESCRIPTION
-    Calls ISvrn7Driver.SignSecp256k1(payload, privateKeyBytes). Returns a CESR compact
-    signature ('0B' + base64url-nopad). Invoke-Svrn7Transfer calls this automatically;
-    use directly for governance operation signing.
-.PARAMETER Payload
-    Raw bytes to sign.
-.PARAMETER PrivateKeyBytes
-    32-byte secp256k1 private key from New-Svrn7KeyPair.PrivateKeyBytes.
-.EXAMPLE
-    $sig = Invoke-Svrn7SignSecp256k1 `
-               -Payload         ([Text.Encoding]::UTF8.GetBytes('hello')) `
-               -PrivateKeyBytes $kp.PrivateKeyBytes
-.OUTPUTS
-    [string]  CESR-encoded secp256k1 signature.
-.NOTES
-    ISvrn7Driver method: SignSecp256k1(byte[], byte[])
-#>
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory)] [byte[]] $Payload,
-        [Parameter(Mandatory)] [byte[]] $PrivateKeyBytes
-    )
-    Assert-FederationDriver
-    $Script:FederationDriver.SignSecp256k1($Payload, $PrivateKeyBytes)
 }
 
 function Test-Svrn7SignatureSecp256k1 {
@@ -698,144 +636,6 @@ function Get-Svrn7Balance {
 ###############################################################################
 #region TRANSFERS
 ###############################################################################
-function Invoke-Svrn7Transfer {
-<#
-.SYNOPSIS
-    Signs and submits a SVRN7 transfer request.
-.DESCRIPTION
-    Builds the canonical JSON per draft-herman-svrn7-monetary-protocol-00 §5.2:
-        { PayerDid, PayeeDid, AmountGrana, Nonce, Timestamp, Memo }
-    Signs the UTF-8 bytes with the payer's secp256k1 key (CESR '0B'), then calls
-    ISvrn7Driver.TransferAsync(). Field order is enforced automatically. A UUID nonce
-    is generated if -Nonce is omitted.
-.PARAMETER PayerDid
-    DID of the payer. Must be Active.
-.PARAMETER PayerKeyPair
-    secp256k1 [Svrn7.KeyPair] for the payer.
-.PARAMETER PayeeDid
-    DID of the payee. Must be Active and permitted by the current Epoch.
-.PARAMETER AmountSvrn7
-    Amount in SVRN7. Mutually exclusive with -AmountGrana.
-.PARAMETER AmountGrana
-    Amount in grana. Mutually exclusive with -AmountSvrn7.
-.PARAMETER Memo
-    Optional memo (max 256 characters).
-.PARAMETER Nonce
-    Optional idempotency nonce. Auto-generated UUID if omitted.
-.EXAMPLE
-    Invoke-Svrn7Transfer `
-        -PayerDid $citizenDid -PayerKeyPair $kp `
-        -PayeeDid $societyDid -AmountSvrn7 100
-.EXAMPLE
-    Invoke-Svrn7Transfer -PayerDid $d1 -PayerKeyPair $kp -PayeeDid $d2 `
-        -AmountGrana 500000000 -Memo 'Monthly dues'
-.EXAMPLE
-    Invoke-Svrn7Transfer -PayerDid $d1 -PayerKeyPair $kp `
-        -PayeeDid $d2 -AmountSvrn7 50 -WhatIf
-.OUTPUTS
-    [PSCustomObject] Svrn7.TransferResult
-        TransferId [string]; PayerDid [string]; PayeeDid [string]
-        AmountGrana [long]; AmountSvrn7 [decimal]; Nonce [string]
-        Timestamp [string]; Memo [string]; Success [bool]
-.NOTES
-    ISvrn7Driver method: TransferAsync(TransferRequest)
-    Spec: draft-herman-svrn7-monetary-protocol-00 §§5-6
-#>
-    [CmdletBinding(SupportsShouldProcess, DefaultParameterSetName='BySvrn7')]
-    [OutputType([PSCustomObject])]
-    param(
-        [Parameter(Mandatory)] [string]        $PayerDid,
-        [Parameter(Mandatory)] [PSCustomObject] $PayerKeyPair,
-        [Parameter(Mandatory)] [string]        $PayeeDid,
-        [Parameter(Mandatory, ParameterSetName='BySvrn7')]
-        [ValidateRange(0.000001,1e15)] [double] $AmountSvrn7,
-        [Parameter(Mandatory, ParameterSetName='ByGrana')]
-        [ValidateRange(1L,[long]::MaxValue)] [long] $AmountGrana,
-        [Parameter()] [ValidateLength(0,256)] [string] $Memo  = '',
-        [Parameter()]                         [string] $Nonce = ''
-    )
-    Assert-FederationDriver
-    $grana = if ($PSCmdlet.ParameterSetName -eq 'BySvrn7') { [long][Math]::Round($AmountSvrn7 * 1000000) } else { $AmountGrana }
-    $svrn7 = [decimal]$grana / 1000000
-    $nonce = if ($Nonce) { $Nonce } else { [Guid]::NewGuid().ToString('N') }
-    $ts    = [DateTimeOffset]::UtcNow.ToString('O')
-    $memo  = if ($Memo) { $Memo } else { $null }
-    $json  = Build-CanonicalTransferJson $PayerDid $PayeeDid $grana $nonce $ts $memo
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
-    $sig   = $Script:FederationDriver.SignSecp256k1($bytes, $PayerKeyPair.PrivateKeyBytes)
-    Write-Verbose "Canonical: $json"
-    if ($PSCmdlet.ShouldProcess($PayerDid, "Transfer $svrn7 SVRN7 to $PayeeDid")) {
-        $r = $Script:FederationDriver.TransferAsync([Svrn7.Core.Models.TransferRequest]@{
-            PayerDid=$PayerDid; PayeeDid=$PayeeDid; AmountGrana=$grana; Nonce=$nonce
-            Timestamp=[DateTimeOffset]::Parse($ts); Signature=$sig; Memo=$memo
-        }).GetAwaiter().GetResult()
-        Resolve-OperationResult $r 'Transfer' | Out-Null
-        $txId = $Script:FederationDriver.Blake3HexAsync($bytes).GetAwaiter().GetResult()
-        [PSCustomObject]@{
-            PSTypeName=$Script:TypeTransfer; TransferId=$txId
-            PayerDid=$PayerDid; PayeeDid=$PayeeDid; AmountGrana=$grana; AmountSvrn7=$svrn7
-            Nonce=$nonce; Timestamp=$ts; Memo=$Memo; Success=$true
-        }
-    }
-}
-
-function Invoke-Svrn7BatchTransfer {
-<#
-.SYNOPSIS
-    Signs and submits multiple transfer requests in one batch call.
-.DESCRIPTION
-    Accepts an array of transfer descriptors (each with PayerDid, PayerKeyPair,
-    PayeeDid, AmountGrana; optional Memo, Nonce), signs each canonically, and
-    calls ISvrn7Driver.BatchTransferAsync(). Returns one result per input.
-.PARAMETER Transfers
-    Array of hashtables or PSCustomObjects with keys:
-        PayerDid [string] Required; PayerKeyPair [Svrn7.KeyPair] Required
-        PayeeDid [string] Required; AmountGrana [long] Required
-        Memo [string] Optional; Nonce [string] Optional
-.EXAMPLE
-    $batch = @(
-        @{ PayerDid=$d1; PayerKeyPair=$kp; PayeeDid=$d2; AmountGrana=100000000L },
-        @{ PayerDid=$d1; PayerKeyPair=$kp; PayeeDid=$d3; AmountGrana=50000000L  }
-    )
-    Invoke-Svrn7BatchTransfer -Transfers $batch
-.OUTPUTS
-    [PSCustomObject[]] Svrn7.BatchTransferResult — one per input.
-.NOTES
-    ISvrn7Driver method: BatchTransferAsync(IEnumerable<TransferRequest>)
-#>
-    [CmdletBinding(SupportsShouldProcess)]
-    [OutputType([PSCustomObject[]])]
-    param([Parameter(Mandatory, ValueFromPipeline)] [object[]] $Transfers)
-    process {
-        Assert-FederationDriver
-        $reqs = [System.Collections.Generic.List[Svrn7.Core.Models.TransferRequest]]::new()
-        $meta = [System.Collections.Generic.List[hashtable]]::new()
-        foreach ($t in $Transfers) {
-            $n    = if ($t.Nonce) { $t.Nonce } else { [Guid]::NewGuid().ToString('N') }
-            $ts   = [DateTimeOffset]::UtcNow.ToString('O')
-            $m    = if ($t.Memo) { [string]$t.Memo } else { $null }
-            $g    = [long]$t.AmountGrana
-            $json = Build-CanonicalTransferJson $t.PayerDid $t.PayeeDid $g $n $ts $m
-            $b    = [System.Text.Encoding]::UTF8.GetBytes($json)
-            $sig  = $Script:FederationDriver.SignSecp256k1($b, $t.PayerKeyPair.PrivateKeyBytes)
-            $reqs.Add([Svrn7.Core.Models.TransferRequest]@{
-                PayerDid=$t.PayerDid; PayeeDid=$t.PayeeDid; AmountGrana=$g
-                Nonce=$n; Timestamp=[DateTimeOffset]::Parse($ts); Signature=$sig; Memo=$m })
-            $meta.Add(@{ P=$t.PayerDid; Q=$t.PayeeDid; G=$g })
-        }
-        if ($PSCmdlet.ShouldProcess("$($reqs.Count) transfers", 'BatchTransfer')) {
-            $results = $Script:FederationDriver.BatchTransferAsync($reqs).GetAwaiter().GetResult()
-            $i = 0
-            foreach ($r in $results) {
-                $mm = $meta[$i++]
-                [PSCustomObject]@{
-                    PSTypeName=$Script:TypeBatchItem; PayerDid=$mm.P; PayeeDid=$mm.Q
-                    AmountGrana=$mm.G; Success=$r.Success; ErrorMessage=$r.ErrorMessage
-                }
-            }
-        }
-    }
-}
 #endregion
 
 ###############################################################################
@@ -1772,7 +1572,6 @@ Export-ModuleMember -Function @(
     'Get-Svrn7VcsBySubject'
     'Initialize-Svrn7FederationDriver'
     'Remove-Svrn7Databases'
-    'Invoke-Svrn7BatchTransfer'
     'Invoke-Web7FederationQuery'
     'Invoke-Web7SocietyList'
     'Invoke-Web7SocietyListResult'
@@ -1781,11 +1580,8 @@ Export-ModuleMember -Function @(
     'Invoke-Web7RegisterSocietyResult'
     'Invoke-Svrn7GdprErasure'
     'Invoke-Svrn7SignMerkleTreeHead'
-    'Invoke-Svrn7SignSecp256k1'
-    'Invoke-Svrn7Transfer'
     'New-Svrn7Did'
     'New-Svrn7Ed25519KeyPair'
-    'New-Svrn7KeyPair'
     'Initialize-Svrn7Citizen'
     'Initialize-Svrn7Federation'
     'Initialize-Svrn7Society'

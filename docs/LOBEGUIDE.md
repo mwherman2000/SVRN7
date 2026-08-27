@@ -7,6 +7,70 @@ Each LOBE owns one or more DIDComm protocol URIs.  The Switchboard routes by `@t
 
 ---
 
+## Division of Responsibility: C# Host vs. LOBE
+
+The TDA Switchboard and a LOBE split responsibility along a security/trust boundary, not
+just a "backend vs. plugin" boundary:
+
+| Layer | Owns | Never does |
+|---|---|---|
+| **C# host** — `KestrelListenerService`, storage (`LiteInboxStore`/DID/VC registries), `DIDCommMessageSwitchboard`, `LobeManager` | Decrypt/verify at the inbound boundary; durable persistence; routing by `@type`; SignThenEncrypt at the outbound boundary; runspace pool lifecycle | Run LOBE-author-supplied business logic |
+| **LOBE** (`.psm1` protocol entrypoints) | Application/protocol logic on an already-decrypted message body; returns a plaintext `[Svrn7.TDA.OutboundMessage]` (or `$null`) — see Appendix D | Touch DIDComm envelope crypto (JWE/JWS) or the TDA's own transport signing/key-agreement key material — both stay C#-only |
+
+This split exists to bound the blast radius of a LOBE, which is by design hot-reloadable
+and may be authored by anyone: `Import-Module -Force` runs on every JIT dispatch, so a
+LOBE is trusted far less than the host loading it. Injecting DIDComm transport key
+material into a LOBE runspace would mean a buggy or malicious LOBE could decrypt or forge
+any message the TDA handles — so the C# host does all envelope packing/unpacking, and a
+LOBE only ever sees plaintext, curated through `$SVRN7` (Appendix A).
+
+### Is this boundary clean today?
+
+Mostly, with caveats worth knowing before you take other code as a model to copy:
+
+- **Verified clean on the security axis — structurally, not just by omission.** No LOBE
+  `.psm1` references `AgentSigningPrivateKey` or `AgentKeyAgreementPrivateKey` (the TDA's own
+  transport keys) anywhere. The cmdlets that handle *citizen/payer* secp256k1 key material
+  (`New-Svrn7KeyPair`, `Invoke-Svrn7Transfer`, `Invoke-Svrn7BatchTransfer`,
+  `Invoke-Svrn7ExternalTransfer`, `Invoke-Svrn7FederationTransfer`,
+  `Invoke-Svrn7SignSecp256k1`) used to live inside `Svrn7.Federation.0.8.0.psm1` /
+  `Svrn7.Society.0.8.0.psm1` — eager LOBEs, meaning every one of their functions is loaded
+  into the shared `InitialSessionState` every dispatch runspace is built from, reachable by
+  name from *any* handler's runspace regardless of which protocol triggered it (PowerShell
+  has no per-function ACL within a session). "Not a registered entrypoint" prevented the
+  Switchboard from calling them, but not a hypothetical dynamic-invocation bug in some other
+  registered handler from reaching them. They've since moved to
+  `src/Svrn7.TDA/admin-tools/Svrn7.AdminTools/Svrn7.AdminTools.psm1` — outside `lobes/`, with no `.lobe.json`
+  descriptor, so `LobeManager` never discovers or loads it into any dispatch runspace at all.
+  No inbound DIDComm message can reach these cmdlets now, full stop; a human imports the
+  module directly in a standalone PowerShell session (the same way Appendix I's testing flow
+  uses `Send-LocalDIDCommMessage`) and passes an explicit `-Driver`/`-SocietyDriver`, since
+  the module has no access to Federation/Society's own private script-scoped driver
+  singleton.
+- **Not perfectly clean historically, on the C# side.** `DIDCommMessageProcessorService` used
+  to run its own inbox-drain loop alongside the Switchboard, violating "the Switchboard is the
+  sole inbox reader" — it raced the Switchboard for messages and could dead-letter ones it
+  grabbed first but didn't recognize. Fixed, but it's evidence the boundary needs active
+  maintenance, not just a diagram.
+- **Legacy prototype scripts still sit in `lobes/`.** `Agent1-Coordinator.ps1`,
+  `Agent2-Onboarding.ps1`, and `AgentN-Invoicing.ps1` predate `LobeManager`/`.lobe.json` and
+  use an older `Enqueue-Svrn7Message` cmdlet-wrapper pattern that no current registered LOBE
+  uses — `DIDCommMessageSwitchboard.EnqueueOutbound`'s own doc-comment still describes it.
+  The live mechanism is the pipeline-return pattern in Appendix D. Don't copy from the
+  `Agent*.ps1` files.
+- **The guidance itself isn't immune.** This guide's own Appendix D previously pre-serialized
+  the reply body with `ConvertTo-Json` before embedding it in the envelope, then serialized
+  the whole envelope again — double-encoding `body` into a JSON string instead of a JSON
+  object (`"body":"{\"foo\":123}"` instead of `"body":{"foo":123}"`), exactly the bug a recent
+  commit fixed on the C# packing side. That C# fix never touched the WebSocket delivery path
+  (a LOBE's envelope is pushed verbatim, with zero server-side correction) or this guide, so
+  following the old example as written would have broken replies to local UI clients like
+  PandoMail. Fixed below to match what every real registered LOBE
+  (`Invoke-Web7SocietyList`, `Invoke-Web7RegisterSociety`, etc.) already does — build `body`
+  as a nested hashtable, never pre-stringify it.
+
+---
+
 ## Step 1 — Define the Protocol URI(s)
 
 Every inbound DIDComm message type the LOBE handles needs a URI.
@@ -507,16 +571,23 @@ Returning `$null`, an empty pipeline, or a bare `return` means no reply is sent.
 ### With reply
 
 ```powershell
-$payload = @{ ... } | ConvertTo-Json -Compress   # the data to send
-
 $envelope = [ordered]@{
     typ  = 'application/didcomm-plain+json'
     id   = [Svrn7.Core.TdaResourceId]::DIDCommMessage([Guid]::NewGuid().ToString('N'))
     type = 'did:drn:svrn7.net/protocols/domain.0.1.0/result'   # outbound @type URI
     from = $SVRN7.Driver.SocietyDid
     to   = @($msg.FromDid)
-    body = $payload   # $payload is a JSON string; stored as a string literal in the envelope
-} | ConvertTo-Json -Compress
+    body = [ordered]@{ ... }   # a nested hashtable/object — never pre-stringify this with
+                                # ConvertTo-Json first. The outer ConvertTo-Json below
+                                # recursively serializes it as a real JSON object; a
+                                # pre-stringified value would be embedded as an escaped JSON
+                                # STRING instead ("body":"{\"foo\":123}" instead of
+                                # "body":{"foo":123}) — DIDComm v2 requires body, when
+                                # present, to be an object. See every registered LOBE's
+                                # own reply construction (e.g. Invoke-Web7SocietyList,
+                                # Invoke-Web7RegisterSociety in Svrn7.Federation.0.8.0.psm1)
+                                # for the pattern this follows.
+} | ConvertTo-Json -Compress -Depth 10
 
 [Svrn7.TDA.OutboundMessage]::new($endpoint, $envelope)
 ```

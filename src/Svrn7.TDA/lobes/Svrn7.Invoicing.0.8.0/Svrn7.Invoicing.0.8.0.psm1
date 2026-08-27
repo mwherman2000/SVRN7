@@ -5,18 +5,37 @@
 
 .DESCRIPTION
     Implements the did:drn:svrn7.net/protocols/Svrn7.Invoicing.0.8.0/* DIDComm protocol.
-    Computes SVRN7 transfer amounts from invoice line items, executes transfers
-    via Invoke-Svrn7Transfer or Invoke-Svrn7ExternalTransfer, and issues a
+    Computes SVRN7 transfer amounts from invoice line items and issues a
     TransferReceiptCredential VC as a DIDComm Svrn7.Invoicing/0.8.0/receipt.
 
     Derived from: Agent N — Invoicing (PowerShell Runspace) — DSA 0.24 Epoch 0 (PPML).
 
 .NOTES
+    DEFERRED — auto-transfer-on-invoice is not implemented. ConvertFrom-Web7InvoiceRequest
+    is registered as the inbound entrypoint and only extracts/validates fields today; it
+    does not call a transfer function and does not itself trigger outbound delivery
+    (returns a hashtable, not an OutboundMessage — see LOBEGUIDE.md Appendix D). The
+    pipeline below is the intended design, not live behavior.
+
+    Do NOT complete this by having a registered entrypoint call
+    Invoke-Svrn7Transfer / Invoke-Svrn7ExternalTransfer (admin-tools/Svrn7.AdminTools.psm1)
+    directly — those cmdlets require a raw payer private key as a parameter, and this file
+    is an eager LOBE: anything it references is loaded into the Switchboard's shared
+    InitialSessionState, reachable by any dispatch runspace. Wiring a payer key into a
+    message-triggered call path here is exactly what admin-tools/Svrn7.AdminTools.psm1 was
+    split out to prevent (see LOBEGUIDE.md "Division of Responsibility").
+
+    The correct completion follows Invoke-Svrn7IncomingTransfer's existing pattern
+    (Svrn7.Society.0.8.0.psm1): add a C# driver method that signs and transfers using this
+    TDA's own already-loaded key material (the same way HandleIncomingTransferMessageAsync
+    and SignMerkleTreeHeadAsync keep their key internal) instead of accepting one from the
+    caller. Until that exists, this LOBE only extracts/validates invoice fields.
+
     Protocol URIs:
         did:drn:svrn7.net/protocols/Svrn7.Invoicing.0.8.0/request — inbound invoice request
         did:drn:svrn7.net/protocols/Svrn7.Invoicing.0.8.0/receipt — outbound transfer receipt
 
-    Pipeline:
+    Intended pipeline (not yet wired to auto-execute — see DEFERRED note above):
         Dequeue-Svrn7Message | ConvertFrom-Web7InvoiceRequest |
         Resolve-InvoiceAmount | Invoke-Svrn7Transfer |
         New-Web7InvoiceReceipt | Enqueue-Svrn7Message

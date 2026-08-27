@@ -384,6 +384,9 @@ Send-LocalDIDCommMessage -Port 8441 -Body $msg
 # DID.  Generate once and save the output.
 
 Write-Host "--- Step 11 — Generate Citizen key material ---"
+# New-Svrn7KeyPair moved out of Svrn7.Federation.0.8.0.psm1 into admin-tools —
+# see docs/LOBEGUIDE.md "Division of Responsibility" for why.
+Import-Module .\admin-tools\Svrn7.AdminTools\Svrn7.AdminTools.psm1
 $citizenKp  = New-Svrn7KeyPair
 $citizenDid = New-Svrn7Did -KeyPair $citizenKp -Role 'Citizen' -SocietyName 'bindloss'
 
