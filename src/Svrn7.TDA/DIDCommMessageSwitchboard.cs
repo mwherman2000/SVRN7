@@ -365,99 +365,119 @@ public sealed class DIDCommMessageSwitchboard
     private async Task InvokeCmdletPipelineAsync(
         string cmdletOrScript, string modulePath, string didUrl, CancellationToken ct)
     {
-        using var isolated = _pool.CreateIsolatedPipeline();
-        var ps = isolated.Ps;
-
-        // For LOBE cmdlets (not agent .ps1 scripts), ensure the module is present
-        // in this runspace. Eager LOBEs are skipped (already in the ISS).
-        // JIT LOBEs are imported now into this dedicated runspace.
-        if (!cmdletOrScript.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
-            await _lobes.EnsureLoadedAsync(ps, modulePath, ct);
-
-        ps.Commands.Clear();
-        if (cmdletOrScript.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
-        {
-            // Agent script: executed with MessageDid parameter.
-            ps.AddCommand(cmdletOrScript)
-              .AddParameter("MessageDid", didUrl);
-        }
-        else
-        {
-            // LOBE cmdlet pipeline: Dequeue-Svrn7Message | cmdlet (pass-by-reference).
-            ps.AddCommand("Dequeue-Svrn7Message")
-              .AddParameter("Did", didUrl)
-              .AddStatement()
-              .AddCommand(cmdletOrScript)
-              .AddParameter("MessageDid", didUrl);
-        }
-
+        // Started before CreateIsolatedPipeline() (not after) so that pipeline's own
+        // runspace.lifetime span — and, in turn, EnsureLoadedAsync's lobe.import — both
+        // nest under the dispatch that triggered them, instead of surfacing as unlinked
+        // sibling spans with no correlation back to this message. `using` disposes in
+        // reverse declaration order, so `isolated` (the child) still ends before
+        // `invokeActivity` (the parent), exactly as proper nesting requires.
         using var invokeActivity = Svrn7Telemetry.Source.StartActivity(
             Svrn7Telemetry.ActivityInvoke,
             ActivityKind.Internal);
         invokeActivity?.SetTag(Svrn7Telemetry.TagMessageId,      didUrl)
-                       .SetTag(Svrn7Telemetry.TagLobeEntrypoint, cmdletOrScript);
+                       .SetTag(Svrn7Telemetry.TagLobeEntrypoint, cmdletOrScript)
+                       .SetTag(Svrn7Telemetry.TagLobeModulePath, modulePath);
 
-        _log.LogTrace("PS invoke: {Cmdlet} -MessageDid {Did}", cmdletOrScript, didUrl);
+        using var isolated = _pool.CreateIsolatedPipeline();
+        var ps = isolated.Ps;
 
-        // ps.Invoke() is synchronous. Wrap in Task.Run so it doesn't block the thread pool.
-        // PowerShell does not honour CancellationToken internally — interruption is via
-        // ps.Stop(). Apply an external timeout using WaitAsync + a linked CTS.
-        var invokeTask = Task.Run(() => ps.Invoke());
-
-        if (_opts.LobeInvocationTimeoutSeconds > 0)
+        try
         {
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(_opts.LobeInvocationTimeoutSeconds));
-            try
+            // For LOBE cmdlets (not agent .ps1 scripts), ensure the module is present
+            // in this runspace. Eager LOBEs are skipped (already in the ISS).
+            // JIT LOBEs are imported now into this dedicated runspace.
+            if (!cmdletOrScript.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
+                await _lobes.EnsureLoadedAsync(ps, modulePath, ct);
+
+            ps.Commands.Clear();
+            if (cmdletOrScript.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
             {
-                await invokeTask.WaitAsync(timeoutCts.Token);
+                // Agent script: executed with MessageDid parameter.
+                ps.AddCommand(cmdletOrScript)
+                  .AddParameter("MessageDid", didUrl);
             }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            else
             {
-                // Timeout fired (not shutdown) — stop the runspace and fail the message.
-                ps.Stop();
-                try { await invokeTask.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None); }
-                catch { /* best-effort wind-down; runspace disposed by IsolatedPipeline */ }
-                throw new TimeoutException(
-                    $"LOBE cmdlet '{cmdletOrScript}' timed out after {_opts.LobeInvocationTimeoutSeconds}s for message {didUrl}.");
+                // LOBE cmdlet pipeline: Dequeue-Svrn7Message | cmdlet (pass-by-reference).
+                ps.AddCommand("Dequeue-Svrn7Message")
+                  .AddParameter("Did", didUrl)
+                  .AddStatement()
+                  .AddCommand(cmdletOrScript)
+                  .AddParameter("MessageDid", didUrl);
+            }
+
+            _log.LogTrace("PS invoke: {Cmdlet} -MessageDid {Did}", cmdletOrScript, didUrl);
+
+            // ps.Invoke() is synchronous. Wrap in Task.Run so it doesn't block the thread pool.
+            // PowerShell does not honour CancellationToken internally — interruption is via
+            // ps.Stop(). Apply an external timeout using WaitAsync + a linked CTS.
+            var invokeTask = Task.Run(() => ps.Invoke());
+
+            if (_opts.LobeInvocationTimeoutSeconds > 0)
+            {
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(_opts.LobeInvocationTimeoutSeconds));
+                try
+                {
+                    await invokeTask.WaitAsync(timeoutCts.Token);
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    // Timeout fired (not shutdown) — stop the runspace and fail the message.
+                    ps.Stop();
+                    try { await invokeTask.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None); }
+                    catch { /* best-effort wind-down; runspace disposed by IsolatedPipeline */ }
+                    throw new TimeoutException(
+                        $"LOBE cmdlet '{cmdletOrScript}' timed out after {_opts.LobeInvocationTimeoutSeconds}s for message {didUrl}.");
+                }
+            }
+            else
+            {
+                await invokeTask.WaitAsync(ct);
+            }
+
+            var results = invokeTask.Result; // task is completed at this point
+
+            _log.LogTrace("PS complete: {Cmdlet} → {Count} result(s).", cmdletOrScript, results.Count);
+            invokeActivity?.SetTag(Svrn7Telemetry.TagResultCount,  results.Count)
+                           .SetTag(Svrn7Telemetry.TagWarningCount, ps.Streams.Warning.Count);
+
+            // Forward PowerShell streams to the .NET logger.
+            foreach (var v in ps.Streams.Verbose)
+                _log.LogTrace("  [PS Verbose] {Message}", v.Message);
+            foreach (var d in ps.Streams.Debug)
+                _log.LogDebug("  [PS Debug] {Message}", d.Message);
+            foreach (var i in ps.Streams.Information)
+                _log.LogInformation("  [PS Info] {Message}", i.MessageData);
+            foreach (var w in ps.Streams.Warning)
+                _log.LogWarning("  [PS Warning] {Message}", w.Message);
+
+            if (ps.HadErrors)
+            {
+                var errors = string.Join("; ", ps.Streams.Error.Select(e => e.ToString()));
+                throw new InvalidOperationException(
+                    $"'{cmdletOrScript}' reported errors for message {didUrl}: {errors}");
+            }
+
+            invokeActivity?.SetStatus(ActivityStatusCode.Ok);
+
+            // Enqueue any outbound messages returned by the pipeline.
+            foreach (var result in results)
+            {
+                if (result?.BaseObject is OutboundMessage outbound)
+                    _outboundQueue.Enqueue(outbound);
             }
         }
-        else
+        catch (Exception ex)
         {
-            await invokeTask.WaitAsync(ct);
-        }
-
-        var results = invokeTask.Result; // task is completed at this point
-
-        _log.LogTrace("PS complete: {Cmdlet} → {Count} result(s).", cmdletOrScript, results.Count);
-        invokeActivity?.SetTag(Svrn7Telemetry.TagResultCount,  results.Count)
-                       .SetTag(Svrn7Telemetry.TagWarningCount, ps.Streams.Warning.Count);
-
-        // Forward PowerShell streams to the .NET logger.
-        foreach (var v in ps.Streams.Verbose)
-            _log.LogTrace("  [PS Verbose] {Message}", v.Message);
-        foreach (var d in ps.Streams.Debug)
-            _log.LogDebug("  [PS Debug] {Message}", d.Message);
-        foreach (var i in ps.Streams.Information)
-            _log.LogInformation("  [PS Info] {Message}", i.MessageData);
-        foreach (var w in ps.Streams.Warning)
-            _log.LogWarning("  [PS Warning] {Message}", w.Message);
-
-        if (ps.HadErrors)
-        {
-            var errors = string.Join("; ", ps.Streams.Error.Select(e => e.ToString()));
-            invokeActivity?.SetStatus(ActivityStatusCode.Error, errors);
-            throw new InvalidOperationException(
-                $"'{cmdletOrScript}' reported errors for message {didUrl}: {errors}");
-        }
-
-        invokeActivity?.SetStatus(ActivityStatusCode.Ok);
-
-        // Enqueue any outbound messages returned by the pipeline.
-        foreach (var result in results)
-        {
-            if (result?.BaseObject is OutboundMessage outbound)
-                _outboundQueue.Enqueue(outbound);
+            // Single, uniform error-tagging point for every failure path above — JIT LOBE
+            // import failures, a PowerShell-timeout TimeoutException, ps.HadErrors's
+            // InvalidOperationException (whose own Message already carries the full PS
+            // error text), or anything unanticipated. error.type lets a trace backend
+            // group/filter by failure kind without parsing the status description string.
+            invokeActivity?.SetTag(Svrn7Telemetry.TagErrorType, ex.GetType().Name)
+                           .SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
         }
     }
 

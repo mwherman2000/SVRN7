@@ -49,4 +49,5 @@ public static class Svrn7Telemetry
     public const string TagRunspaceId     = "svrn7.runspace_id";
     public const string TagPackMode       = "svrn7.pack_mode";
     public const string TagPackedBytes    = "svrn7.packed_bytes";
+    public const string TagErrorType      = "error.type"; // OTEL semconv standard attribute
 }
