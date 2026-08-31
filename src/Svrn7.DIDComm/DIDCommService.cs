@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -5,6 +6,7 @@ using System.Text.Json.Serialization;
 using NBitcoin;
 using NBitcoin.Crypto;
 using NSec.Cryptography;
+using Svrn7.Core;
 using Svrn7.Core.Interfaces;
 
 namespace Svrn7.DIDComm;
@@ -159,11 +161,17 @@ public sealed class DIDCommPackingService : IDIDCommService
     public Task<string> PackPlaintextAsync(DIDCommMessage message, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        using var activity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityPack, ActivityKind.Internal);
+        activity?.SetTag(Svrn7Telemetry.TagPackMode, nameof(DIDCommPackMode.Plaintext))
+                 .SetTag(Svrn7Telemetry.TagMessageId, message.Id)
+                 .SetTag(Svrn7Telemetry.TagMessageType, message.Type);
+
         // message.Body holds pre-serialized JSON text; parse it back so it's embedded as a
         // raw JSON object per the DIDComm v2 spec ("body... MUST be a JSON object") — not as
         // a string-typed property, which would double-encode it.
         using var bodyDoc = JsonDocument.Parse(message.Body);
-        return Task.FromResult(JsonSerializer.Serialize(new
+        var wire = JsonSerializer.Serialize(new
         {
             typ  = "application/didcomm-plain+json",
             id   = message.Id,
@@ -172,7 +180,11 @@ public sealed class DIDCommPackingService : IDIDCommService
             from = message.From,
             to   = message.To is not null ? new[] { message.To } : null,
             body = bodyDoc.RootElement,
-        }, _jsonOpts));
+        }, _jsonOpts);
+
+        activity?.SetTag(Svrn7Telemetry.TagPackedBytes, wire.Length)
+                 .SetStatus(ActivityStatusCode.Ok);
+        return Task.FromResult(wire);
     }
 
     // ── Signed (JWS) ─────────────────────────────────────────────────────────
@@ -181,6 +193,13 @@ public sealed class DIDCommPackingService : IDIDCommService
         byte[] senderPrivateKey, bool secp256k1 = false, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        using var activity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityPack, ActivityKind.Internal);
+        activity?.SetTag(Svrn7Telemetry.TagPackMode, nameof(DIDCommPackMode.SignOnly))
+                 .SetTag(Svrn7Telemetry.TagMessageId, message.Id)
+                 .SetTag(Svrn7Telemetry.TagMessageType, message.Type)
+                 .SetTag("svrn7.signing_algorithm", secp256k1 ? "ES256K" : "EdDSA");
+
         using var bodyDoc = JsonDocument.Parse(message.Body);
         var alg     = secp256k1 ? "ES256K" : "EdDSA";
         var header  = B64(JsonSerializer.SerializeToUtf8Bytes(new { alg, typ = "JWM" }));
@@ -198,11 +217,15 @@ public sealed class DIDCommPackingService : IDIDCommService
             ? SignSecp256k1(sigInput, senderPrivateKey)
             : SignEd25519(sigInput, senderPrivateKey);
 
-        return Task.FromResult(JsonSerializer.Serialize(new
+        var wire = JsonSerializer.Serialize(new
         {
             payload    = payload,
             signatures = new[] { new { header = new { kid = "key-1" }, @protected = header, signature = sig } }
-        }));
+        });
+
+        activity?.SetTag(Svrn7Telemetry.TagPackedBytes, wire.Length)
+                 .SetStatus(ActivityStatusCode.Ok);
+        return Task.FromResult(wire);
     }
 
     // ── Encrypted (JWE, ECDH-ES+A256KW) ─────────────────────────────────────
@@ -216,6 +239,11 @@ public sealed class DIDCommPackingService : IDIDCommService
         DIDCommPackMode mode = DIDCommPackMode.SignThenEncrypt, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        using var activity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityPack, ActivityKind.Internal);
+        activity?.SetTag(Svrn7Telemetry.TagPackMode, mode.ToString())
+                 .SetTag(Svrn7Telemetry.TagMessageId, message.Id)
+                 .SetTag(Svrn7Telemetry.TagMessageType, message.Type);
 
         using var bodyDoc = JsonDocument.Parse(message.Body);
         var plaintext = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
@@ -228,15 +256,31 @@ public sealed class DIDCommPackingService : IDIDCommService
             body = bodyDoc.RootElement,
         }, _jsonOpts));
 
-        return Task.FromResult(EncryptJwe(plaintext, recipientPublicKey));
+        var wire = EncryptJwe(plaintext, recipientPublicKey);
+        activity?.SetTag(Svrn7Telemetry.TagPackedBytes, wire.Length)
+                 .SetStatus(ActivityStatusCode.Ok);
+        return Task.FromResult(wire);
     }
 
     public async Task<string> PackSignedAndEncryptedAsync(DIDCommMessage message,
         byte[] recipientPublicKey, byte[] senderPrivateKey, bool secp256k1 = false, CancellationToken ct = default)
     {
+        using var activity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityPack, ActivityKind.Internal);
+        activity?.SetTag(Svrn7Telemetry.TagPackMode, nameof(DIDCommPackMode.SignThenEncrypt))
+                 .SetTag(Svrn7Telemetry.TagMessageId, message.Id)
+                 .SetTag(Svrn7Telemetry.TagMessageType, message.Type);
+
+        // Nests a child didcomm.pack span (mode=SignOnly) via PackSignedAsync — the trace
+        // backend shows the sign and encrypt steps as a natural parent/child breakdown of
+        // this one SignThenEncrypt operation, not two independent packs.
         var signed    = await PackSignedAsync(message, senderPrivateKey, secp256k1, ct);
         var plaintext = Encoding.UTF8.GetBytes(signed);
-        return EncryptJwe(plaintext, recipientPublicKey);
+        var wire      = EncryptJwe(plaintext, recipientPublicKey);
+
+        activity?.SetTag(Svrn7Telemetry.TagPackedBytes, wire.Length)
+                 .SetStatus(ActivityStatusCode.Ok);
+        return wire;
     }
 
     // ── Unpack ────────────────────────────────────────────────────────────────
@@ -245,36 +289,63 @@ public sealed class DIDCommPackingService : IDIDCommService
         byte[]? recipientPrivateKey = null, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
+        using var activity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityUnpack, ActivityKind.Internal);
+        activity?.SetTag(Svrn7Telemetry.TagPackedBytes, packed.Length);
+
         try
         {
             using var doc  = JsonDocument.Parse(packed);
             var root       = doc.RootElement;
+            DIDCommUnpackedMessage result;
 
             // ── Plaintext (has root "type") ───────────────────────────────────
             if (root.TryGetProperty("type", out var typeEl))
-                return PlaintextResult(root, typeEl, DIDCommPackMode.Plaintext);
-
+            {
+                result = PlaintextResult(root, typeEl, DIDCommPackMode.Plaintext);
+            }
             // ── JWE (has root "ciphertext") ───────────────────────────────────
-            if (root.TryGetProperty("ciphertext", out _))
+            else if (root.TryGetProperty("ciphertext", out _))
             {
                 if (recipientPrivateKey is null || recipientPrivateKey.Length == 0)
                     throw new InvalidOperationException(
                         "JWE message received but no recipient private key was provided.");
 
                 var innerJson = DecryptJwe(packed, recipientPrivateKey);
-                return await UnpackInnerAsync(innerJson, ct);
+                result = await UnpackInnerAsync(innerJson, ct);
+            }
+            // ── JWS (has root "signatures") ───────────────────────────────────
+            else if (root.TryGetProperty("signatures", out _))
+            {
+                result = await UnpackJwsAsync(root, packed, ct);
+            }
+            else
+            {
+                // Unknown — dead-letter
+                activity?.SetTag(Svrn7Telemetry.TagOutcome, "unknown_format");
+                result = new DIDCommUnpackedMessage
+                    { Type = "application/didcomm-encrypted+json", Body = packed, Mode = DIDCommPackMode.Authcrypt };
             }
 
-            // ── JWS (has root "signatures") ───────────────────────────────────
-            if (root.TryGetProperty("signatures", out _))
-                return await UnpackJwsAsync(root, packed, ct);
-
-            // Unknown — dead-letter
-            return new DIDCommUnpackedMessage
-                { Type = "application/didcomm-encrypted+json", Body = packed, Mode = DIDCommPackMode.Authcrypt };
+            activity?.SetTag(Svrn7Telemetry.TagPackMode, result.Mode.ToString())
+                     .SetTag(Svrn7Telemetry.TagMessageId, result.Id)
+                     .SetTag(Svrn7Telemetry.TagMessageType, result.Type)
+                     .SetStatus(ActivityStatusCode.Ok);
+            return result;
         }
-        catch (Exception ex) when (ex is not InvalidOperationException)
+        // Recorded separately from the generic wrap below so a genuine business-rule
+        // rejection (missing recipient key, JWS signature verification failure) is
+        // distinguishable in a trace backend from an unexpected parse/crypto exception —
+        // matches the original code's own distinction: InvalidOperationException always
+        // propagated as-is; anything else got wrapped.
+        catch (InvalidOperationException ex)
         {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             throw new InvalidOperationException($"Failed to unpack DIDComm message: {ex.Message}", ex);
         }
     }
