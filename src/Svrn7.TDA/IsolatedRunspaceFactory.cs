@@ -139,7 +139,13 @@ public sealed class IsolatedPipeline : IDisposable
             _runspace.Open();
             Ps = PowerShell.Create();
             Ps.Runspace = _runspace;
-            if (log is not null)
+            // ProbeRunspace() runs a second script invocation on the new runspace purely
+            // for diagnostics — guard it behind IsEnabled so that cost (31-140ms, measured
+            // live) isn't paid on every dispatch when Debug logging is off (the default —
+            // IsolatedRunspaceFactory logs at Information in appsettings.json). Passing it
+            // as a LogDebug argument alone doesn't skip the call: C# evaluates method
+            // arguments before the callee's own level check runs.
+            if (log is not null && log.IsEnabled(LogLevel.Debug))
                 log.LogDebug("IsolatedPipeline: {Probe}", ProbeRunspace());
             _lifetimeActivity?.SetTag(Svrn7Telemetry.TagOutcome, "open");
         }
