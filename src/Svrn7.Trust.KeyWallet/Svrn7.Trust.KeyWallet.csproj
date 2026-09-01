@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Svrn7.Trust.KeyWallet</RootNamespace>
+    <AssemblyName>Svrn7.Trust.KeyWallet</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!--
+      Deterministic (Roslyn default) plus ContinuousIntegrationBuild (only
+      set when a CI environment variable is present, so local dev builds
+      keep embedding local paths/timestamps as usual) are necessary but not
+      sufficient steps toward a reproducible build; see THREAT_MODEL.md.
+      A real guarantee still requires an actual CI pipeline, which this
+      project doesn't have yet.
+    -->
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>Svrn7.Trust.KeyWallet</PackageId>
+    <Description>A locally-stored, password-protected ECDSA P-256 key pair: Argon2id/PBKDF2 + AES-256-GCM at-rest encryption, BIP39-style recovery phrases, public-key pinning, unlock throttling, and OpenTelemetry-ready diagnostics. UI-agnostic; see the KeyWallet console app for a reference host.</Description>
+    <Authors>mwherman</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+    <EmbeddedResource Include="wordlist_english.txt">
+      <LogicalName>wordlist_english.txt</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
+    <!-- DPAPI (ProtectedData) is a Windows-only out-of-band package, used by
+         DpapiPinStore. Guarded by [SupportedOSPlatform("windows")]; hosts on
+         other platforms fall back to NullPinStore (see IPinStore). -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>
