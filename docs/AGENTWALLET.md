@@ -1,0 +1,634 @@
+# AgentWallet & Per-Identity Runtime Storage — Design
+
+**Status:** Accepted (design phase — not yet implemented)
+**Scope:** TDA startup, identity storage, runtime folder layout, database encryption, listen-port lifecycle
+**Supersedes:** port-keyed `<BaseDir>/{port}/mem/` layout and plaintext `agent-identity.json`
+
+---
+
+## 1. Summary
+
+A TDA instance today is keyed to its `--port`: databases and `agent-identity.json`
+live under `<BaseDir>/{port}/mem/`, next to the executable. This design replaces that
+with:
+
+1. **Per-identity runtime folders** under a user-level data root
+   (`~/.web7-pando/`), named after the TDA's DID genesis hash — not the port.
+2. **An encrypted, password-protected wallet** (`Svrn7.Trust.AgentWallet`) holding
+   all key material, replacing plaintext `agent-identity.json`.
+3. **All five LiteDB databases encrypted**, keyed from the wallet.
+4. **A per-instance `lobes/` folder**, installed from a machine-level
+   `~/.web7-pando/lobe-library/` package source — no shared *installed* LOBE
+   catalog.
+5. **Listen port auto-selected once** on first run, recorded in the DID Document,
+   and never changed automatically thereafter.
+
+The port stops being an identifier and becomes purely a listen setting.
+
+---
+
+## 2. Motivation
+
+| Problem today | Consequence |
+|---|---|
+| Runtime folder named by `--port` | The same identity on a different port is a different data set; the port is load-bearing where it should be incidental. |
+| Data lives under `AppContext.BaseDirectory` | A binary update/reinstall endangers live data. |
+| `agent-identity.json` is plaintext | secp256k1 + X25519 private keys sit on disk in the clear. |
+| LiteDB files are plaintext | DID Docs, message bodies, VCs readable from a stolen disk image. |
+| Shared machine-wide `lobes/` catalog | One instance's LOBE upgrade affects every instance; no side-by-side versions. |
+
+Goals: correlate the runtime folder with the DID; protect key material and data at
+rest behind a password; isolate each instance's LOBE set; keep the published network
+endpoint stable.
+
+---
+
+## 3. Why a new component, not "extend KeyWallet"
+
+`Svrn7.Trust.KeyWallet` (already in the repo) is **ECDSA P-256, single key**:
+
+- `KeyPair.Generate()` → `ECDsa.Create(nistP256)`
+- `EcMath` hard-codes the P-256 curve parameters
+- `WalletFile` v2 stores exactly one encrypted PKCS#8 blob
+- `Mnemonic` derives a P-256 scalar from a BIP39 seed by a non-standard construction
+
+SVRN7 needs:
+
+- a **secp256k1** identity key — the DID genesis hash is `Blake3(secp256k1
+  compressed pubkey)`, JWS is ES256K, transaction signing is secp256k1
+- **plus** an **X25519** key-agreement key for inbound JWE decryption
+- plus `did`, `role`, parent-TDA wiring, recovery entropy, a wrapped DB key
+
+So the encrypted payload is generalised from "one PKCS#8 key" to **a JSON
+document**. KeyWallet's key-type-specific classes (`KeyPair`, `EcMath`,
+`Mnemonic`) are not reused; its key-type-agnostic protection machinery is.
+
+`Svrn7.Trust.AgentWallet` is a **new standalone project**. It **copies** (does not
+project-reference) the reusable KeyWallet files, so KeyWallet keeps its clean
+single-P-256-key API. If a third consumer of the shared crypto ever appears,
+extract a `Svrn7.Trust.WalletCore` then — not now.
+
+### Borrowed from KeyWallet
+
+| File / pattern | Reused as-is? | Notes |
+|---|---|---|
+| `WalletCrypto` | Verbatim | Argon2id (64 MiB / 3 passes / parallelism 4) + AES-256-GCM. Cost params embedded in the blob: `memKiB(4) ‖ iters(4) ‖ par(4) ‖ salt(16) ‖ nonce(12) ‖ tag(16) ‖ ciphertext`. Operates on arbitrary `byte[]`. PBKDF2 "v1" path retained for format lineage, unused by new wallets. |
+| `WalletFile.Save` pattern | Adapted | Atomic write: serialise to `.tmp`, `stream.Flush(flushToDisk: true)`, `File.Replace(tmp, path, .bak)`; `PlatformNotSupportedException` → manual copy+move fallback. |
+| `WalletFile.Load` pattern | Adapted | Corruption detection; error message points at the `.bak`. |
+| `UnlockThrottle` | Verbatim | `.lockout` JSON sidecar. First 2 wrong attempts free; then `1 << (failures − 2)` seconds, capped at 300 s. Reset on successful unlock or any fresh write. Corrupt sidecar fails **open**. |
+| `IPinStore` + trust-on-first-use | Adapted | Pin the **secp256k1** public-key hash (SHA-256 of the compressed pubkey). Mismatch → refuse before prompting. First use + enabled store → enrol after a successful password check. |
+| `KeyWalletDiagnostics` pattern | Adapted | One `ActivitySource` + one `Meter`, both named `"AgentWallet"`, no exporter. Host opts in with `AddSource("AgentWallet")` / `AddMeter("AgentWallet")`. |
+
+### Not reused
+
+`KeyPair` (P-256 / `ECDsa`), `EcMath` (P-256 params), `Mnemonic` (P-256 seed
+derivation). Key generation comes from `Svrn7.Crypto.CryptoService`
+(`GenerateSecp256k1KeyPair`, `GenerateX25519KeyPair`, `Blake3Hex`); recovery from
+`NBitcoin` (§9).
+
+---
+
+## 4. Decision log
+
+Each decision below was made explicitly during design. Format: **Decision** —
+rationale — consequences.
+
+### D1 — Data root is `~/.web7-pando/`
+
+**Decision:** All per-identity data moves under a user-level data root, default
+`~/.web7-pando/` (`%USERPROFILE%\.web7-pando\` on Windows). Overridable by the
+`PANDO_HOME` environment variable or a `--data-root <path>` flag.
+
+**Rationale:** Decouples data from the executable location; survives binary
+updates; conventional dotfolder location.
+
+**Consequences:** `Program.cs` no longer derives paths from
+`AppContext.BaseDirectory`. A machine may host many instances under one root.
+
+---
+
+### D2 — Runtime folder named `<name>-<genesisHash[..8]>`
+
+**Decision:** One directory per identity, named
+`<name>-<genesisHash[..8]>/`, where `<name>` is the sanitised (kebab-case)
+`--name` argument and `<genesisHash>` is `Blake3(secp256k1 compressed pubkey)`
+hex, first 8 characters.
+
+**Rationale:** The genesis hash is **stable across role transitions**. A TDA
+transitions Wanderer → Citizen → Society → Federation *in place*; the DID string
+format changes per role (`wanderer.svrn7.net/agent/...` →
+`<society>.svrn7.net/citizen/...`) but the key pair and therefore the genesis
+hash do not. One folder = one key pair = one genesis hash = possibly several
+role-DIDs over its lifetime. The `<name>-` prefix keeps a directory listing
+human-scannable.
+
+**Consequences:** The full DID cannot be the folder name (`:` and `/`; Windows
+path length). 8 hex chars = 32 bits of collision resistance within one machine's
+handful of instances — adequate; a collision is detected at creation (§D3) and
+the slug lengthened.
+
+---
+
+### D3 — Instance discovery by directory scan (no `instances.json`)
+
+**Decision:** No central index file. Each instance directory contains
+`identity.meta.json` — cleartext, non-secret:
+
+```jsonc
+{
+  "did":                   "did:drn:wanderer.svrn7.net/agent/1.0/<genesis-hash>",
+  "name":                  "Wanderer1",
+  "role":                  "Wanderer",
+  "secp256k1PublicKeyHex": "<66 hex, compressed>",
+  "serviceEndpointUrl":    "http://localhost:8440/didcomm",
+  "createdAt":             "2026-09-01T00:00:00.000Z"
+}
+```
+
+Startup resolves the instance by scanning `~/.web7-pando/*/identity.meta.json`
+and matching on `--name` (or `--did`). If exactly one instance directory exists
+and no selector is given, it is used.
+
+**Rationale:** A central mutable file is a corruption point, needs write-locking
+for concurrent instance creation, and drifts from what is actually on disk. The
+`*.d/`-style scan is self-healing (drop a directory in → it appears; delete →
+gone), needs no locking, and `n` is tiny.
+
+**Consequences:** `identity.meta.json` is the **only** cleartext record of what an
+instance directory holds — the DID Document (authoritative for the endpoint) is
+now inside an encrypted database. `serviceEndpointUrl` in the meta file is a
+mirror, rewritten whenever the endpoint changes.
+
+---
+
+### D4 — Relaunch with a changed `--name` fails
+
+**Decision:** If `--name` resolves (via genesis hash) to an identity that already
+has a directory under a *different* name, startup fails with
+`did <did> already exists at <dir>`. No automatic rename.
+
+**Rationale:** Silent directory renames hide operator error; an explicit failure
+with the existing path is safer.
+
+---
+
+### D5 — `--reset` deletes the whole instance directory
+
+**Decision:** `--reset` deletes the entire `<name>-<genesisHash[..8]>/` directory
+(wallet, meta, `lobes/`, `mem/`) behind a confirmation prompt, forcing a clean
+first-run bootstrap.
+
+**Rationale:** Matches the current `--reset` intent (wipe and re-bootstrap) at the
+new granularity.
+
+**Consequences:** No migration tooling is built. `--reset` is the only supported
+path from the old `<BaseDir>/{port}/mem/` layout to the new one (existing testnet
+data is not carried over).
+
+---
+
+### D6 — Per-instance `lobes/` folder, installed from a machine-level library
+
+**Decision:** Each instance has its own `lobes/` directory (and its own
+`lobes/lobes.config.json`) under its slug folder. There is no shared *installed*
+LOBE catalog. The **package source** is machine-level:
+`~/.web7-pando/lobe-library/` holds the master copy of the LOBE NuGet packages
+(`.nupkg`). A fresh instance's `lobes/` is populated by expanding/installing from
+`lobe-library/`; each instance selects and pins its own versions.
+
+**Rationale:** LOBE version isolation — one instance can upgrade a JIT LOBE, or
+run a different version, without affecting any other instance. A shared package
+source means a fresh instance needs no network access when the package is already
+cached. Aligns with the hot-reload and side-by-side-versioning backlog items.
+
+**Consequences:** Installed LOBE modules are duplicated per instance (disk cost,
+accepted). `Program.cs` `LobesConfigPath` default moves from
+`<BaseDir>/lobes/lobes.config.json` to `<slug>/lobes/lobes.config.json`. First-run
+bootstrap installs an initial set from `lobe-library/` (which set = still to be
+defined — a manifest, or "all latest"). Populating/refreshing `lobe-library/`
+itself (from a remote feed) is out of scope here.
+
+---
+
+### D7 — Encrypted wallet payload is a JSON document
+
+**Decision:** `agent-identity.wallet` stores an `AgentWalletFile` envelope with a
+cleartext header and one encrypted blob; the blob is a JSON document, not a bare
+key. See §7–8.
+
+**Rationale:** SVRN7 identity is two keys of two curves plus metadata (§3).
+
+---
+
+### D8 — Database key: random master, wrapped by the password
+
+**Decision:** A random 32-byte `dbMaster` is generated at wallet creation and
+stored **in the encrypted payload, additionally wrapped** under the
+password-derived key:
+`dbMasterWrapped = AES-256-GCM(dbMaster, Argon2id(password, salt))`.
+All five LiteDB files use `Password = hex(dbMaster)`.
+
+**Rationale:** A **password change re-wraps ~32 bytes and rewrites only the
+wallet file** — the databases are never re-keyed. Deriving the DB password
+directly from the password (`HKDF(passwordKey)`) would force a full LiteDB
+`Rebuild` of all five files on every password change.
+
+**Consequences:** DB key rotation (only on suspected key compromise) is a
+separate, explicit, rare operation: new `dbMaster` → `Rebuild` all five → re-wrap.
+
+---
+
+### D9 — All five databases encrypted
+
+**Decision:** `svrn7-dids.db`, `svrn7-schemas.db`, `svrn7.db`, `svrn7-msg.db`,
+`svrn7-vcs.db` — all use LiteDB native encryption (`Password=`).
+
+**History:** An earlier draft left `svrn7-dids.db` / `svrn7-schemas.db` cleartext
+(DID Documents are publishable anyway). Reversed: the *set* of DIDs an instance
+knows, citizen rosters, and society membership are sensitive metadata even when
+individual documents are public; and a single uniform key path is simpler.
+
+**Consequences:**
+
+- No cleartext inspection of any database. LiteDB Studio needs the password. An
+  `agent db-shell` helper (derives the key after unlock) becomes the only
+  inspection path.
+- The listen-port read on subsequent runs now requires wallet unlock first
+  (§D11), since the port lives in `svrn7-dids.db`.
+- LiteDB takes an exclusive lock on an encrypted file — this doubles as the guard
+  against double-mounting one identity (§11).
+- **Overhead (estimate — not benchmarked in this repo):** storage ≈ 1 fixed
+  header page, negligible; CPU/latency ≈ 10–15 % on mixed read/write with AES-NI,
+  higher on cold-cache scans (every page fault also decrypts), near-zero on
+  cache-hot reads. The DID-resolve path is on every inbound reply-routing —
+  include it in any benchmark. Measure with representative data before relying on
+  the figure.
+
+---
+
+### D10 — Recovery phrase: 12-word BIP39, Web7-owned BIP32 path
+
+**Decision:**
+
+- Library: `NBitcoin.Mnemonic` (standard BIP39; NBitcoin is already a transitive
+  dependency via `Svrn7.Crypto`).
+- **12 words / 128-bit entropy** for now. `bip39EntropyBits` is recorded in the
+  payload so a later move to 24 words / 256-bit is non-breaking.
+- Identity key derived via BIP32 (`NBitcoin.ExtKey`) at the **Web7-owned path
+  `m/7'/0'/0'/0/0`** (purpose `7'`; deliberately not SLIP-0044-registered —
+  phrases are Web7-internal and will not import into a standard BIP32/44 wallet).
+- The **X25519 key** is re-derived from the same BIP32 seed:
+  `HKDF-SHA256(ikm = seed, salt = "", info = "web7-pando/x25519/v1", L = 32)`,
+  then X25519-clamped. One phrase restores both keys, hence the whole DID
+  identity (genesis hash = `Blake3(secp256k1 pubkey)`).
+
+**Rationale:** No role-based bases (see D14 rationale — TDAs transition in place).
+KeyWallet's P-256 `Mnemonic` is unusable here; NBitcoin gives a real,
+well-tested BIP39/BIP32 implementation for secp256k1 for free.
+
+**Consequences:** `bip39EntropyHex` is stored in the encrypted payload so
+`ExportRecoveryPhrase` can re-materialise the phrase after unlock. Keys imported
+raw (no phrase) → `ExportRecoveryPhrase` returns "none".
+
+---
+
+### D11 — Listen port: auto-select once, then fixed
+
+**Decision:**
+
+- **First run only:** bind-with-retry starting at `--port-base` (default
+  **8440**). Attempt the Kestrel bind; on `AddressInUseException` advance by one
+  and retry, up to `--port-span` (default 64) attempts. The bind itself is the
+  atomic claim.
+- On the first successful bind, the actual port is written into **the local
+  (Wanderer) DID Document `serviceEndpoint`** (`{url}:{port}/didcomm`) — the
+  authoritative record — and mirrored into `identity.meta.json`.
+- **Subsequent runs:** read the published port from the DID Document
+  (`svrn7-dids.db`, after unlock) and bind **exactly** that port. If it is
+  taken, **hard fail** with a message naming the published port — no
+  re-selection.
+
+**Rationale for "never auto-change":** other Web 7 ecosystem components cache DID
+Documents. Silently rewriting a published `serviceEndpoint` breaks every cached
+copy until it re-resolves.
+
+**No role-based port bases (D14):** a TDA transitions into higher roles in place,
+so a base chosen by role would be wrong after the transition.
+
+---
+
+### D12 — `--port` is optional; a conflicting `--port` is rejected
+
+**Decision:** `--port` becomes optional (it is required today).
+
+- First run, `--port` given → use it verbatim, skip the scan.
+- Later run, `--port` matches the DID Document → proceed.
+- Later run, `--port` **conflicts** with the DID Document → **reject, do not
+  start**.
+
+Moving a published endpoint is a deliberate, separate operation via
+**`--republish-endpoint`**: it rewrites `serviceEndpoint`, bumps the DID Document
+`updated` timestamp / version (so downstream caches have a refresh signal), and
+re-publishes to drn.directory where wired. Plain `--port` never triggers this.
+
+**Status:** `--republish-endpoint` as the sanctioned move mechanism is
+**confirm-pending** (§13). The rest of D12 is accepted.
+
+---
+
+### D13 — Password input: environment variable, else interactive
+
+**Decision:**
+
+1. If `PANDO_WALLET_PASSWORD` is set → use it, no confirmation.
+2. Else → interactive prompt. On **first-run wallet creation**, prompt **twice**
+   and require the entries to match.
+3. If stdin is **not a TTY** (detached process, service, redirected) **and** the
+   environment variable is absent → **fail fast** with a clear message; never
+   block on an unanswerable prompt.
+
+There is no `--password` flag and no `--password-file` — the environment variable
+is the only non-interactive source.
+
+**Rationale:** Interactive entry keeps the secret out of the process environment
+block (readable by same-user processes via `/proc/<pid>/environ`, `ps eww`,
+`ReadProcessMemory`). The environment variable is the automation escape hatch.
+"Env if set, else prompt" gives humans the private path and scripts the
+non-interactive one.
+
+---
+
+### D14 — Unlock throttle applies at startup
+
+**Decision:** The `UnlockThrottle` backoff applies even at process startup. A
+supervised service restarting in a loop with a bad secret will hit escalating
+backoff — that is the intended signal.
+
+**Rationale:** No special-casing; the throttle is a security control, not a
+convenience toggle. (`--no-unlock-throttle` was discussed and not adopted; it can
+be added later for supervised environments if needed.)
+
+---
+
+### D15 — `ISecretProtector` seam; Windows DPAPI now, others deferred
+
+**Decision:** An optional at-rest cache for the wallet password (so restarts do
+not re-prompt) sits behind:
+
+```csharp
+interface ISecretProtector {
+    bool   Enabled { get; }
+    byte[] Protect(byte[] plaintext);
+    byte[] Unprotect(byte[] sealed);
+}
+```
+
+v1 implementations:
+
+| Platform | Implementation |
+|---|---|
+| Windows | `DpapiSecretProtector` — `System.Security.Cryptography.ProtectedData`, `CurrentUser` scope |
+| everything else | `NullSecretProtector` — no caching; the env var or interactive prompt is required every start |
+
+**Deferred behind the seam:** macOS/iOS Keychain (`kSecClassGenericPassword`,
+Secure Enclave via `kSecAttrAccessControl`); Linux `systemd-creds` /
+`LoadCredentialEncrypted=` (TPM2- or host-key-sealed) for headless services;
+Linux desktop libsecret / Secret Service; kernel keyring.
+
+**Rationale:** DPAPI is Windows-only and has no BCL cross-platform equivalent.
+Mirrors KeyWallet's `IPinStore` "fail open to Null on unsupported platforms"
+pattern. The cache is convenience only — never required for operation.
+
+---
+
+## 5. Directory layout
+
+```
+~/.web7-pando/                                    ($PANDO_HOME | --data-root override)
+├── lobe-library/                                 machine-level LOBE .nupkg package source (§D6)
+└── <name>-<genesisHash[..8]>/                    one directory per identity
+      ├── identity.meta.json                      cleartext, non-secret (§D3)
+      ├── agent-identity.wallet                   AES-256-GCM / Argon2id (§7)
+      ├── agent-identity.wallet.bak               previous version (atomic save)
+      ├── agent-identity.wallet.lockout           UnlockThrottle state
+      ├── lobes/                                   per-instance LOBE set (§D6)
+      │     ├── lobes.config.json
+      │     └── {Lobe}.{version}/…
+      └── mem/
+            ├── svrn7-dids.db                     ENCRYPTED — DID Documents (holds the port)
+            ├── svrn7-schemas.db                  ENCRYPTED
+            ├── svrn7.db                          ENCRYPTED
+            ├── svrn7-msg.db                      ENCRYPTED
+            ├── svrn7-vcs.db                      ENCRYPTED
+            └── crash.log
+```
+
+The DPAPI secret cache (Windows) lives at its own
+`%LOCALAPPDATA%\Web7Pando\` location, deliberately not inside the instance
+directory.
+
+---
+
+## 6. `identity.meta.json`
+
+Cleartext. Written at first-run bootstrap; `serviceEndpointUrl` rewritten if the
+endpoint ever changes (`--republish-endpoint`). Contains **no secret material**.
+Fields: `did`, `name`, `role`, `secp256k1PublicKeyHex`, `serviceEndpointUrl`,
+`createdAt`. The DID Document inside `svrn7-dids.db` is authoritative for the
+endpoint; this file is a discovery convenience.
+
+---
+
+## 7. `agent-identity.wallet` — envelope
+
+```jsonc
+{
+  "Version":               1,                     // AgentWallet format version (independent of KeyWallet's)
+  "Secp256k1PublicKeyHex": "<66 hex>",            // cleartext — pinning + discovery without unlock
+  "EncryptedPayloadBase64":"<base64>",            // EncryptV2(utf8(payload), Argon2id(password, salt))
+  "CreatedUtc":            "2026-09-01T00:00:00.000Z"
+}
+```
+
+`EncryptedPayloadBase64` is exactly KeyWallet's `WalletCrypto.EncryptV2` output
+format: `memKiB(4) ‖ iters(4) ‖ par(4) ‖ salt(16) ‖ nonce(12) ‖ tag(16) ‖
+ciphertext`. Written via the atomic `.tmp` → `File.Replace(…, .bak)` pattern.
+
+---
+
+## 8. Encrypted payload
+
+```jsonc
+{
+  "did":                   "did:drn:wanderer.svrn7.net/agent/1.0/<genesis-hash>",
+  "role":                  "Wanderer",
+  "createdAt":             "2026-09-01T00:00:00.000Z",
+
+  "secp256k1PrivateKeyHex":"<64 hex>",            // 32 bytes — AgentSigningPrivateKey (outbound JWS)
+  "secp256k1PublicKeyHex": "<66 hex>",            // compressed
+  "x25519PrivateKeyHex":   "<64 hex>",            // 32 bytes — AgentKeyAgreementPrivateKey (inbound JWE)
+  "x25519PublicKeyHex":    "<64 hex>",
+
+  "parentTdaDid":          "",                    // optional
+  "parentTdaEndpointUrl":  "",                    // optional
+
+  "bip39EntropyHex":       "<32 hex>",            // 16 bytes — recovery phrase entropy (§D10)
+  "bip39EntropyBits":      128,                   // forward-compat marker
+
+  "dbMasterKeyWrapped":    "<base64>"             // AES-256-GCM(dbMaster, Argon2id(password, salt)) — §D8
+}
+```
+
+- `dbMaster` (unwrapped) is 32 random bytes. `Password = hex(dbMaster)` for all
+  five LiteDB files.
+- On unlock: derive the Argon2id key once; use it to decrypt the payload **and**
+  to unwrap `dbMasterKeyWrapped`.
+- On password change: re-derive the Argon2id key from the new password, re-encrypt
+  the payload, re-wrap `dbMaster`, rewrite `agent-identity.wallet`. Databases
+  untouched.
+
+Both private keys are loaded into `TdaOptions` and **never enter a LOBE runspace**
+(unchanged invariant). The Argon2id key and the password `char[]` are zeroed
+immediately after use.
+
+---
+
+## 9. `Svrn7.Trust.AgentWallet` — surface
+
+```
+AgentWalletService(walletPath, ISecretProtector, IPinStore)
+  Create(char[] password, string? recoveryPhrase = null) -> AgentIdentity
+                              // generate or restore keys, generate dbMaster,
+                              // write wallet + return keys unlocked
+  Unlock(Func<char[]> passwordProvider)              -> UnlockResult
+                              // throttle -> pin -> Argon2id -> decrypt payload
+                              // -> unwrap dbMaster -> AgentIdentity
+  ChangePassword(Func<char[]> current, char[] next)  -> void      // re-wrap only
+  RotateDatabaseKey(Func<char[]> password)           -> void      // new dbMaster + Rebuild x5
+  ExportRecoveryPhrase(Func<char[]> password)        -> string?   // null if imported raw
+  Inspect()                                          -> WalletHeader   // no decrypt
+
+AgentIdentity : IDisposable
+  Did, Role
+  Secp256k1PrivateKey : byte[32]        // zeroed on Dispose
+  X25519PrivateKey     : byte[32]        // zeroed on Dispose
+  DbMaster             : byte[32]        // zeroed on Dispose
+  Secp256k1PublicKeyHex, X25519PublicKeyHex
+  ParentTdaDid, ParentTdaEndpointUrl
+
+UnlockResult = Success(AgentIdentity)
+             | WrongPassword                 // throttle failure recorded
+             | Throttled(TimeSpan retryAfter)
+             | PinMismatch(byte[] pinned, byte[] actual)
+             | NoWallet(string path)
+```
+
+Dependencies: `Svrn7.Crypto` (key generation, Blake3),
+`Konscious.Security.Cryptography.Argon2`, `NBitcoin` (BIP39/BIP32 — transitive via
+`Svrn7.Crypto`). **No** reference to `Svrn7.Trust.KeyWallet`.
+
+---
+
+## 10. Startup sequence
+
+All of steps 1–7 run **before** `Host.CreateDefaultBuilder(...).ConfigureServices`,
+because `AddSvrn7Society(...)` fixes every database path at service-registration
+time.
+
+1. **Parse args** — `--name` (or `--did`), optional `--port`, `--port-base`,
+   `--port-span`, `--data-root`, `--url`, `--reset`, `--republish-endpoint`,
+   optional `--recovery-phrase`.
+2. **Resolve data root** — `--data-root` › `PANDO_HOME` › `~/.web7-pando`.
+3. **Locate instance** — scan `<root>/*/identity.meta.json` for `--name` / `--did`.
+   Exactly one directory + no selector → use it. None found → first-run.
+   `--reset` → delete the resolved directory (confirm), then first-run.
+4. **Obtain password** — `PANDO_WALLET_PASSWORD` if set; else interactive
+   (double-entry on first-run create). Non-TTY + no env var → fail fast.
+5. **First-run only:**
+   a. generate secp256k1 + X25519 key pairs via `CryptoService` (no DB), **or**
+      derive both from `--recovery-phrase`;
+   b. `genesisHash = Blake3Hex(secp256k1Pub)` → instance dir
+      `<root>/<name>-<genesisHash[..8]>/` (lengthen slug on collision);
+   c. generate random `dbMaster`;
+   d. create `mem/` and `lobes/`; seed `lobes/` (see §12 open item);
+   e. write `agent-identity.wallet` (payload encrypted, `dbMaster` wrapped) and
+      `identity.meta.json`.
+6. **Unlock** (first and subsequent) — throttle → pin → Argon2id → decrypt payload
+   → unwrap `dbMaster` → load secp256k1 + X25519 private keys into `TdaOptions`;
+   zero password and Argon2id key.
+7. **Compute DB paths** — `mem/*.db` under the instance directory;
+   `Password = hex(dbMaster)` for all five.
+8. **`ConfigureServices` / `.Build()`** — unchanged wiring, new paths.
+9. **Bind listen port:**
+   - first run → bind-with-retry from `--port-base`; on success, patch the DID
+     Document `serviceEndpoint` and the `identity.meta.json` mirror;
+   - later run → open `svrn7-dids.db`, read the published port, bind exactly;
+     taken → fail.
+10. **DID Document creation** (first run) proceeds **after** the successful bind so
+    the endpoint carries the real port.
+11. Continue into the existing host lifecycle (`host.RunAsync()`).
+
+### `TdaOptions` fields sourced from the wallet
+
+Replacing the `agent-identity.json` reads in `Program.cs`:
+
+| Field | Source |
+|---|---|
+| `AgentSigningPrivateKey` | payload `secp256k1PrivateKeyHex` (32 bytes) |
+| `AgentKeyAgreementPrivateKey` | payload `x25519PrivateKeyHex` (32 bytes) |
+| `LocalDid`, `Role` | payload / resolved DID Document |
+| `ServiceEndpointUrl` | DID Document `serviceEndpoint` (bind result on first run) |
+| `ParentTdaDid`, `ParentTdaEndpointUrl` | payload (if not set via config/env) |
+| `AgentIdentityPath` | path to `agent-identity.wallet` |
+
+---
+
+## 11. Multiple concurrent instances
+
+| Concern | Resolution |
+|---|---|
+| Distinct passwords per instance | `PANDO_WALLET_PASSWORD` is per-process; each launcher sets it in the child environment before starting that TDA. |
+| Shared password across a testnet | Set once in the parent shell; children inherit. |
+| Bootstrap write race | None — no shared mutable index (§D3). Each instance creates its own directory; the meta scan is read-only; `~/.web7-pando/` is read-mostly. |
+| Port auto-select race (two first-runs at once) | Safe **because** it is bind-with-retry, not check-then-bind. The bind is the atomic claim; the loser of 8440 advances to 8441. |
+| DID Document write ordering | `serviceEndpoint` is written **after** the successful bind, never before. |
+| Double-mounting one identity | LiteDB takes an exclusive lock on the encrypted `mem/*.db`; the second process fails to open it. Surface `identity <name> is already running`, not a raw lock exception. |
+| Interactive fallback, N instances | Each instance has its own console/stdin — N windows prompt independently. N first-runs = 2N prompts; use the env var to automate bulk bring-up. |
+| `.lockout` / wallet file contention | Per-identity, single-process — none. |
+
+---
+
+## 12. Consequences & follow-ups
+
+- **No cleartext database inspection.** Provide `agent db-shell` (derives the key
+  after unlock).
+- **`Program.cs` bootstrap is reordered** — port bind must precede DID Document
+  creation on first run.
+- **`LobesConfigPath` default** moves to `<slug>/lobes/lobes.config.json`.
+- **LOBE install source** is `~/.web7-pando/lobe-library/` (machine-level
+  `.nupkg` source). **Open (D6):** which set a fresh instance installs (a
+  manifest vs. "all latest"), and how `lobe-library/` itself is populated from a
+  remote feed.
+- **Benchmark** the DB-encryption overhead on the DID-resolve and message-drain
+  paths with representative data; the 10–15 % figure is an estimate.
+
+---
+
+## 13. Confirm-pending
+
+- **`--republish-endpoint`** as the sanctioned mechanism for moving a published
+  endpoint (vs. manual-only editing). Everything else in §4 is accepted.
+
+---
+
+## 14. Backlog (deferred)
+
+| Item | Note |
+|---|---|
+| `--url` host change across runs | The DID Document `serviceEndpoint` host goes stale — same class as D11/D12. Handle via `--republish-endpoint`. |
+| Migration from `<BaseDir>/{port}/mem/` | Not built. `--reset` only. |
+| `systemd-creds` / Keychain / libsecret `ISecretProtector` impls | Behind the seam (§D15). |
+| `Svrn7.Trust.WalletCore` extraction | Only if a third consumer of the shared crypto appears. |
+| 24-word / 256-bit recovery phrase | Format already forward-compatible via `bip39EntropyBits`. |
+| Selective DB re-key / per-DB subkeys | Currently one `dbMaster` for all five files. |
+| `--no-unlock-throttle` for supervised hosts | Not adopted (§D14). |
