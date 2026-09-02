@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Net.Http;
 using Microsoft.Extensions.Logging;
 
 namespace Svrn7.TDA;
@@ -16,12 +17,15 @@ public sealed class LobeInstaller
     private readonly LobeLibrary _library;
     private readonly string _lobesDir;
     private readonly ILogger _log;
+    private readonly string? _remoteFeed;
+    private HttpClient? _http;
 
-    public LobeInstaller(LobeLibrary library, string lobesDir, ILogger log)
+    public LobeInstaller(LobeLibrary library, string lobesDir, ILogger log, string? remoteFeed = null)
     {
         _library = library;
         _lobesDir = lobesDir;
         _log = log;
+        _remoteFeed = string.IsNullOrWhiteSpace(remoteFeed) ? null : remoteFeed.TrimEnd('/', '\\');
     }
 
     /// <summary>The per-instance directory installs land in.</summary>
@@ -39,7 +43,19 @@ public sealed class LobeInstaller
         var existing = FindInstalled(id, version);
         if (existing is not null) return existing;
 
-        var (resolvedVersion, nupkgPath) = _library.Resolve(id, version);
+        string resolvedVersion, nupkgPath;
+        try
+        {
+            (resolvedVersion, nupkgPath) = _library.Resolve(id, version);
+        }
+        catch (LobeNotAvailableException) when (_remoteFeed is not null && version is not null)
+        {
+            // Not in the local library — try the configured remote feed once,
+            // caching the package into lobe-library/ on success (§14 / TDA-006).
+            FetchFromRemote(id, version);
+            (resolvedVersion, nupkgPath) = _library.Resolve(id, version);
+        }
+
         var destDir = Path.Combine(_lobesDir, $"{id}.{resolvedVersion}");
 
         _log.LogInformation("LobeInstaller: installing {Id} {Ver} from '{Nupkg}' → '{Dest}'.",
@@ -66,6 +82,59 @@ public sealed class LobeInstaller
                 return dir;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Fetches <c>{id}.{version}.nupkg</c> from <see cref="_remoteFeed"/> into the
+    /// LOBE library so the normal local resolve then succeeds. The feed may be a
+    /// directory / UNC path, or an HTTP(S) base URL — flat
+    /// (<c>{feed}/{id}.{version}.nupkg</c>) or NuGet-v3 flat-container
+    /// (<c>{feed}/{id-lower}/{version}/{id-lower}.{version}.nupkg</c>) layout.
+    /// </summary>
+    private void FetchFromRemote(string id, string version)
+    {
+        var fileName = $"{id}.{version}.nupkg";
+        var dest = Path.Combine(_library.Directory, fileName);
+        Directory.CreateDirectory(_library.Directory);
+
+        // Directory / UNC feed.
+        if (Directory.Exists(_remoteFeed))
+        {
+            var src = Directory.EnumerateFiles(_remoteFeed!, fileName, SearchOption.AllDirectories).FirstOrDefault()
+                      ?? throw new LobeNotAvailableException(id, version, $"{_library.Directory} (remote feed '{_remoteFeed}')");
+            File.Copy(src, dest, overwrite: true);
+            _log.LogInformation("LobeInstaller: fetched {File} from remote feed '{Feed}'.", fileName, _remoteFeed);
+            return;
+        }
+
+        // HTTP(S) feed.
+        var idLower = id.ToLowerInvariant();
+        string[] candidates =
+        [
+            $"{_remoteFeed}/{fileName}",
+            $"{_remoteFeed}/{idLower}/{version}/{idLower}.{version}.nupkg",
+        ];
+
+        _http ??= new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        foreach (var url in candidates)
+        {
+            try
+            {
+                using var resp = _http.GetAsync(url).GetAwaiter().GetResult();
+                if (!resp.IsSuccessStatusCode) continue;
+                var bytes = resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
+                File.WriteAllBytes(dest, bytes);
+                _log.LogInformation("LobeInstaller: fetched {File} from '{Url}'.", fileName, url);
+                return;
+            }
+            catch (HttpRequestException ex)
+            {
+                _log.LogDebug(ex, "LobeInstaller: remote fetch failed for '{Url}'.", url);
+            }
+        }
+
+        throw new LobeNotAvailableException(id, version,
+            $"{_library.Directory} (also not found on remote feed '{_remoteFeed}')");
     }
 
     private static void ExtractTools(string nupkgPath, string destDir)

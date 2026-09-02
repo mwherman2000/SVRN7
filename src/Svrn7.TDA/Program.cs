@@ -410,6 +410,8 @@ var host = Host.CreateDefaultBuilder(args)
             opts.MaxRunspaces                     = 0;
             opts.LobesConfigPath                  = ctx.Configuration["Tda:LobesConfigPath"] ?? lobesConfigPath;
             opts.LobeLibraryDir                   = lobeLibraryDir;
+            opts.LobeRemoteFeed                   = OptionalArg("--lobe-feed")
+                                                    ?? ctx.Configuration["Tda:LobeRemoteFeed"] ?? string.Empty;
             opts.IdentityMetaPath                 = metaPath;
             opts.InstanceDir                      = instanceDir;
             opts.DatabaseMasterKey               = dbMasterKey;

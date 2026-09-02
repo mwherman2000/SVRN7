@@ -710,9 +710,10 @@ pending (§D12, §14).
 
 | Item | Note |
 |---|---|
-| Endpoint-move mechanism (`--republish-endpoint`) | Deferred (§D12). Rewrite `serviceEndpoint` + bump DID Document `updated` + re-publish to drn.directory, with defined cache-invalidation semantics. Covers both the port and the `--url` host cases. Until built: `--reset` + re-bootstrap. |
-| Remote LOBE feed fallback | Deferred (§D6). When a referenced package is absent from `lobe-library/`, fall back to a configured remote NuGet feed and cache it into `lobe-library/`. For now a missing package is a hard error. |
+| ~~Endpoint-move mechanism~~ | **Done** — `--republish-endpoint` (§D12): rewrites the DID Document `serviceEndpoint` (Version + 1) and `identity.meta.json` for the run's `--port`/`--url`. Ecosystem propagation (Society/Federation/Citizens) is the separate TDA-017. |
+| ~~Remote LOBE feed fallback~~ | **Done** (§D6) — `Tda:LobeRemoteFeed` / `--lobe-feed`: a directory/UNC path or HTTP(S) base URL (flat or NuGet-v3 flat-container). A package absent from `lobe-library/` is fetched from there and cached in. Unset ⇒ still a hard error. |
 | Migration from `<BaseDir>/{port}/mem/` | Not built. `--reset` only. |
+| Full NuGet v3 feed negotiation for `--lobe-feed` | Current HTTP support is flat / flat-container URLs; `v3/index.json` resource discovery is not implemented. |
 | `systemd-creds` / Keychain / libsecret `ISecretProtector` impls | Behind the seam (§D15). |
 | `Svrn7.Trust.WalletCore` extraction | Only if a third consumer of the shared crypto appears. |
 | 24-word / 256-bit recovery phrase | Format already forward-compatible via `bip39EntropyBits`. |

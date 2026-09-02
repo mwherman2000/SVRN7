@@ -129,6 +129,16 @@ public sealed class TdaOptions
     public string LobeLibraryDir { get; set; } = string.Empty;
 
     /// <summary>
+    /// Optional fallback source for a LOBE package that is not in
+    /// <see cref="LobeLibraryDir"/>: a directory / UNC path, or an HTTP(S) base URL
+    /// (flat <c>{feed}/{id}.{version}.nupkg</c> or NuGet-v3 flat-container layout).
+    /// Fetched packages are cached into <see cref="LobeLibraryDir"/>. Empty ⇒ a
+    /// missing package is a hard error (docs/AGENTWALLET.md §D6/§14). Set via
+    /// <c>--lobe-feed</c> or <c>Tda:LobeRemoteFeed</c>.
+    /// </summary>
+    public string LobeRemoteFeed { get; set; } = string.Empty;
+
+    /// <summary>
     /// Maximum age of an inbound message before it is dead-lettered without processing.
     /// A stale transfer or invoice from a prior session should never execute.
     /// Default: 3600 seconds (1 hour). Set to 0 to disable age checking.
@@ -350,7 +360,8 @@ public static class TdaServiceCollectionExtensions
                            ?? AppContext.BaseDirectory;
             return new LobeInstaller(
                 sp.GetRequiredService<LobeLibrary>(), lobesDir,
-                sp.GetRequiredService<ILoggerFactory>().CreateLogger<LobeInstaller>());
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<LobeInstaller>(),
+                remoteFeed: o.LobeRemoteFeed);
         });
         services.AddSingleton<LobeManager>();
 
