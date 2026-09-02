@@ -270,8 +270,13 @@ try
                         signingKey = ok.Identity.Secp256k1PrivateKey.ToArray();
                         keyAgreementKey = ok.Identity.X25519PrivateKey.ToArray();
                         dbMasterKey = ok.Identity.DbMasterKey.ToArray();
-                        parentTdaDid = ok.Identity.ParentTdaDid;
-                        parentTdaEndpointUrl = ok.Identity.ParentTdaEndpointUrl;
+                        // Parent-tier wiring persists in identity.meta.json (written by
+                        // Svrn7RunspaceContext.SetParentTda after registration); the wallet
+                        // payload is the fallback for one created with it.
+                        parentTdaDid = string.IsNullOrEmpty(foundMeta!.ParentTdaDid)
+                            ? ok.Identity.ParentTdaDid : foundMeta.ParentTdaDid;
+                        parentTdaEndpointUrl = string.IsNullOrEmpty(foundMeta.ParentTdaEndpointUrl)
+                            ? ok.Identity.ParentTdaEndpointUrl : foundMeta.ParentTdaEndpointUrl;
                     }
                     break;
 
@@ -518,7 +523,7 @@ tdaOpts.AgentSigningPrivateKey      = signingKey;
 tdaOpts.AgentKeyAgreementPrivateKey = keyAgreementKey;
 tdaOpts.LocalDid                    = agentDid;
 tdaOpts.ServiceEndpointUrl          = serviceEndpointUrl;
-tdaOpts.AgentIdentityPath           = walletPath;
+tdaOpts.AgentIdentityPath           = metaPath; // SetParentTda persists parent-tier wiring into identity.meta.json
 
 if (!string.IsNullOrEmpty(parentTdaDid) && string.IsNullOrEmpty(tdaOpts.ParentTdaDid))
     tdaOpts.ParentTdaDid = parentTdaDid;

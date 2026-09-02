@@ -185,9 +185,10 @@ public sealed class TdaOptions
     public string ServiceEndpointUrl { get; set; } = string.Empty;
 
     /// <summary>
-    /// Absolute path to this TDA instance's encrypted wallet (<c>agent-identity.wallet</c>).
-    /// Set by Program.cs. (Historically <c>agent-identity.json</c>; superseded by
-    /// <c>Svrn7.Trust.AgentWallet</c> — docs/AGENTWALLET.md.)
+    /// Absolute path to the JSON file <see cref="Svrn7RunspaceContext.SetParentTda"/>
+    /// persists parent-tier wiring into — this instance's <c>identity.meta.json</c>.
+    /// (Historically <c>agent-identity.json</c>; key material now lives in the encrypted
+    /// <c>agent-identity.wallet</c> — docs/AGENTWALLET.md, SECURITY.md.)
     /// </summary>
     public string AgentIdentityPath { get; set; } = string.Empty;
 

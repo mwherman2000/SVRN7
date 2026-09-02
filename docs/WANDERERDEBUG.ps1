@@ -1,13 +1,18 @@
 # SVRN7 — Wanderer TDA Debug Guide
 #
-# Covers launching two Wanderer TDA instances (W5 on port 8445, W6 on port 8446) and
-# simulating a `Query-TOD` / `Issue-TOD` round-trip between them using the
-# `Pando.Diagnostics` LOBE.
+# Launches two Wanderer TDA instances (W5 on 8445, W6 on 8446) and runs a
+# `Query-TOD` / `Issue-TOD` round-trip between them using the `Pando.Diagnostics`
+# LOBE (installed JIT on first reference).
 #
-# A Wanderer is the initial role of every TDA. On first run each instance auto-generates
-# a secp256k1 key pair, derives a GUID-based DID, creates a DID Document, and persists
-# key material to `{port}/mem/agent-identity.json`. No federation or society registration
-# is required.
+# Per-identity runtime storage (docs/AGENTWALLET.md, SECURITY.md): on first run
+# each instance derives a secp256k1 + X25519 key pair from a fresh 12-word BIP39
+# phrase, creates a DID Document, and writes an ENCRYPTED wallet:
+#
+#     ~/.web7-pando/<name>-<genesisHash8>/agent-identity.wallet
+#
+# unlocked with $env:PANDO_WALLET_PASSWORD. Databases (mem/*.db) and the
+# per-instance lobes/ folder live under the same directory. No federation or
+# society registration is required for the Query-TOD walkthrough.
 #
 # ---
 #
@@ -17,43 +22,45 @@
 
 $PSVersionTable.PSVersion   # Major must be 7
 
-# - The solution must be built before starting:
+# - Build the TDA and populate the machine-level LOBE library. The simplest way
+#   is the testnet script, which builds and copies dist/*.nupkg into
+#   ~/.web7-pando/lobe-library/:
 
 # Set-Location C:/SVRN7/repos/SVRN7
-# dotnet build src/Svrn7.TDA/Svrn7.TDA.csproj
+# ./tools/Initialize-Testnet.ps1 -SkipBuild:$false   # (or just: dotnet build + copy dist\*.nupkg to ~/.web7-pando/lobe-library)
 
-# - Verify `Pando.Diagnostics` is present as a LOBE. Note: lobes.config.json only lists
-#   the eager LOBEs (Svrn7.Common, Svrn7.Federation, Svrn7.Society, Svrn7.UX) — it will
-#   NOT contain "Pando" and that's correct. JIT LOBEs like Pando.Diagnostics are never
-#   listed there; LobeManager auto-discovers any *.lobe.json descriptor on disk that
-#   isn't in the eager list and treats it as JIT. Check for the descriptor file instead:
+# Manual equivalent:
+Set-Location C:/SVRN7/repos/SVRN7
+dotnet build src/Svrn7.TDA/Svrn7.TDA.csproj -c Debug
+New-Item -ItemType Directory -Force (Join-Path $HOME '.web7-pando/lobe-library') | Out-Null
+Copy-Item dist/*.nupkg -Destination (Join-Path $HOME '.web7-pando/lobe-library') -Force
 
-Set-Location src/Svrn7.TDA/bin/Debug/net8.0
-Test-Path lobes/Pando.Diagnostics.0.1.0/Pando.Diagnostics.0.1.0.lobe.json
+# - Confirm the Pando.Diagnostics package is available for JIT install. It is a
+#   JIT LOBE — never in lobes.config.json's eager list; the TDA installs it from
+#   lobe-library/ the first time a Query-TOD message is dispatched.
+Test-Path (Join-Path $HOME '.web7-pando/lobe-library/Pando.Diagnostics.0.1.0.nupkg')
 
-# Expected:
-#
-#     True
-#
+# Expected: True
+
+# - Shared wallet password for this walkthrough (any value; every W5/W6 command
+#   below inherits it).
+$env:PANDO_WALLET_PASSWORD = 'wanderer-debug'
+
 # ---
 #
 # Terminal layout
 #
-# Three PowerShell 7 terminals are needed throughout this guide.
-#
-# | Terminal   | Purpose                                                       |
-# |------------|---------------------------------------------------------------|
-# | **A — W5** | Runs the W5 TDA process on port 8445; watch log output here   |
-# | **B — W6** | Runs the W6 TDA process on port 8446; watch log output here   |
-# | **C — Sender** | Sends DIDComm messages; reads identity files              |
+# | Terminal       | Purpose                                                  |
+# |----------------|--------------------------------------------------------- |
+# | **A — W5**     | Runs W5 (port 8445); watch log output here              |
+# | **B — W6**     | Runs W6 (port 8446); watch log output here              |
+# | **C — Sender** | Sends DIDComm messages; reads identity.meta.json        |
 #
 # ---
 #
-# Helper — launches a titled pwsh window running the TDA. Uses -EncodedCommand so the
-# window title (which contains spaces/brackets/colons) can never be corrupted by
-# Start-Process's -ArgumentList quoting — a bare quoted string here is unreliable across
-# PowerShell versions and can silently mangle --name into its own command (e.g. "W6" run
-# as if it were a cmdlet).
+# Helper — launches a titled pwsh window running the TDA. Uses -EncodedCommand so
+# the window title (spaces/brackets/colons) cannot be corrupted by -ArgumentList
+# quoting. The wallet password is passed through the child environment.
 
 function Start-TdaWindow {
     param(
@@ -61,104 +68,93 @@ function Start-TdaWindow {
         [Parameter(Mandatory)] [string] $WorkDir,
         [Parameter(Mandatory)] [string] $DotnetArgs
     )
-    $script = "Set-Location `"$WorkDir`"; `$Host.UI.RawUI.WindowTitle = `"$Title`"; dotnet `".\Svrn7.TDA.dll`" $DotnetArgs"
+    $pw = $env:PANDO_WALLET_PASSWORD
+    $script = "`$env:PANDO_WALLET_PASSWORD = '$pw'; Set-Location `"$WorkDir`"; " +
+              "`$Host.UI.RawUI.WindowTitle = `"$Title`"; dotnet `".\Svrn7.TDA.dll`" $DotnetArgs"
     $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($script))
     Start-Process pwsh.exe -ArgumentList "-NoExit -EncodedCommand $encoded"
 }
+
+$bin = 'C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0'
 
 # ---
 #
 # Step 1 — Start W5 and W6 (Terminals A and B)
 
-cls
+Clear-Host
 Write-Host "--- Step 1 — Start W5 and W6 ---"
-Set-Location C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0
 
-# Remove any databases/identity files left over from a previous run so W5 and W6 boot
-# with fresh, unique DIDs. --reset below does the same thing per-process at startup, but
-# doing it explicitly here first means a stale did:drn:wanderer.svrn7.net/agent/1.0/<hash>
-# from an earlier run can never be mistaken for the current one (e.g. copied into another
-# app or doc before this run) — that mismatch is exactly what produces "No DIDComm service
-# endpoint found for recipient '<old-DID>'" on the sending side.
-Remove-Item -Recurse -Force 8445/mem -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force 8446/mem -ErrorAction SilentlyContinue
+# --reset deletes each identity's whole runtime directory
+# (~/.web7-pando/w5-<hash8>/ , w6-<hash8>/) so both boot with fresh, unique DIDs.
+Start-TdaWindow -Title 'W5 [Wanderer]:8445' -WorkDir $bin -DotnetArgs '--name W5 --port 8445 --reset'
+Start-TdaWindow -Title 'W6 [Wanderer]:8446' -WorkDir $bin -DotnetArgs '--name W6 --port 8446 --reset'
+Pause
 
-Start-TdaWindow -Title 'W5 [Wanderer]:8445' -WorkDir 'C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0' -DotnetArgs '--port 8445 --name W5 --reset'
-Start-TdaWindow -Title 'W6 [Wanderer]:8446' -WorkDir 'C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0' -DotnetArgs '--port 8446 --name W6 --reset'
-pause
+# Production / staging: add `--federationdomain svrn7.net` to auto-discover the
+# Federation TDA endpoint via drn.directory DNS at startup (shown as `Fed Endpoint`
+# in the banner, exposed as $SVRN7.FederationEndpointUrl in every LOBE runspace).
 
-# **Production / staging:** Add `--federationdomain svrn7.net` to auto-discover the
-# Federation TDA endpoint via drn.directory DNS at startup.  The discovered URL is shown
-# in the banner (`Fed Endpoint`) and exposed as `$SVRN7.FederationEndpointUrl` in every
-# LOBE runspace.  Omit for standalone dev runs with no live drn.directory DNS record.
-#
 # ---
 #
 # Step 2 — Verify the startup banners (Terminals A and B)
 #
-# W5 has no prior databases — this is a first run.  Expected startup banner:
+# First run — expected banner (version is git-height based, e.g. 0.8.13+<commit>):
 #
 # ────────────────────────────────────────────────────────────────────────────────
-#   SVRN7 Trusted Digital Assistant (TDA)  v0.8.0
+#   SVRN7 Trusted Digital Assistant (TDA)  v0.8.<n>+<commit8>
 #   Web 7.0 Foundation — https://svrn7.net
 # ────────────────────────────────────────────────────────────────────────────────
-#   ...
 #   TDA Name    : W5
-#   First run   : yes — Wanderer identity created
-#   Role        : Wanderer
+#   TDA Role    : Wanderer
+#   Bootstrap   : first run — new identity created
 #   Agent DID   : did:drn:wanderer.svrn7.net/agent/1.0/<genesis-hash-W5>
-#   Listen port : 8445
-#   LOBEs       : 4 eager  8 JIT  (N protocols  N cmdlets)
-#     Eager     : Svrn7.Common  Svrn7.Federation  Svrn7.Society  Svrn7.UX
-#     JIT       : ...  Pando.Diagnostics  ...
+#   Data root   : C:\Users\<you>\.web7-pando
+#   Instance    : C:\Users\<you>\.web7-pando\w5-<hash8>
+#   Endpoint    : http://localhost:8445/didcomm  (auto-selected)   # only if the port was auto-picked
 # ────────────────────────────────────────────────────────────────────────────────
-#   Federation  : (not yet initialised ...)
-#   Societies   : (not yet initialised ...)
+#   RECOVERY PHRASE — write this down now, it is shown only once:
+#     <12 words>
 # ────────────────────────────────────────────────────────────────────────────────
 #
-# Note the `Agent DID` line — this is W5's Wanderer identity.  It is also written to:
-#
-# 8445/mem/agent-identity.json
-#
+# Each eager LOBE (Svrn7.Common / Federation / Society / UX) is installed from
+# lobe-library/ into ~/.web7-pando/w5-<hash8>/lobes/ during startup, then imported.
+
 # ---
 #
 # Step 3 — Read the Wanderer DIDs (Terminal C)
 #
-# W5 and W6 each generate a unique public-key-derived DID on first run.  Read both —
-# Step 5 uses W6 as both sender and recipient (self-send); Step 10 onward uses W5:
+# The DID is in each instance's cleartext identity.meta.json (the DID Document
+# itself is in the encrypted svrn7-dids.db — read it with `db-shell` if needed).
 
 Write-Host "--- Step 3 — Read the Wanderer DIDs ---"
-Set-Location C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0
-
-$w5Did = (Get-Content 8445/mem/agent-identity.json | ConvertFrom-Json).did
-$w6Did = (Get-Content 8446/mem/agent-identity.json | ConvertFrom-Json).did
-
+$pando = Join-Path $HOME '.web7-pando'
+$w5Meta = Get-ChildItem $pando -Directory -Filter 'w5-*' | Select-Object -First 1 |
+    ForEach-Object { Get-Content (Join-Path $_.FullName 'identity.meta.json') -Raw | ConvertFrom-Json }
+$w6Meta = Get-ChildItem $pando -Directory -Filter 'w6-*' | Select-Object -First 1 |
+    ForEach-Object { Get-Content (Join-Path $_.FullName 'identity.meta.json') -Raw | ConvertFrom-Json }
+$w5Did = $w5Meta.did
+$w6Did = $w6Meta.did
 Write-Host "W5 DID: $w5Did"
 Write-Host "W6 DID: $w6Did"
 
-# Expected:
-#
-# W5 DID: did:drn:wanderer.svrn7.net/agent/1.0/<genesis-hash-W5>
-# W6 DID: did:drn:wanderer.svrn7.net/agent/1.0/<genesis-hash-W6>
-#
 # ---
 #
 # Step 4 — Import the send helper (Terminal C)
 #
-# Do this once per PowerShell session.
+# Send-LocalDIDCommMessage ships in Svrn7.Common (an eager LOBE), so it is already
+# installed under W6's instance lobes/ folder.
 
 Write-Host "--- Step 4 — Import the send helper ---"
-Import-Module .\lobes\Svrn7.Federation.0.8.0\Svrn7.Federation.0.8.0.psm1
+$w6Common = Get-ChildItem $pando -Directory -Filter 'w6-*' | Select-Object -First 1 |
+    ForEach-Object { Join-Path $_.FullName 'lobes/Svrn7.Common.0.8.0/Svrn7.Common.0.8.0.psm1' }
+Import-Module $w6Common -Force
 
-# This gives you `Send-LocalDIDCommMessage` for the steps below.
-#
 # ---
 #
 # Step 5 — Send Query-TOD from W6 to itself (Terminal C)
 #
-# W6 sends the message to its own endpoint.  W6's own DID Document is already in its local
-# registry, so `Resolve-SocietySenderEndpoint` succeeds and the `Issue-TOD` reply is
-# delivered back to W6 without requiring federation or cross-TDA DID Document exchange.
+# W6's own DID Document is in its local registry, so the Issue-TOD reply is
+# delivered back to W6 without federation.
 
 Write-Host "--- Step 5 — Send Query-TOD from W6 to itself ---"
 $msg = @{
@@ -172,249 +168,124 @@ $msg = @{
 
 Send-LocalDIDCommMessage -Port 8446 -Body $msg
 
-# Expected response from Terminal C:
-#
-# Status: Accepted
-#
+# Expected from Terminal C:  Status: Accepted
+
 # ---
 #
 # Step 6 — Verify W6 processed Query-TOD and replied (Terminal B)
 #
-# Watch Terminal B for W6's log.  `Pando.Diagnostics` is a JIT LOBE — `Import-Module -Force`
-# runs on every dispatch (by design, for hot-update support).
+# On the FIRST dispatch, W6 installs the JIT LOBE from the library:
 #
-# dbug: Svrn7.TDA.LobeManager[0]
-#       LobeManager: EnsureLoadedAsync — JIT '...\Pando.Diagnostics.0.1.0.psm1'.
+#   info: Svrn7.TDA.LobeManager[0]
+#         LobeManager: JIT-installed 'Pando.Diagnostics' 0.1.0 on first reference to @type '…/Query-TOD'.
 #
-# info: Svrn7.TDA.LobeManager[0]
-#       LobeManager: importing into isolated runspace (JIT) — ...\Pando.Diagnostics.0.1.0.psm1
+# Then, for this and every later dispatch (Import-Module -Force per dispatch — hot
+# update, ~30 ms, tracked as TDA-001a):
 #
-# info: Svrn7.TDA.LobeManager[0]
-#       LobeManager: import complete — ...\Pando.Diagnostics.0.1.0.psm1
-#
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       [PS Info] Pando.Diagnostics: serverUtc=2026-06-15T... epoch=0
-#
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       Switchboard: outbound delivered to http://localhost:8446/didcomm (202).
-#
-# The last line confirms W6 delivered the `Issue-TOD` reply back to its own endpoint.
+#   info: … LobeManager: import complete — …\Pando.Diagnostics.0.1.0.psm1
+#   info: … [PS Info] Pando.Diagnostics: serverUtc=… epoch=0
+#   info: … Switchboard: outbound delivered to http://localhost:8446/didcomm (202).
 #
 # ---
 #
 # Step 7 — Verify W6 received the Issue-TOD reply (Terminal B)
 #
-# Still watching Terminal B.  W6 receives its own `Issue-TOD` and routes it to
-# `Invoke-PandoDiagnosticsDateResult`:
+#   info: … Switchboard: routing …/inbox/msg/<id>
+#         (type=…/Pando.Diagnostics.0.1.0/Issue-TOD) → Invoke-PandoDiagnosticsDateResult [Pando.Diagnostics]
+#   info: … [PS Info] Invoke-PandoDiagnosticsDateResult: serverUtc=… from='<W6 DID>'
 #
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       Switchboard: routing ...\inbox\msg\<id>
-#           (type=did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/Issue-TOD)
-#           → Invoke-PandoDiagnosticsDateResult [Pando.Diagnostics]
-#
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       [PS Info] Invoke-PandoDiagnosticsDateResult: serverUtc=2026-06-15T... epoch=0
-#           from='did:drn:wanderer.svrn7.net/agent/1.0/<genesis-hash-W6>'
-#
-# The `from` field shows W6's own DID — the self-send round-trip is complete.
-# `Issue-TOD` is a terminal message — W6 logs the result and sends no further reply.
+# Issue-TOD is terminal — W6 logs the result and sends no further reply.
 #
 # ---
 #
 # Step 8 — Send a second Query-TOD
 #
-# Repeat Step 5.  The import lines **will appear again** — JIT LOBEs run
-# `Import-Module -Force` on every dispatch by design, so that an updated `.psm1` is
-# always picked up without a TDA restart (hot-update).  The ~30 ms reimport overhead
-# is tracked in the backlog as TDA-001a.
-#
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       Switchboard: processing 1 inbound message(s).
-#
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       Switchboard: routing did:drn:societytest.svrn7.net/inbox/msg/<id>
-#           (type=did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/Query-TOD)
-#           → Invoke-PandoDiagnosticsDateQuery [Pando.Diagnostics]
-#
-# info: Svrn7.TDA.LobeManager[0]
-#       LobeManager: importing into isolated runspace (JIT) — ...\Pando.Diagnostics.0.1.0.psm1
-#
-# info: Svrn7.TDA.LobeManager[0]
-#       LobeManager: import complete — ...\Pando.Diagnostics.0.1.0.psm1
-#
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       [PS Info] Pando.Diagnostics: serverUtc=2026-06-15T... epoch=0
-#
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       Switchboard: outbound delivered to http://localhost:8445/didcomm (202).
+# Repeat Step 5. The install line does NOT reappear (the package is cached in
+# W6's lobes/), but the Import-Module lines do — JIT LOBEs reimport per dispatch.
 #
 # ---
 #
 # Step 9 — Reset between runs
 #
-# Stop both TDAs (Ctrl+C in Terminal A and B), then delete their data directories:
+# Stop both TDAs (Ctrl+C in Terminals A and B), then restart with --reset (each
+# process deletes its own ~/.web7-pando/<name>-<hash8>/ directory on startup):
 
 Write-Host "--- Step 9 — Reset between runs ---"
-Remove-Item -Recurse -Force 8445/mem -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force 8446/mem -ErrorAction SilentlyContinue
+Start-TdaWindow -Title 'W5 [Wanderer]:8445' -WorkDir $bin -DotnetArgs '--name W5 --port 8445 --reset'
+Start-TdaWindow -Title 'W6 [Wanderer]:8446' -WorkDir $bin -DotnetArgs '--name W6 --port 8446 --reset'
 
-# Restart with `--reset` to let the TDA delete its own data on startup (equivalent):
-
-# Re-declare the helper if this is a fresh terminal session (it's a no-op if Step 1's
-# definition is still in scope):
-function Start-TdaWindow {
-    param(
-        [Parameter(Mandatory)] [string] $Title,
-        [Parameter(Mandatory)] [string] $WorkDir,
-        [Parameter(Mandatory)] [string] $DotnetArgs
-    )
-    $script = "Set-Location `"$WorkDir`"; `$Host.UI.RawUI.WindowTitle = `"$Title`"; dotnet `".\Svrn7.TDA.dll`" $DotnetArgs"
-    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($script))
-    Start-Process pwsh.exe -ArgumentList "-NoExit -EncodedCommand $encoded"
-}
-
-Start-TdaWindow -Title 'W5 [Wanderer]:8445' -WorkDir 'C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0' -DotnetArgs '--port 8445 --name W5 --reset'
-Start-TdaWindow -Title 'W6 [Wanderer]:8446' -WorkDir 'C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0' -DotnetArgs '--port 8446 --name W6 --reset'
-
-# `--reset` deletes all files in `{port}/mem/` before startup, forcing a new first-run
-# Wanderer bootstrap with a fresh GUID-based DID.
-#
-# Run this only if you want to start over — Steps 10-14 below continue using the SAME
-# W5/W6 instances started in Step 1, so skip this step if you're continuing the walkthrough.
+# Run this only to start over. Steps 10-14 continue with the SAME W5/W6 from
+# Step 1 — skip Step 9 if you are continuing the walkthrough.
 #
 # ---
 #
 # Steps 10-14 — Register W5 with a Society (Wanderer → Citizen)
 #
-# This section shows how a Wanderer TDA discovers available Societies from the Federation
-# and registers with one, becoming a Citizen TDA.  After step 14, W5's `agent-identity.json`
-# contains its parent Society DID and endpoint, and W5's local DID registry holds both the
-# Citizen and Society DID Documents.
+# W5 discovers Societies from the Federation and registers with one, becoming a
+# Citizen. After Step 14, W5's identity.meta.json carries its parent Society DID
+# and endpoint, and W5's local DID registry holds both the Citizen and Society
+# DID Documents.
 #
-# **Prerequisites:**  A Federation TDA and at least one Society TDA must already be running
-# and bootstrapped.  Complete FEDERATIONDEBUG.ps1 §E.0-E.2 first (Federation init +
-# Society registration).  Simplest setup — in two new titled terminals:
+# Prerequisites: a Federation TDA and at least one Society TDA already running and
+# bootstrapped — complete FEDERATIONDEBUG.ps1 §E.0-E.2 first. Two new terminals:
 
-Write-Host "--- Steps 10-14 — Register W5 with a Society (Wanderer → Citizen) ---"
-Set-Location C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0
+Write-Host "--- Steps 10-14 — Register W5 with a Society ---"
 
-# Re-declare the helper if this is a fresh terminal session (it's a no-op if Step 1's
-# definition is still in scope):
-function Start-TdaWindow {
-    param(
-        [Parameter(Mandatory)] [string] $Title,
-        [Parameter(Mandatory)] [string] $WorkDir,
-        [Parameter(Mandatory)] [string] $DotnetArgs
-    )
-    $script = "Set-Location `"$WorkDir`"; `$Host.UI.RawUI.WindowTitle = `"$Title`"; dotnet `".\Svrn7.TDA.dll`" $DotnetArgs"
-    $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($script))
-    Start-Process pwsh.exe -ArgumentList "-NoExit -EncodedCommand $encoded"
-}
+# Terminal D — Federation TDA on 8441
+Start-TdaWindow -Title 'Federation:8441' -WorkDir $bin -DotnetArgs '--name Federation --port 8441'
+# Terminal E — Society TDA on 8442
+Start-TdaWindow -Title 'Society:8442'    -WorkDir $bin -DotnetArgs '--name Bindloss --port 8442'
 
-# Terminal D — Federation TDA on port 8441
-Start-TdaWindow -Title 'Federation:8441' -WorkDir 'C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0' -DotnetArgs '--port 8441 --name Federation'
-
-# Terminal E — Society TDA on port 8442
-Start-TdaWindow -Title 'Society:8442' -WorkDir 'C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0' -DotnetArgs '--port 8442 --name Bindloss'
-
-# Then complete E.0 (initialize-federation) and E.2 (register-society) from
-# FEDERATIONDEBUG.ps1 before continuing here.  W5 on port 8445 must already be running
-# from Step 1.
+# Complete E.0 (initialize-federation) and E.2 (register-society) from
+# FEDERATIONDEBUG.ps1 before continuing. W5 (8445) must still be running from Step 1.
 #
 # ---
 #
 # Step 10 — Discover available Societies (Terminal C)
-#
-# W5 only knows the Federation's endpoint.  It sends a `society-list` request and receives
-# back each Society's DID Document — which W5 stores locally so Phase 2 needs no further
-# network lookup.
-#
-# **Production note:** When W5 is started with `--federationdomain svrn7.net`, the
-# Federation endpoint URL is discovered at startup and available inside any LOBE handler
-# as `$SVRN7.FederationEndpointUrl`.  In standalone PowerShell (Terminal C), use
-# `Resolve-FederationEndpoint -FederationDid "svrn7.net"` instead of the hardcoded
-# `http://localhost:8441/didcomm` below.
 
 Write-Host "--- Step 10 — Discover available Societies ---"
-# Ensure the send helper is loaded (if not already from Step 4)
-Import-Module .\lobes\Svrn7.Federation.0.8.0\Svrn7.Federation.0.8.0.psm1
+$w5Common = Get-ChildItem $pando -Directory -Filter 'w5-*' | Select-Object -First 1 |
+    ForEach-Object { Join-Path $_.FullName 'lobes/Svrn7.Common.0.8.0/Svrn7.Common.0.8.0.psm1' }
+Import-Module $w5Common -Force
 
 $msg = @{
     typ  = 'application/didcomm-plain+json'
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = 'did:drn:svrn7.net/protocols/Svrn7.Federation.0.8.0/society-list'
     from = $w5Did
-    to   = @('did:drn:federation.svrn7.net/federation/1.0/<genesis-hash>')   # informational only — see note below
+    to   = @('did:drn:federation.svrn7.net/federation/1.0/<genesis-hash>')   # informational only — routing is by @type
     body = '{}'
 } | ConvertTo-Json
 
 Send-LocalDIDCommMessage -Port 8441 -Body $msg
 
-# Note: `to` is not validated on this path — Send-LocalDIDCommMessage delivers straight to
-# the TDA listening on -Port, and the Switchboard routes purely by `@type` (it never checks
-# `to`). The placeholder above just illustrates the real Federation DID format; substitute
-# the actual value from FEDERATIONDEBUG.ps1 §E.0.2 if you want it to be accurate.
-
-# Expected log — Terminal D (Federation TDA):
-#
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       Switchboard: routing ... (type=.../Svrn7.Federation.0.8.0/society-list)
-#           → Invoke-Web7SocietyList [Svrn7.Federation]
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       [PS Info] Invoke-Web7SocietyList: 1 society/societies, replying to http://localhost:8445/didcomm
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       Switchboard: outbound delivered to http://localhost:8445/didcomm (202).
-#
-# Expected log — Terminal A (W5):
-#
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       Switchboard: routing ... (type=.../Svrn7.Federation.0.8.0/society-list-result)
-#           → Invoke-Web7SocietyListResult [Svrn7.Federation]
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       [PS Info] Invoke-Web7SocietyListResult: stored 1 society DID Document(s) from 1 result(s)
-#
-# W5's local DID registry now contains the Society's DID Document.  Note the `endpointUrl`
-# from the result — that is the Society's DIDComm address used in Step 12.
+# Terminal D → Invoke-Web7SocietyList; Terminal A (W5) → Invoke-Web7SocietyListResult
+# stores the Society DID Document(s) locally. Note the Society endpoint from the
+# result — used in Step 12.
 #
 # ---
 #
 # Step 11 — Generate Citizen key material (Terminal C)
 #
-# The Citizen DID is derived from a secp256k1 key pair — distinct from the Wanderer GUID
-# DID.  Generate once and save the output.
+# The Citizen DID is a distinct secp256k1-derived DID. Generate once and save.
 
 Write-Host "--- Step 11 — Generate Citizen key material ---"
-# New-Svrn7KeyPair moved out of Svrn7.Federation.0.8.0.psm1 into admin-tools —
-# see docs/LOBEGUIDE.md "Division of Responsibility" for why.
-Import-Module .\admin-tools\Svrn7.AdminTools\Svrn7.AdminTools.psm1
+Import-Module (Join-Path $bin 'admin-tools/Svrn7.AdminTools/Svrn7.AdminTools.psm1')
 $citizenKp  = New-Svrn7KeyPair
 $citizenDid = New-Svrn7Did -KeyPair $citizenKp -Role 'Citizen' -SocietyName 'bindloss'
-
 Write-Host "Citizen DID : $($citizenDid.Did)"
 Write-Host "Public key  : $($citizenKp.PublicKeyHex)"
 Write-Host "Private key : $($citizenKp.PrivateKeyHex)   <-- store securely"
 
-# Example output (values will differ):
-#
-# Citizen DID : did:drn:bindloss.svrn7.net/citizen/1.0/a3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4
-# Public key  : 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
-# Private key : <32-byte hex — keep secret>
-#
-# Note: this local $citizenDid is display-only — the Society derives its own citizen DID
-# server-side from publicKeyHex during register-citizen (inside Invoke-Web7RegisterCitizen /
-# ConvertFrom-Web7OnboardRequest in Svrn7.Onboarding.0.8.0.psm1). It uses the identical
-# formula, so the two match, but the `citizenDid` field sent in Step 12's body below is not
-# actually read by the Society.
+# The Society re-derives the citizen DID server-side from publicKeyHex during
+# register-citizen (identical formula), so the two match; the citizenDid field in
+# Step 12's body is not actually read by the Society.
 #
 # ---
 #
 # Step 12 — Send register-citizen to the Society (Terminal C)
-#
-# W5 sends its Citizen DID, public key, and — critically — `serviceEndpointUrl` so the
-# Society can create W5's DID Document with the correct DIDComm endpoint and deliver the
-# receipt back to W5.
 
-Write-Host "--- Step 12 — Send register-citizen to the Society ---"
+Write-Host "--- Step 12 — Send register-citizen ---"
 $body = @{
     citizenDid         = $citizenDid.Did
     publicKeyHex       = $citizenKp.PublicKeyHex
@@ -427,62 +298,56 @@ $msg = @{
     id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
     type = 'did:drn:svrn7.net/protocols/Svrn7.Onboarding.0.8.0/register-citizen'
     from = $citizenDid.Did
-    to   = @('did:drn:federation.svrn7.net/bindloss/1.0/<genesis-hash>')   # informational only, see Step 10 note
+    to   = @('did:drn:federation.svrn7.net/bindloss/1.0/<genesis-hash>')   # informational only
     body = $body
 } | ConvertTo-Json
 
 Send-LocalDIDCommMessage -Port 8442 -Body $msg
 
-# Expected log — Terminal E (Society TDA):
-#
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       Switchboard: routing ... (type=.../Svrn7.Onboarding.0.8.0/register-citizen)
-#           → Invoke-Web7RegisterCitizen [Svrn7.Onboarding]
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       [PS Verbose] Onboarding LOBE: receipt for did:drn:bindloss.svrn7.net/citizen/1.0/<hash> — 1000 grana
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       Switchboard: outbound delivered to http://localhost:8445/didcomm (202).
+# Terminal E → Invoke-Web7RegisterCitizen; the Society delivers a receipt to W5.
 #
 # ---
 #
 # Step 13 — Verify W5 received the receipt (Terminal A)
 #
-# The Society delivers `Svrn7.Onboarding.0.8.0/receipt` to W5.  `Invoke-Web7OnboardReceipt`
-# runs automatically and stores both DID Documents and wires the parent TDA:
-#
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       Switchboard: routing ... (type=.../Svrn7.Onboarding.0.8.0/receipt)
-#           → Invoke-Web7OnboardReceipt [Svrn7.Onboarding]
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       [PS Info] Invoke-Web7OnboardReceipt: registered with did:drn:federation.svrn7.net/bindloss/1.0/<hash> at http://localhost:8442/didcomm
+#   info: … Switchboard: routing … (type=…/Svrn7.Onboarding.0.8.0/receipt)
+#         → Invoke-Web7OnboardReceipt [Svrn7.Onboarding]
+#   info: … [PS Info] Invoke-Web7OnboardReceipt: registered with
+#         did:drn:federation.svrn7.net/bindloss/1.0/<hash> at http://localhost:8442/didcomm
 #
 # ---
 #
-# Step 14 — Verify agent-identity.json (Terminal C)
+# Step 14 — Verify persistence (Terminal C)
 #
-# Read W5's identity file to confirm the parent TDA wiring was persisted:
+# Parent-tier wiring is written to W5's identity.meta.json by SetParentTda:
 
-Write-Host "--- Step 14 — Verify agent-identity.json ---"
-Get-Content 8445/mem/agent-identity.json | ConvertFrom-Json | Select-Object did, parentTdaDid, parentTdaEndpointUrl
+Write-Host "--- Step 14 — Verify identity.meta.json ---"
+Get-ChildItem $pando -Directory -Filter 'w5-*' | Select-Object -First 1 |
+    ForEach-Object { Get-Content (Join-Path $_.FullName 'identity.meta.json') -Raw | ConvertFrom-Json } |
+    Select-Object did, parentTdaDid, parentTdaEndpointUrl
 
 # Expected:
+#   did                  parentTdaDid                                      parentTdaEndpointUrl
+#   ---                  ------------                                      --------------------
+#   did:drn:wanderer...  did:drn:federation.svrn7.net/bindloss/1.0/<hash>  http://localhost:8442/didcomm
 #
-# did                  parentTdaDid                                       parentTdaEndpointUrl
-# ---                  ------------                                       --------------------
-# did:drn:wanderer...  did:drn:federation.svrn7.net/bindloss/1.0/<hash>  http://localhost:8442/didcomm
+# The Citizen + Society DID Documents are in W5's encrypted svrn7-dids.db — inspect with:
 #
-# W5 is now a Citizen TDA.  On the next restart it reads `parentTdaDid` and
-# `parentTdaEndpointUrl` from `agent-identity.json` automatically — no `appsettings.json`
-# entries needed.
+#   $env:PANDO_WALLET_PASSWORD = 'wanderer-debug'
+#   dotnet "$bin\Svrn7.TDA.dll" db-shell --name W5 --db dids --collection Documents
+#
+# On the next restart W5 reads parentTdaDid / parentTdaEndpointUrl from
+# identity.meta.json automatically — no appsettings.json entries needed.
 #
 # ---
 #
 # Troubleshooting
 #
-# | Symptom                                              | Cause                                                    | Fix                                                              |
-# |------------------------------------------------------|----------------------------------------------------------|------------------------------------------------------------------|
-# | `Status: ConnectionRefused` when posting to port 8446 | W6 not running or still starting                        | Wait for the `KestrelListenerService` started log line           |
-# | No `Issue-TOD` delivered to W5                      | W5's DID Document not yet registered on W6               | Ensure W5 has bootstrapped and published its DID Document before sending |
-# | W5 log shows no `Issue-TOD` routing line            | W5 Kestrel not yet listening                             | Ensure W5 started and shows `KestrelListenerService started on port 8445` |
-# | `agent-identity.json not found`                     | W5/W6 not yet started, or `Set-Location` is wrong        | Verify the TDA output dir is the CWD and the TDA ran at least once |
-# | W6 logs `cannot resolve endpoint for sender`        | W6's own DID not in its registry (should not happen on a normal first run) | Stop W6, run with `--reset`, restart |
+# | Symptom                                              | Cause                                                | Fix                                                                    |
+# |------------------------------------------------------|------------------------------------------------------|------------------------------------------------------------------------ |
+# | `TDA failed to start: … PANDO_WALLET_PASSWORD is not set` | env var missing and no interactive console       | `$env:PANDO_WALLET_PASSWORD = '…'` before launching                     |
+# | `TDA failed to start: LOBE package 'Svrn7.Common' … is not in the LOBE library` | lobe-library/ empty            | Copy `dist\*.nupkg` to `~/.web7-pando/lobe-library/` (Prerequisites)    |
+# | `wrong wallet password.`                             | password differs from the one the wallet was created with | Use the original, or `--reset` to re-bootstrap                     |
+# | `Status: ConnectionRefused` posting to 8446          | W6 not running or still starting                     | Wait for W6's `KestrelListenerService: listening on port 8446` line     |
+# | No `Issue-TOD` delivered                             | recipient DID Document not in the sender's registry  | Ensure the recipient bootstrapped before sending                        |
+# | instance folder not found under `~/.web7-pando`      | TDA not started yet, or a different `--data-root`    | Start the TDA once; check for `<name>-<hash8>/`                          |

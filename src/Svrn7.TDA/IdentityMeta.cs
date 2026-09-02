@@ -19,10 +19,15 @@ public sealed class IdentityMeta
     [JsonPropertyName("serviceEndpointUrl")]     public string ServiceEndpointUrl { get; set; } = "";
     [JsonPropertyName("createdUtc")]             public string CreatedUtc { get; set; } = "";
 
+    /// <summary>Parent-tier DID (Society for a Citizen, Federation for a Society) — written by
+    /// <see cref="Svrn7RunspaceContext.SetParentTda"/> after a successful registration. Non-secret.</summary>
+    [JsonPropertyName("parentTdaDid")]           public string? ParentTdaDid { get; set; }
+    [JsonPropertyName("parentTdaEndpointUrl")]   public string? ParentTdaEndpointUrl { get; set; }
+
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.Never
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
     public static IdentityMeta? TryLoad(string path)
