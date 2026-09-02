@@ -10,13 +10,13 @@ namespace Svrn7.Trust.AgentWallet;
 /// <see cref="AgentWalletPayload"/> sealed under the Argon2id password key; the
 /// plaintext payload never touches disk.
 ///
-/// Atomic save copied from <c>Svrn7.Trust.KeyWallet.WalletFile</c>: serialize to
-/// a sibling ".tmp", flush to disk, then swap into place, keeping the previous
-/// contents at ".bak".
+/// Atomic save adapted from the now-retired <c>Svrn7.Trust.KeyWallet</c>'s
+/// <c>WalletFile</c>: serialize to a sibling ".tmp", flush to disk, then swap
+/// into place, keeping the previous contents at ".bak".
 /// </summary>
 public sealed class AgentWalletFile
 {
-    /// <summary>AgentWallet on-disk format version (independent of KeyWallet's v1/v2). 1 = Argon2id + AES-256-GCM.</summary>
+    /// <summary>AgentWallet on-disk format version. 1 = Argon2id + AES-256-GCM.</summary>
     [JsonPropertyName("version")] public int Version { get; set; } = 1;
 
     /// <summary>secp256k1 compressed identity public key, hex — cleartext, so pinning and directory discovery work without unlocking.</summary>

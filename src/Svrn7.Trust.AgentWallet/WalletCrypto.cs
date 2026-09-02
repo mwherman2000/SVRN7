@@ -6,17 +6,17 @@ namespace Svrn7.Trust.AgentWallet;
 
 /// <summary>
 /// Password → key derivation, and AES-256-GCM encrypt/decrypt of an arbitrary
-/// byte payload. This is the "protecting" half of the wallet, copied from
-/// <c>Svrn7.Trust.KeyWallet.WalletCrypto</c> (see docs/AGENTWALLET.md §3) with
-/// only the namespace changed, so the blob format is identical and equally
-/// battle-tested.
+/// byte payload. This is the "protecting" half of the wallet, adapted from the
+/// now-retired <c>Svrn7.Trust.KeyWallet</c>'s <c>WalletCrypto</c>
+/// (see docs/AGENTWALLET.md §3) with only the namespace changed, so the blob
+/// format is identical and equally battle-tested.
 ///
 /// AgentWallet only ever writes the Argon2id ("V2") format:
 ///   memoryKiB(4) ‖ iterations(4) ‖ parallelism(4) ‖ salt(16) ‖ nonce(12) ‖
 ///   tag(16) ‖ ciphertext
 /// The cost parameters are embedded in the blob, so a future cost bump does not
-/// need a new format version. The PBKDF2 ("V1") path is retained for lineage
-/// with KeyWallet but is not used by AgentWallet.
+/// need a new format version. The PBKDF2 ("V1") path is retained from the
+/// original lineage but is not used by AgentWallet.
 /// </summary>
 public static class WalletCrypto
 {

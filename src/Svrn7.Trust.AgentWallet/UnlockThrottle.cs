@@ -5,9 +5,9 @@ namespace Svrn7.Trust.AgentWallet;
 /// <summary>
 /// Slows repeated wrong-password guesses against a wallet file made through this
 /// process's own unlock path. Persisted as a sidecar next to the wallet file
-/// (path + ".lockout") so a process restart does not reset the count. Copied
-/// from <c>Svrn7.Trust.KeyWallet.UnlockThrottle</c> unchanged apart from the
-/// namespace (docs/AGENTWALLET.md §3, §D14).
+/// (path + ".lockout") so a process restart does not reset the count. Adapted
+/// from the now-retired <c>Svrn7.Trust.KeyWallet</c>'s <c>UnlockThrottle</c>,
+/// unchanged apart from the namespace (docs/AGENTWALLET.md §3, §D14).
 ///
 /// Scope: this only throttles guesses through AgentWallet's unlock path. An
 /// attacker who copies the wallet file elsewhere and brute-forces it directly

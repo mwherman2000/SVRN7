@@ -262,11 +262,10 @@ dotnet .\Svrn7.TDA.dll --name MyTDA [--port 8443] [--url http://localhost] [--re
                                    (+ LiteDB *-log.db) — ALL AES-encrypted; key derived from the wallet
 ```
 
-Wallet: Argon2id (64 MiB/3/4) + AES-256-GCM (`Svrn7.Trust.AgentWallet`, copied
-from `Svrn7.Trust.KeyWallet`). Password from `$PANDO_WALLET_PASSWORD` else an
-interactive prompt (fails fast if neither). The DB master key is a stable random
-32 bytes inside the wallet payload, so a password change never re-keys the
-databases.
+Wallet: `Svrn7.Trust.AgentWallet` — Argon2id (64 MiB/3/4) + AES-256-GCM. Password
+from `$PANDO_WALLET_PASSWORD` else an interactive prompt (fails fast if neither).
+The DB master key is a stable random 32 bytes inside the wallet payload, so a
+password change never re-keys the databases.
 
 Testnet script: `tools/Initialize-Testnet.ps1` builds, copies `dist/*.nupkg` into
 `~/.web7-pando/lobe-library/`, sets `$env:PANDO_WALLET_PASSWORD`, and launches

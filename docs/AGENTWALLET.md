@@ -45,7 +45,12 @@ endpoint stable.
 
 ## 3. Why a new component, not "extend KeyWallet"
 
-`Svrn7.Trust.KeyWallet` (already in the repo) is **ECDSA P-256, single key**:
+> **Note (historical).** `Svrn7.Trust.KeyWallet` has since been **removed from the
+> repo** — `AgentWallet` copied the parts it needed and is now their sole holder.
+> This section explains why the copy-and-diverge approach was chosen; it is kept
+> for that rationale.
+
+`Svrn7.Trust.KeyWallet` was **ECDSA P-256, single key**:
 
 - `KeyPair.Generate()` → `ECDsa.Create(nistP256)`
 - `EcMath` hard-codes the P-256 curve parameters
@@ -63,12 +68,14 @@ So the encrypted payload is generalised from "one PKCS#8 key" to **a JSON
 document**. KeyWallet's key-type-specific classes (`KeyPair`, `EcMath`,
 `Mnemonic`) are not reused; its key-type-agnostic protection machinery is.
 
-`Svrn7.Trust.AgentWallet` is a **new standalone project**. It **copies** (does not
-project-reference) the reusable KeyWallet files, so KeyWallet keeps its clean
-single-P-256-key API. If a third consumer of the shared crypto ever appears,
-extract a `Svrn7.Trust.WalletCore` then — not now.
+`Svrn7.Trust.AgentWallet` is a **standalone project**. It **copied** (never
+project-referenced) the key-type-agnostic files. KeyWallet was later deleted, so
+AgentWallet now owns this code outright — a shared `Svrn7.Trust.WalletCore` would
+have exactly one consumer and is not worth extracting.
 
-### Borrowed from KeyWallet
+### Borrowed from KeyWallet (before it was removed)
+
+These files were copied into `Svrn7.Trust.AgentWallet` and now live only there.
 
 | File / pattern | Reused as-is? | Notes |
 |---|---|---|
@@ -715,7 +722,7 @@ pending (§D12, §14).
 | Migration from `<BaseDir>/{port}/mem/` | Not built. `--reset` only. |
 | Full NuGet v3 feed negotiation for `--lobe-feed` | Current HTTP support is flat / flat-container URLs; `v3/index.json` resource discovery is not implemented. |
 | `systemd-creds` / Keychain / libsecret `ISecretProtector` impls | Behind the seam (§D15). |
-| `Svrn7.Trust.WalletCore` extraction | Only if a third consumer of the shared crypto appears. |
+| ~~`Svrn7.Trust.WalletCore` extraction~~ | **Closed.** `KeyWallet` was removed; `AgentWallet` is the sole holder of the copied crypto, so there is nothing to share. |
 | 24-word / 256-bit recovery phrase | Format already forward-compatible via `bip39EntropyBits`. |
 | Selective DB re-key / per-DB subkeys | Currently one `dbMaster` for all five files. |
 | `--no-unlock-throttle` for supervised hosts | Not adopted (§D14). |

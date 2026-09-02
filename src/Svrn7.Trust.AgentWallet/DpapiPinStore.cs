@@ -6,9 +6,9 @@ namespace Svrn7.Trust.AgentWallet;
 
 /// <summary>
 /// Windows <see cref="IPinStore"/> backed by DPAPI at
-/// <see cref="DataProtectionScope.CurrentUser"/> scope. Copied from
-/// <c>Svrn7.Trust.KeyWallet.DpapiPinStore</c> with the entropy tag and default
-/// path re-scoped to AgentWallet (docs/AGENTWALLET.md §3, §5).
+/// <see cref="DataProtectionScope.CurrentUser"/> scope. Adapted from the
+/// now-retired <c>Svrn7.Trust.KeyWallet</c>'s <c>DpapiPinStore</c> with the
+/// entropy tag and default path re-scoped to AgentWallet (docs/AGENTWALLET.md §3, §5).
 ///
 /// The pin file is a DPAPI-protected JSON map of walletId → base64(SHA-256 of
 /// the secp256k1 compressed public key). DPAPI seals it to the logged-in Windows
