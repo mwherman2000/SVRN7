@@ -91,22 +91,23 @@ public static class SocietyServiceCollectionExtensions
         {
             var opts = sp.GetRequiredService<IOptions<Svrn7SocietyOptions>>().Value;
             var log  = sp.GetRequiredService<ILoggerFactory>().CreateLogger<Svrn7LiteContext>();
-            log.LogDebug("LiteDB: svrn7.db        → {Path}", Path.GetFullPath(opts.Svrn7DbPath));
-            return new Svrn7LiteContext(opts.Svrn7DbPath);
+            log.LogDebug("LiteDB: svrn7.db        → {Path}{Enc}", Path.GetFullPath(opts.Svrn7DbPath),
+                string.IsNullOrEmpty(opts.DatabasePassword) ? "" : " (encrypted)");
+            return new Svrn7LiteContext(opts.DbConnectionString(opts.Svrn7DbPath));
         });
         services.TryAddSingleton<DidRegistryLiteContext>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<Svrn7SocietyOptions>>().Value;
             var log  = sp.GetRequiredService<ILoggerFactory>().CreateLogger<DidRegistryLiteContext>();
             log.LogDebug("LiteDB: svrn7-dids.db   → {Path}", Path.GetFullPath(opts.DidsDbPath));
-            return new DidRegistryLiteContext(opts.DidsDbPath);
+            return new DidRegistryLiteContext(opts.DbConnectionString(opts.DidsDbPath));
         });
         services.TryAddSingleton<VcRegistryLiteContext>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<Svrn7SocietyOptions>>().Value;
             var log  = sp.GetRequiredService<ILoggerFactory>().CreateLogger<VcRegistryLiteContext>();
             log.LogDebug("LiteDB: svrn7-vcs.db    → {Path}", Path.GetFullPath(opts.VcsDbPath));
-            return new VcRegistryLiteContext(opts.VcsDbPath);
+            return new VcRegistryLiteContext(opts.DbConnectionString(opts.VcsDbPath));
         });
         // Share Svrn7LiteContext's open LiteDatabase — avoids a second exclusive lock on svrn7.db.
         services.TryAddSingleton<FederationLiteContext>(sp =>
@@ -116,7 +117,7 @@ public static class SocietyServiceCollectionExtensions
             var opts = sp.GetRequiredService<IOptions<Svrn7SocietyOptions>>().Value;
             var log  = sp.GetRequiredService<ILoggerFactory>().CreateLogger<MsgLiteContext>();
             log.LogDebug("LiteDB: svrn7-msg.db    → {Path}", Path.GetFullPath(opts.MsgDbPath));
-            return new MsgLiteContext(opts.MsgDbPath);
+            return new MsgLiteContext(opts.DbConnectionString(opts.MsgDbPath));
         });
 
         // 3. Core service registrations
@@ -243,7 +244,7 @@ public static class SocietyServiceCollectionExtensions
             var opts = sp.GetRequiredService<IOptions<Svrn7SocietyOptions>>().Value;
             var log  = sp.GetRequiredService<ILoggerFactory>().CreateLogger<SchemaLiteContext>();
             log.LogDebug("LiteDB: svrn7-schemas.db → {Path}", Path.GetFullPath(opts.SchemasDbPath));
-            return new SchemaLiteContext(opts.SchemasDbPath);
+            return new SchemaLiteContext(opts.DbConnectionString(opts.SchemasDbPath));
         });
         services.TryAddSingleton<ISchemaRegistry>(sp =>
             new LiteSchemaRegistry(

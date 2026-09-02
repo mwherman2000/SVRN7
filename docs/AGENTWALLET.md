@@ -57,7 +57,7 @@ SVRN7 needs:
 - a **secp256k1** identity key — the DID genesis hash is `Blake3(secp256k1
   compressed pubkey)`, JWS is ES256K, transaction signing is secp256k1
 - **plus** an **X25519** key-agreement key for inbound JWE decryption
-- plus `did`, `role`, parent-TDA wiring, recovery entropy, a wrapped DB key
+- plus `did`, `role`, parent-TDA wiring, the recovery phrase, and a random DB master key
 
 So the encrypted payload is generalised from "one PKCS#8 key" to **a JSON
 document**. KeyWallet's key-type-specific classes (`KeyPair`, `EcMath`,
@@ -242,21 +242,30 @@ key. See §7–8.
 
 ---
 
-### D8 — Database key: random master, wrapped by the password
+### D8 — Database key: a stable random master inside the sealed payload
 
 **Decision:** A random 32-byte `dbMaster` is generated at wallet creation and
-stored **in the encrypted payload, additionally wrapped** under the
-password-derived key:
-`dbMasterWrapped = AES-256-GCM(dbMaster, Argon2id(password, salt))`.
-All five LiteDB files use `Password = hex(dbMaster)`.
+stored as a plain `dbMasterKeyHex` field **inside** the wallet payload — which is
+itself AES-256-GCM-sealed under the Argon2id password key, so `dbMaster` is
+protected by the same key and the same single KDF pass as the private keys. All
+five LiteDB files open with `Password = hex(dbMaster)` (as
+`Filename="…";Password=…`).
 
-**Rationale:** A **password change re-wraps ~32 bytes and rewrites only the
-wallet file** — the databases are never re-keyed. Deriving the DB password
-directly from the password (`HKDF(passwordKey)`) would force a full LiteDB
-`Rebuild` of all five files on every password change.
+*(An earlier draft additionally re-wrapped `dbMaster` under a second
+password-derived key. That was dropped: it doubled the Argon2id cost at every
+unlock for no gain — if the sealed payload plaintext ever leaks, the private keys
+leak with it, so the extra wrap protects nothing this threat model cares about.)*
+
+**Rationale:** `dbMaster` is a **stable** value. A password change re-seals the
+payload (which must happen anyway, for the private keys) but does not change
+`dbMaster`, so **the databases are never re-keyed** on a password change.
+Deriving the DB password directly from the wallet password would instead force a
+full LiteDB `Rebuild` of all five files every time the password changed.
 
 **Consequences:** DB key rotation (only on suspected key compromise) is a
-separate, explicit, rare operation: new `dbMaster` → `Rebuild` all five → re-wrap.
+separate, explicit, rare operation: new `dbMaster` → `Rebuild` all five with the
+new value → rewrite the wallet. `AgentWalletService.RotateDatabaseKey` returns
+`{OldKey, NewKey}` for exactly this.
 
 ---
 
@@ -525,39 +534,44 @@ ciphertext`. Written via the atomic `.tmp` → `File.Replace(…, .bak)` pattern
   "parentTdaDid":          "",                    // optional
   "parentTdaEndpointUrl":  "",                    // optional
 
-  "bip39EntropyHex":       "<32 hex>",            // 16 bytes — recovery phrase entropy (§D10)
+  "recoveryPhrase":        "<12 words>",          // the BIP39 phrase itself (§D10) — equally secret, no reconstruction step
   "bip39EntropyBits":      128,                   // forward-compat marker
 
-  "dbMasterKeyWrapped":    "<base64>"             // AES-256-GCM(dbMaster, Argon2id(password, salt)) — §D8
+  "dbMasterKeyHex":        "<64 hex>"             // 32 random bytes — stable LiteDB Password= for all five DBs (§D8)
 }
 ```
 
-- `dbMaster` (unwrapped) is 32 random bytes. `Password = hex(dbMaster)` for all
-  five LiteDB files.
-- On unlock: derive the Argon2id key once; use it to decrypt the payload **and**
-  to unwrap `dbMasterKeyWrapped`.
+- `dbMaster` is 32 random bytes, generated once at wallet creation.
+  `Password = hex(dbMaster)` for all five LiteDB files (opened as
+  `Filename="…";Password=…`). The value is not derived from the wallet password,
+  so a password change never re-keys the databases.
+- On unlock: one Argon2id pass derives the key; it decrypts the payload, and
+  `dbMasterKeyHex` is read straight out of the decrypted JSON — no second wrap,
+  no second KDF.
 - On password change: re-derive the Argon2id key from the new password, re-encrypt
-  the payload, re-wrap `dbMaster`, rewrite `agent-identity.wallet`. Databases
-  untouched.
+  the whole payload (`dbMaster` rides along unchanged), rewrite
+  `agent-identity.wallet`. Databases untouched.
 
-Both private keys are loaded into `TdaOptions` and **never enter a LOBE runspace**
-(unchanged invariant). The Argon2id key and the password `char[]` are zeroed
-immediately after use.
+Both private keys and `dbMaster` are copied into `TdaOptions` / the DB connection
+string and **never enter a LOBE runspace** (unchanged invariant). The Argon2id
+key and the password `char[]` are zeroed immediately after use; the decrypted
+payload bytes are zeroed once the fields are copied out.
 
 ---
 
 ## 9. `Svrn7.Trust.AgentWallet` — surface
 
 ```
-AgentWalletService(walletPath, ISecretProtector, IPinStore)
-  Create(char[] password, string? recoveryPhrase = null) -> AgentIdentity
-                              // generate or restore keys, generate dbMaster,
-                              // write wallet + return keys unlocked
-  Unlock(Func<char[]> passwordProvider)              -> UnlockResult
+AgentWalletService(walletPath, IPinStore, walletId? = null)
+  Create(char[] password, Func<string,string> didFromGenesisHash, string role,
+         string? recoveryPhrase = null, ...)         -> AgentIdentity
+                              // derive/restore keys, generate dbMaster,
+                              // write wallet + return it unlocked
+  Unlock(Func<char[]> passwordProvider)              -> AgentUnlockResult
                               // throttle -> pin -> Argon2id -> decrypt payload
-                              // -> unwrap dbMaster -> AgentIdentity
-  ChangePassword(Func<char[]> current, char[] next)  -> void      // re-wrap only
-  RotateDatabaseKey(Func<char[]> password)           -> void      // new dbMaster + Rebuild x5
+                              // -> read dbMasterKeyHex -> AgentIdentity
+  ChangePassword(Func<char[]> current, char[] next)  -> void      // re-seal payload only; DBs untouched
+  RotateDatabaseKey(Func<char[]> password)           -> DatabaseKeyRotation  // {OldKey,NewKey}; caller Rebuilds x5
   ExportRecoveryPhrase(Func<char[]> password)        -> string?   // null if imported raw
   Inspect()                                          -> WalletHeader   // no decrypt
 
@@ -598,19 +612,21 @@ time.
 4. **Obtain password** — `PANDO_WALLET_PASSWORD` if set; else interactive
    (double-entry on first-run create). Non-TTY + no env var → fail fast.
 5. **First-run only:**
-   a. generate secp256k1 + X25519 key pairs via `CryptoService` (no DB), **or**
-      derive both from `--recovery-phrase`;
-   b. `genesisHash = Blake3Hex(secp256k1Pub)` → instance dir
-      `<root>/<name>-<genesisHash[..8]>/` (lengthen slug on collision);
-   c. generate random `dbMaster`;
-   d. create `mem/` and `lobes/`; seed `lobes/` (see §12 open item);
-   e. write `agent-identity.wallet` (payload encrypted, `dbMaster` wrapped) and
-      `identity.meta.json`.
-6. **Unlock** (first and subsequent) — throttle → pin → Argon2id → decrypt payload
-   → unwrap `dbMaster` → load secp256k1 + X25519 private keys into `TdaOptions`;
-   zero password and Argon2id key.
-7. **Compute DB paths** — `mem/*.db` under the instance directory;
-   `Password = hex(dbMaster)` for all five.
+   a. `phrase` = `--recovery-phrase` or a fresh 12-word BIP39 phrase; derive
+      secp256k1 (BIP32 `m/7'/0'/0'/0/0`) + X25519 (HKDF from the seed) keys;
+   b. `genesisHash = Blake3(secp256k1 compressed pub)` → instance dir
+      `<root>/<name>-<genesisHash[..8]>/`;
+   c. generate a random 32-byte `dbMaster`;
+   d. create `mem/` and `lobes/`;
+   e. `AgentWalletService.Create` writes `agent-identity.wallet` (one sealed
+      payload holding the keys, the phrase, and `dbMasterKeyHex`); Program.cs
+      writes `identity.meta.json` after the port is bound.
+6. **Unlock** (first and subsequent) — throttle → pin → one Argon2id pass →
+   decrypt payload → read `dbMasterKeyHex` → copy secp256k1 + X25519 keys and
+   `dbMaster` into `TdaOptions`; zero the password, the Argon2id key, and the
+   decrypted payload bytes.
+7. **Compute DB paths** — `mem/*.db` under the instance directory, each opened as
+   `Filename="…";Password=hex(dbMaster)` (all five).
 8. **`ConfigureServices` / `.Build()`** — unchanged wiring, new paths.
 9. **Bind listen port:**
    - first run → bind-with-retry from `--port-base`; on success, patch the DID

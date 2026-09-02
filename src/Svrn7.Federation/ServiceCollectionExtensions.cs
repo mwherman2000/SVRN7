@@ -33,17 +33,17 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<Svrn7LiteContext>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<Svrn7Options>>().Value;
-            return new Svrn7LiteContext(opts.Svrn7DbPath);
+            return new Svrn7LiteContext(opts.DbConnectionString(opts.Svrn7DbPath));
         });
         services.AddSingleton<DidRegistryLiteContext>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<Svrn7Options>>().Value;
-            return new DidRegistryLiteContext(opts.DidsDbPath);
+            return new DidRegistryLiteContext(opts.DbConnectionString(opts.DidsDbPath));
         });
         services.AddSingleton<VcRegistryLiteContext>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<Svrn7Options>>().Value;
-            return new VcRegistryLiteContext(opts.VcsDbPath);
+            return new VcRegistryLiteContext(opts.DbConnectionString(opts.VcsDbPath));
         });
         // Shares Svrn7LiteContext's already-open LiteDatabase handle rather than opening a
         // second exclusive connection to the same Svrn7DbPath file — LiteDB's default

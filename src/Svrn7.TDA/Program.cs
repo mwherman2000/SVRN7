@@ -363,6 +363,10 @@ var host = Host.CreateDefaultBuilder(args)
             opts.MsgDbPath                         = ResolveDbPath(ctx.Configuration["Svrn7:MsgDbPath"],     "svrn7-msg.db",    memDir);
             opts.SchemasDbPath                     = ResolveDbPath(ctx.Configuration["Svrn7:SchemasDbPath"], "svrn7-schemas.db", memDir);
             opts.SocietyMessagingPrivateKeyEd25519 = []; // supplied at runtime
+
+            // Every svrn7-*.db for this instance is AES-encrypted at rest under the
+            // DB master key from the unlocked wallet (docs/AGENTWALLET.md §D9).
+            opts.DatabasePassword                 = Convert.ToHexString(dbMasterKey).ToLowerInvariant();
         });
 
         services.AddSvrn7SocietyBackgroundServices();
