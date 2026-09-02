@@ -118,9 +118,21 @@ derivation trivial.
 
 ---
 
-## TDA-006 — On-demand LOBE download when an unknown message type arrives
+## TDA-006 — On-demand LOBE download when an unknown message type arrives  ✓ DONE (local library)
 
 **Area:** `DIDCommMessageSwitchboard`, `LobeManager`, `TdaOptions`, LOBE registry/marketplace
+
+**Status (docs/AGENTWALLET.md §D6):** implemented against the machine-level
+`~/.web7-pando/lobe-library/` folder feed. On a routing miss the Switchboard
+calls `LobeManager.TryResolveOrInstallProtocol`, which derives `{id}.{version}`
+from the `@type` (`…/protocols/{id}.{version}/{verb}` — TDA-007 makes this a
+verbatim read), `LobeInstaller.EnsureInstalled`s the package from `lobe-library/`
+into `<instance>/lobes/`, registers its descriptors, and retries the lookup.
+Missed `@type`s that cannot be installed are remembered (no re-attempt storm)
+and the cache is cleared when the FileSystemWatcher sees a new descriptor land
+(so "Publish the package, then it works" holds without a restart). A package
+absent from `lobe-library/` still dead-letters — the **remote NuGet-feed
+fallback** below is the remaining open piece (backlogged in AGENTWALLET §14).
 
 **Summary:** When a TDA receives a DIDComm message whose `@type` URI has no
 registered handler, the Switchboard calls `MarkFailedAsync(retry: false)` —

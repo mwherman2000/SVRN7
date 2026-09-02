@@ -283,17 +283,20 @@ public sealed class DIDCommMessageSwitchboard
 
             // ── Route by @type → LOBE cmdlet pipeline ─────────────────────────
             // Pass-by-reference: pass the ObjectId string, not the payload.
-            // Dynamic registry lookup — LobeManager resolves @type to a registration.
-            // Exact match is preferred over prefix match (longest-prefix tiebreak).
-            var reg = _lobes.TryResolveProtocol(msg.MessageType);
+            // Dynamic registry lookup — LobeManager resolves @type to a registration,
+            // JIT-installing the LOBE package from the machine-level lobe-library on
+            // first reference (docs/AGENTWALLET.md §D6; TDA-006). Exact match is
+            // preferred over prefix match (longest-prefix tiebreak).
+            var reg = _lobes.TryResolveOrInstallProtocol(msg.MessageType);
             if (reg is null)
             {
                 _log.LogWarning(
-                    "Switchboard: no LOBE registered for @type '{Type}' — failing message.",
+                    "Switchboard: no LOBE for @type '{Type}' (not registered and not installable " +
+                    "from the LOBE library) — failing message.",
                     msg.MessageType);
                 await _inbox.MarkFailedAsync(
                     msg.Id,
-                    $"No LOBE registered for @type: {msg.MessageType}",
+                    $"No LOBE for @type: {msg.MessageType}",
                     retry: false, maxAttempts: TransactionalMaxAttempts, ct);
                 activity?.SetTag(Svrn7Telemetry.TagOutcome, "no_lobe")
                          .SetStatus(ActivityStatusCode.Error, $"No LOBE registered for @type: {msg.MessageType}");

@@ -294,6 +294,100 @@ public sealed class LobeManager : IDisposable
     /// Resolves a DIDComm @type URI to a registration.
     /// Lookup: (1) exact match, (2) longest-prefix match. Returns null if not found.
     /// </summary>
+    // @type URIs that were missed and could not be JIT-installed — remembered so a
+    // flood of the same unroutable message does not re-attempt an install each time.
+    // Cleared whenever the FileSystemWatcher registers a newly-arrived descriptor
+    // (so "Publish the package, then it just works" holds without a restart).
+    private readonly ConcurrentDictionary<string, byte> _jitInstallFailed =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _jitInstallGate = new();
+
+    /// <summary>
+    /// Like <see cref="TryResolveProtocol"/>, but on a miss it derives the LOBE
+    /// package id and version from the @type
+    /// (<c>…/protocols/{id}.{version}/{verb}</c>), installs that package from the
+    /// machine-level lobe-library into this instance's <c>lobes/</c>, registers its
+    /// descriptors, and retries the lookup once (docs/AGENTWALLET.md §D6; backlog
+    /// TDA-006). Returns null when on-demand install is disabled, the @type carries
+    /// no derivable <c>{id}.{version}</c>, or the package is not in the library —
+    /// the caller then dead-letters as before.
+    /// </summary>
+    public LobeProtocolRegistration? TryResolveOrInstallProtocol(string messageType)
+    {
+        var hit = TryResolveProtocol(messageType);
+        if (hit is not null) return hit;
+
+        if (_installer is null || string.IsNullOrEmpty(_opts.LobeLibraryDir)) return null;
+        if (_jitInstallFailed.ContainsKey(messageType)) return null;
+
+        if (!TryParsePackageFromType(messageType, out var id, out var version))
+        {
+            _jitInstallFailed.TryAdd(messageType, 0);
+            return null;
+        }
+
+        lock (_jitInstallGate)
+        {
+            // Another dispatch thread may have installed it while we waited.
+            hit = TryResolveProtocol(messageType);
+            if (hit is not null) return hit;
+
+            string installDir;
+            try
+            {
+                installDir = _installer.EnsureInstalled(id, version);
+            }
+            catch (LobeNotAvailableException ex)
+            {
+                _log.LogWarning("LobeManager: JIT install for @type '{Type}' failed — {Msg}", messageType, ex.Message);
+                _jitInstallFailed.TryAdd(messageType, 0);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "LobeManager: JIT install for @type '{Type}' threw.", messageType);
+                _jitInstallFailed.TryAdd(messageType, 0);
+                return null;
+            }
+
+            foreach (var descriptor in Directory.EnumerateFiles(installDir, "*.lobe.json"))
+                RegisterFromDescriptor(descriptor);
+
+            hit = TryResolveProtocol(messageType);
+            if (hit is null)
+            {
+                _log.LogWarning(
+                    "LobeManager: installed '{Id}' {Ver} for @type '{Type}' but it registers no matching protocol.",
+                    id, version, messageType);
+                _jitInstallFailed.TryAdd(messageType, 0);
+            }
+            else
+            {
+                _log.LogInformation(
+                    "LobeManager: JIT-installed '{Id}' {Ver} on first reference to @type '{Type}'.",
+                    id, version, messageType);
+            }
+            return hit;
+        }
+    }
+
+    /// <summary>Extracts <c>{id}</c> and <c>{version}</c> from a <c>…/protocols/{id}.{version}/{verb}</c> @type URI.</summary>
+    public static bool TryParsePackageFromType(string messageType, out string id, out string version)
+    {
+        id = string.Empty;
+        version = string.Empty;
+        var segs = messageType.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var pi = Array.FindIndex(segs, s => s.Equals("protocols", StringComparison.OrdinalIgnoreCase));
+        if (pi < 0 || pi + 1 >= segs.Length) return false;
+
+        var (parsedId, parsedVersion) = LobeLibrary.ParseIdVersion(segs[pi + 1]);
+        if (parsedVersion is null) return false;
+
+        id = parsedId;
+        version = parsedVersion;
+        return true;
+    }
+
     public LobeProtocolRegistration? TryResolveProtocol(string messageType)
     {
         if (_exactRegistry.TryGetValue(messageType, out var exact)) return exact;
@@ -385,6 +479,14 @@ public sealed class LobeManager : IDisposable
             {
                 await Task.Delay(200);
                 RegisterFromDescriptor(path);
+
+                // A descriptor just arrived on disk — an operator may have Published a
+                // package that a JIT lookup previously gave up on. Let those @types retry.
+                if (!_jitInstallFailed.IsEmpty)
+                {
+                    _jitInstallFailed.Clear();
+                    _log.LogDebug("LobeManager: cleared JIT install-failed cache after descriptor change.");
+                }
 
                 // Warn if the newly detected LOBE is listed as eager in lobes.config.json.
                 // The ISS is built once at startup and cannot be rebuilt at runtime without

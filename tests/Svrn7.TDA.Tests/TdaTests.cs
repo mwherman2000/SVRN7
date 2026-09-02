@@ -840,6 +840,105 @@ public class LobeManagerRegistryTests : IDisposable
     }
 }
 
+// ── LobeManager JIT install-on-unknown-@type Tests (TDA-006) ──────────────────
+
+public class LobeJitInstallTests : IDisposable
+{
+    private readonly string _tmpRoot;
+    private readonly string _lobesDir;
+    private readonly string _libraryDir;
+    private readonly LobeManager _manager;
+
+    private const string DiagnosticsPkg  = "Pando.Diagnostics.0.1.0.nupkg";
+    private const string DiagnosticsType = "did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/Query-TOD";
+
+    public LobeJitInstallTests()
+    {
+        _tmpRoot    = Path.Combine(Path.GetTempPath(), $"lobe-jit-{Guid.NewGuid():N}");
+        _lobesDir   = Path.Combine(_tmpRoot, "instance", "lobes");
+        _libraryDir = Path.Combine(_tmpRoot, "lobe-library");
+        Directory.CreateDirectory(_lobesDir);
+        Directory.CreateDirectory(_libraryDir);
+
+        // Seed the "library" with a real built LOBE package from the repo's dist/.
+        var distNupkg = Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "..", "dist", DiagnosticsPkg);
+        if (File.Exists(distNupkg))
+            File.Copy(distNupkg, Path.Combine(_libraryDir, DiagnosticsPkg), overwrite: true);
+
+        var opts = new TdaOptions
+        {
+            SocietyDid = "did:drn:societytest.svrn7.net",
+            SocietyMessagingPrivateKeyEd25519 = Array.Empty<byte>(),
+            LobesConfigPath = Path.Combine(_lobesDir, "lobes.config.json"),
+            LobeLibraryDir = _libraryDir,
+        };
+        File.WriteAllText(opts.LobesConfigPath, """{"eager":[],"jit":[]}""");
+
+        var cache = new Microsoft.Extensions.Caching.Memory.MemoryCache(
+            new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+        var ctx = new Svrn7RunspaceContext(
+            new NullSocietyDriver(), new NullInboxStore(), new NullDeadLetterStore(),
+            cache, new NullProcessedOrderStore(), new PendingResolutionStore(), initialEpoch: 0);
+
+        var library   = new LobeLibrary(_libraryDir, NullLogger<LobeLibrary>.Instance);
+        var installer = new LobeInstaller(library, _lobesDir, NullLogger<LobeInstaller>.Instance);
+        _manager = new LobeManager(Options.Create(opts), ctx, NullLogger<LobeManager>.Instance, installer);
+    }
+
+    [Theory]
+    [InlineData("did:drn:svrn7.net/protocols/Svrn7.Invoicing.0.8.0/request", "Svrn7.Invoicing", "0.8.0")]
+    [InlineData("did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/Query-TOD", "Pando.Diagnostics", "0.1.0")]
+    public void TryParsePackageFromType_ExtractsIdAndVersion(string type, string id, string ver)
+    {
+        LobeManager.TryParsePackageFromType(type, out var gotId, out var gotVer).Should().BeTrue();
+        gotId.Should().Be(id);
+        gotVer.Should().Be(ver);
+    }
+
+    [Theory]
+    [InlineData("did:drn:svrn7.net/protocols/NoVersionHere/request")]   // no {id}.{version}
+    [InlineData("did:drn:svrn7.net/not-a-protocol-uri")]                 // no /protocols/ segment
+    public void TryParsePackageFromType_RejectsMalformed(string type)
+    {
+        LobeManager.TryParsePackageFromType(type, out _, out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void TryResolveOrInstall_InstallsFromLibrary_OnFirstReference()
+    {
+        if (!File.Exists(Path.Combine(_libraryDir, DiagnosticsPkg)))
+            return; // dist/ not built in this environment — skip
+
+        _manager.TryResolveProtocol(DiagnosticsType).Should().BeNull("not installed yet");
+
+        var reg = _manager.TryResolveOrInstallProtocol(DiagnosticsType);
+
+        reg.Should().NotBeNull();
+        reg!.LobeName.Should().Be("Pando.Diagnostics");
+        Directory.Exists(Path.Combine(_lobesDir, "Pando.Diagnostics.0.1.0")).Should().BeTrue();
+        Directory.GetFiles(Path.Combine(_lobesDir, "Pando.Diagnostics.0.1.0"), "*.lobe.json")
+            .Should().NotBeEmpty();
+
+        // Idempotent: a second call resolves from the now-registered descriptor.
+        _manager.TryResolveOrInstallProtocol(DiagnosticsType).Should().NotBeNull();
+    }
+
+    [Fact]
+    public void TryResolveOrInstall_ReturnsNull_WhenPackageNotInLibrary()
+    {
+        var reg = _manager.TryResolveOrInstallProtocol(
+            "did:drn:svrn7.net/protocols/Nonexistent.Lobe.9.9.9/whatever");
+        reg.Should().BeNull();
+    }
+
+    public void Dispose()
+    {
+        _manager.Dispose();
+        try { Directory.Delete(_tmpRoot, recursive: true); } catch { }
+    }
+}
+
 // ── Null stubs for test isolation ─────────────────────────────────────────────
 
 internal sealed class NullInboxStore : Svrn7.Core.Interfaces.IInboxStore
