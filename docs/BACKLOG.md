@@ -1000,3 +1000,61 @@ the shared transport extraction, then the seam swap in `BoardForm`, then
 incremental-update wiring, then the dual-app live test.
 
 **No code change required now** — planning note, not yet scoped for implementation.
+
+---
+
+## TDA-017 — Promote an updated DID Document to the Society TDA on change
+
+**Area:** `Svrn7.Identity` DID Document update path, `Svrn7.Society` membership,
+a new outbound "DID Document publish" DIDComm protocol; related to
+docs/AGENTWALLET.md §D11/§D12 (endpoint moves) and the deferred
+`--republish-endpoint` mechanism.
+
+**Summary:** When a TDA updates its own DID Document (key rotation,
+service-endpoint change, `alsoKnownAs`, etc.), the change currently stays local —
+every other tier that resolves or caches that DID keeps serving the stale
+version. Each TDA should **propagate its updated DID Document along its tier
+links** so the authoritative resolver at each tier stays current. The propagation
+is hierarchical and applies at every level:
+
+| Updating TDA | Push the new DID Document to |
+|---|---|
+| Wanderer / Citizen (Society member) | its **Society TDA** |
+| Society | its **Federation TDA** (up) **and** its **member Citizen TDAs** (down) |
+| Federation | its **member Society TDAs** (down) |
+
+The downward push is a notify/refresh: a resolver that has cached a peer's
+document should be told a newer version exists (or handed it directly).
+
+**Shape:**
+
+- Trigger: any successful `IDidDocumentRegistry.UpdateAsync` on the TDA's own DID.
+  Fan-out is chosen from `TdaOptions.Role` and the known tier links —
+  `ParentTdaDid` / `ParentTdaEndpointUrl` for the upward push, the Society
+  membership store (Citizens) or Federation registry (Societies) for the
+  downward push.
+- Transport: an outbound DIDComm message carrying the new canonical
+  `DocumentJson` + `Version`. One protocol, both directions, e.g.
+  `did:drn:svrn7.net/protocols/Svrn7.Identity.0.8.0/did-document-publish`.
+  SignThenEncrypt like every other TDA-to-TDA message; the receiver verifies the
+  signature chains to a key in the *previous* version before accepting.
+- Receiver side: validate `Version == current + 1`, signature, and that the DID
+  is a known peer at that tier (active member / parent), then `UpdateAsync` its
+  own copy.
+- Downward fan-out to many Citizens: a bounded broadcast from the Society's
+  outbox (batched, rate-limited); a lighter `did-document-changed` notify
+  (DID + new version only, recipient pulls) is an option to avoid shipping full
+  documents to every member on every change.
+- Idempotency / ordering: ignore a version ≤ the one held; the sender retries on
+  delivery failure (reuse the outbox).
+- Interaction with §D12: an endpoint move (`--republish-endpoint`) is one case
+  of a DID Document update, so it should ride this same publish path rather than
+  invent a second one.
+
+**Open questions:** whether the Federation needs each Society's rolled-up member
+set refreshed, or only the Society's own document; full documents vs. a signed
+diff vs. notify-and-pull; back-fill for peers that were offline when the update
+happened (pull on next contact); loop/echo suppression when a tier both accepts
+and re-broadcasts.
+
+**No code change now** — backlog item.
