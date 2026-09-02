@@ -49,6 +49,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
     private readonly IInboxStore              _inbox;
     private readonly WebSocketNotifyHub       _hub;
     private readonly ILogger<KestrelListenerService> _log;
+    private readonly ListenPortClaim?         _portClaim;
 
     private WebApplication? _app;
 
@@ -57,13 +58,15 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         IDIDCommService                    didComm,
         IInboxStore                        inbox,
         WebSocketNotifyHub                 hub,
-        ILogger<KestrelListenerService>    log)
+        ILogger<KestrelListenerService>    log,
+        ListenPortClaim?                   portClaim = null)
     {
-        _opts    = opts.Value;
-        _didComm = didComm;
-        _inbox   = inbox;
-        _hub     = hub;
-        _log     = log;
+        _opts      = opts.Value;
+        _didComm   = didComm;
+        _inbox     = inbox;
+        _hub       = hub;
+        _log       = log;
+        _portClaim = portClaim;
     }
 
     // ── IHostedService ────────────────────────────────────────────────────────
@@ -78,7 +81,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
             // Guard against oversized bodies — 2 MB is generous for any DIDComm message.
             kestrel.Limits.MaxRequestBodySize = 2 * 1024 * 1024;
 
-            kestrel.ListenAnyIP(_opts.ListenPort, listenOpts =>
+            void ConfigureEndpoint(ListenOptions listenOpts)
             {
                 listenOpts.Protocols = HttpProtocols.Http2;
 
@@ -106,7 +109,20 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
                         "KestrelListenerService: TLS certificate not configured. " +
                         "Running in cleartext HTTP/2 (development mode only).");
                 }
-            });
+            }
+
+            if (_portClaim is not null)
+            {
+                // Approach C (docs/AGENTWALLET.md §D11): the port was bound atomically
+                // in the pre-host block. Hand Kestrel the already-listening socket so
+                // the claim is never released between "chosen" and "serving".
+                _opts.ListenPort = _portClaim.Port;
+                kestrel.ListenHandle((ulong)_portClaim.Socket.Handle.ToInt64(), ConfigureEndpoint);
+            }
+            else
+            {
+                kestrel.ListenAnyIP(_opts.ListenPort, ConfigureEndpoint);
+            }
         });
 
         // ── Rate limiting ─────────────────────────────────────────────────────

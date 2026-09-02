@@ -61,8 +61,29 @@ public sealed class TdaOptions
 
     // ── Network ───────────────────────────────────────────────────────────────
 
-    /// <summary>Port for Kestrel HTTP/2 + mTLS inbound listener (default 8443).</summary>
+    /// <summary>
+    /// Port the Kestrel HTTP/2 + mTLS inbound listener is bound to. On a first run this
+    /// is the port <see cref="ListenPortClaim"/> actually claimed (auto-selected from
+    /// <see cref="ListenPortBase"/>); on later runs it is the published port read from
+    /// <c>identity.meta.json</c> / the DID Document. Default 8443.
+    /// </summary>
     public int ListenPort { get; set; } = 8443;
+
+    /// <summary>First candidate port for first-run auto-selection (<c>--port-base</c>, default 8440).</summary>
+    public int ListenPortBase { get; set; } = 8440;
+
+    /// <summary>How many consecutive ports first-run auto-selection may try (<c>--port-span</c>, default 64).</summary>
+    public int ListenPortSpan { get; set; } = 64;
+
+    /// <summary>
+    /// True only on a first-run bootstrap: the listener may auto-select a free port from
+    /// <see cref="ListenPortBase"/>. False afterwards — the published port is bound exactly
+    /// or startup fails (docs/AGENTWALLET.md §D11/§D12).
+    /// </summary>
+    public bool AllowPortAutoSelect { get; set; }
+
+    /// <summary>Base URL (scheme + host, no port/path) advertised in the DID Document service endpoint — from <c>--url</c>.</summary>
+    public string BaseUrl { get; set; } = "http://localhost";
 
     /// <summary>TLS certificate path (.pfx or .pem). Null = cleartext development mode.</summary>
     public string? TlsCertificatePath { get; set; }
@@ -146,11 +167,24 @@ public sealed class TdaOptions
     public string ServiceEndpointUrl { get; set; } = string.Empty;
 
     /// <summary>
-    /// Absolute path to agent-identity.json for this TDA instance.
-    /// Set by Program.cs; used by <see cref="Svrn7RunspaceContext.SetParentTda"/> to persist
-    /// parent TDA wiring across restarts.
+    /// Absolute path to this TDA instance's encrypted wallet (<c>agent-identity.wallet</c>).
+    /// Set by Program.cs. (Historically <c>agent-identity.json</c>; superseded by
+    /// <c>Svrn7.Trust.AgentWallet</c> — docs/AGENTWALLET.md.)
     /// </summary>
     public string AgentIdentityPath { get; set; } = string.Empty;
+
+    /// <summary>Absolute path to this instance's <c>identity.meta.json</c> (cleartext locator record).</summary>
+    public string IdentityMetaPath { get; set; } = string.Empty;
+
+    /// <summary>Absolute path to this instance's runtime directory (<c>&lt;dataRoot&gt;/&lt;name&gt;-&lt;hash8&gt;</c>).</summary>
+    public string InstanceDir { get; set; } = string.Empty;
+
+    /// <summary>
+    /// LiteDB master key (32 bytes) for this instance's databases — hex(this) is the
+    /// <c>Password=</c> for every <c>svrn7-*.db</c>. Held for the process lifetime; never
+    /// enters a LOBE runspace. Consumed by the Society/Federation DB wiring (unit 2b).
+    /// </summary>
+    public byte[] DatabaseMasterKey { get; set; } = [];
 
     /// <summary>
     /// Domain used to discover the Federation TDA endpoint via drn.directory DNS TXT lookup.

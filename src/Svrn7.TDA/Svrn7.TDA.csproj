@@ -40,6 +40,7 @@
     <ProjectReference Include="..\Svrn7.Core\Svrn7.Core.csproj" />
     <ProjectReference Include="..\Svrn7.DIDComm\Svrn7.DIDComm.csproj" />
     <ProjectReference Include="..\Svrn7.Society\Svrn7.Society.csproj" />
+    <ProjectReference Include="..\Svrn7.Trust.AgentWallet\Svrn7.Trust.AgentWallet.csproj" />
   </ItemGroup>
   <!-- LOBE NuGet packaging — runs after Build, skipped when no LOBE source has changed -->
   <PropertyGroup>
