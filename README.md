@@ -653,6 +653,11 @@ $env:PANDO_WALLET_PASSWORD = '...'
 dotnet run -- --name MyTDA --port 8443
 ```
 
+Per-identity storage, the encrypted wallet, and encrypted databases are designed
+in [`docs/AGENTWALLET.md`](docs/AGENTWALLET.md); the at-rest / local security
+model (password, pin, wallet, LiteDB encryption, instance naming & port design,
+threat model) is in [`SECURITY.md`](SECURITY.md).
+
 `appsettings.json` configures logging and the functional `Role` (`Federation` | `Society` | `Citizen`); network identity (port, name, URL) is supplied on the command line, not in this file:
 
 ```json

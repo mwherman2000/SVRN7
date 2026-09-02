@@ -226,7 +226,9 @@ http://localhost:8443/didcomm
 ## TDA Launch and Data Layout
 
 See **`docs/AGENTWALLET.md`** for the full design (per-identity storage, encrypted
-wallet, encrypted databases, per-instance LOBEs, publish workflow).
+wallet, encrypted databases, per-instance LOBEs, publish workflow) and
+**`SECURITY.md`** for the at-rest/local security model (password, pin, wallet,
+LiteDB encryption, instance naming/port design, threat model).
 
 ```powershell
 $env:PANDO_WALLET_PASSWORD = '...'      # or you are prompted (double-entry on first run)
