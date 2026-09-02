@@ -67,32 +67,28 @@
     <Touch Files="$(LobePackagesStamp)" AlwaysCreate="true" />
   </Target>
 
-  <!-- Bundle the built LOBE .nupkg files into the output as lobe-packages/. First
-       run seeds an empty ~/.web7-pando/lobe-library/ from here so a fresh install
-       has its eager LOBEs available before anyone Publishes (docs/AGENTWALLET.md §D6). -->
-  <Target Name="BundleLOBEPackages" AfterTargets="BuildLOBEPackages;Build">
+  <!-- Publish task — separate from the binary publish. Copies the built LOBE
+       .nupkg files to the machine-level LOBE library, the sanctioned way to
+       populate it (docs/AGENTWALLET.md §D6/§D16). Flat {id}.{version}.nupkg
+       layout — what LobeLibrary reads. Changed packages overwrite; unchanged
+       ones are skipped, so a rebuilt LOBE is picked up. The binaries publish
+       does NOT carry LOBE packages, and the TDA never seeds the library itself. -->
+  <Target Name="PublishLOBEsToLibrary" AfterTargets="Publish">
+    <PropertyGroup>
+      <_LobeLibraryDir>$(USERPROFILE)\.web7-pando\lobe-library</_LobeLibraryDir>
+    </PropertyGroup>
     <ItemGroup>
-      <_LobeNupkg Include="$(LobeDistDir)\*.nupkg" />
+      <_LobeNupkgToLibrary Include="$(LobeDistDir)\*.nupkg" />
     </ItemGroup>
-    <Copy SourceFiles="@(_LobeNupkg)"
-          DestinationFolder="$(OutDir)lobe-packages"
+    <MakeDir Directories="$(_LobeLibraryDir)" Condition="'@(_LobeNupkgToLibrary)' != ''" />
+    <Copy SourceFiles="@(_LobeNupkgToLibrary)"
+          DestinationFolder="$(_LobeLibraryDir)"
           SkipUnchangedFiles="true"
-          Condition="'@(_LobeNupkg)' != ''" />
-  </Target>
-
-  <!-- Same, for `dotnet publish` — a raw Copy into OutDir isn't part of the
-       publish file set, so lobe-packages/ must be re-copied into PublishDir. -->
-  <Target Name="PublishLOBEPackages" AfterTargets="Publish">
-    <ItemGroup>
-      <_LobeNupkgPublish Include="$(LobeDistDir)\*.nupkg" />
-    </ItemGroup>
-    <Copy SourceFiles="@(_LobeNupkgPublish)"
-          DestinationFolder="$(PublishDir)lobe-packages"
-          SkipUnchangedFiles="true"
-          Condition="'@(_LobeNupkgPublish)' != ''" />
+          OverwriteReadOnlyFiles="true"
+          Condition="'@(_LobeNupkgToLibrary)' != ''" />
     <Message Importance="high"
-             Text="PublishLOBEPackages: copied bundled LOBE packages to $(PublishDir)lobe-packages\"
-             Condition="'@(_LobeNupkgPublish)' != ''" />
+             Text="PublishLOBEsToLibrary: published LOBE package(s) to $(_LobeLibraryDir)\ (@(_LobeNupkgToLibrary))"
+             Condition="'@(_LobeNupkgToLibrary)' != ''" />
   </Target>
 
   <ItemGroup>

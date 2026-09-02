@@ -150,13 +150,7 @@ try
     Directory.CreateDirectory(dataRoot);
 
     lobeLibraryDir = PandoPaths.LobeLibraryDir(dataRoot);
-    Directory.CreateDirectory(lobeLibraryDir);
-    // First run only fills it (SeedIfEmpty no-ops once populated). Publish (§D16)
-    // is the real population path.
-    LobeLibrary.SeedIfEmpty(
-        Path.Combine(AppContext.BaseDirectory, "lobe-packages"),
-        lobeLibraryDir,
-        LoggerFactory.Create(b => b.AddSimpleConsole()).CreateLogger("LobeLibrary"));
+    Directory.CreateDirectory(lobeLibraryDir); // exists but may be empty — filled only by Publish (§D16)
 
     // ── Locate ──────────────────────────────────────────────────────────────
     var instances = PandoPaths.EnumerateInstances(dataRoot).ToList();

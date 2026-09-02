@@ -202,12 +202,12 @@ run a different version, without affecting any other instance. A shared package
 source means a fresh instance needs no network access when the package is already
 cached. Aligns with the hot-reload and side-by-side-versioning backlog items.
 
-**Install is the TDA's own job, lazily, on first reference.** The TDA resolves
-and installs a LOBE NuGet package from `lobe-library/` into `<slug>/lobes/`
-itself (via `NuGet.Protocol` against the folder feed) — no separate installer
-tool, no copy step. A package is fetched only when first referenced and is
-cached in `<slug>/lobes/` thereafter, so it downloads once per instance (on
-first run) and every later run loads it straight from `<slug>/lobes/`.
+**Install is the TDA's own job, lazily, on first reference.** The TDA installs a
+LOBE package from `lobe-library/` into `<slug>/lobes/` itself — a LOBE `.nupkg`
+is a plain zip (`tools/{Id}/…`), so `LobeInstaller` just extracts it; no NuGet
+client, no external tooling. A package is installed only when first referenced
+and stays in `<slug>/lobes/` thereafter, so it is extracted once per instance
+and every later run loads it straight from `<slug>/lobes/`.
 
 This is true for **both** LOBE kinds — the eager/JIT distinction is about *when a
 LOBE is loaded into a runspace*, not *when its package is fetched*:
@@ -225,10 +225,12 @@ Publish it there. No remote-feed fallback for now (§14).
 
 **Consequences:** Installed LOBE modules are duplicated per instance (disk cost,
 accepted). `Program.cs` `LobesConfigPath` default moves from
-`<BaseDir>/lobes/lobes.config.json` to `<slug>/lobes/lobes.config.json`. Which
-set the eager list contains on a fresh instance is still to be defined (a shipped
-manifest, or "all latest" — §13). Populating/refreshing `lobe-library/` itself
-from a remote feed is out of scope here.
+`<BaseDir>/lobes/lobes.config.json` to `<slug>/lobes/lobes.config.json`. The
+default eager list is a `lobes.config.json` **embedded in the `Svrn7.TDA`
+assembly**, materialized to `<slug>/lobes/lobes.config.json` on first run by
+`LobeManager.LoadLobeConfig` and operator-editable (hot-reload) thereafter.
+`lobe-library/` is populated only by `PublishLOBEsToLibrary` (§D16); a remote-feed
+fallback is out of scope (§14).
 
 ---
 
@@ -437,27 +439,34 @@ pattern. The cache is convenience only — never required for operation.
 
 ### D16 — Publish workflow targets `~/.web7-pando/`
 
-**Decision:** Visual Studio **Publish** (and the equivalent `dotnet` invocations)
-target the data root:
+**Decision:** Publishing `Svrn7.TDA` targets the data root and, in the same pass,
+refreshes the LOBE library:
 
-| Project kind | Publish action | Destination |
+Publishing `Svrn7.TDA` runs **two independent tasks**:
+
+| Task | Mechanism | Destination |
 |---|---|---|
-| A LOBE | `dotnet nuget push <id>.nupkg` to the local folder feed | `~/.web7-pando/lobe-library/` |
-| `Svrn7.TDA` | copy published output | `~/.web7-pando/bin/<Config>/<TFM>/` (e.g. `bin/Debug/net8.0-windows/`) |
+| Binaries | `web7-pando` publish profile (`Properties/PublishProfiles/web7-pando.pubxml`) — FileSystem, framework-dependent. Carries **no** LOBE packages. | `~/.web7-pando/bin/Debug/net8.0/` |
+| LOBE packages | `PublishLOBEsToLibrary` MSBuild target (`AfterTargets="Publish"`) | `~/.web7-pando/lobe-library/` |
 
 `lobe-library/` is a NuGet **local (folder) feed** — a directory of `.nupkg`
-files is already a valid source, no server process (see the folder-feed notes).
-`dotnet nuget push -s <folder>` writes the hierarchical
-`<id>/<version>/<id>.<version>.nupkg` layout the client prefers.
+files is already a valid source, no server process. `PublishLOBEsToLibrary`
+copies the **flat** `{id}.{version}.nupkg` layout that `LobeLibrary` reads;
+changed packages overwrite, unchanged ones are skipped, so a rebuilt LOBE is
+picked up. (`dotnet nuget push -s <folder>` would write the hierarchical
+`<id>/<version>/…` layout instead — `LobeLibrary` does not parse that.)
 
-**Rationale:** One well-known location for both the runnable TDA and the LOBE
-package source, separate from the source tree, so a checkout/rebuild does not
-disturb a running deployment. Per-instance `lobes/` folders install from
-`lobe-library/`; the TDA process runs from `bin/`.
+**Invocation:** `Build ▸ Publish Svrn7.TDA ▸ profile "web7-pando"` in VS, or
+`dotnet publish src\Svrn7.TDA -c Debug -p:PublishProfile=web7-pando`. Both tasks
+run.
 
-**Consequences:** Implemented as VS publish profiles (`.pubxml`) and/or an MSBuild
-target, delivered in unit 3. Not part of the wallet or startup work. The
-`<TFM>` subpath is whatever `Svrn7.TDA` targets at publish time.
+**Rationale:** One well-known location for the runnable TDA and the LOBE package
+source, separate from the source tree, so a checkout/rebuild does not disturb a
+running deployment. Per-instance `lobes/` folders install from `lobe-library/`;
+the TDA process runs from `bin/`. **`PublishLOBEsToLibrary` is the only way
+`lobe-library/` is populated** — the TDA never seeds it, and the binaries publish
+never carries packages. An empty `lobe-library/` + a referenced LOBE = a hard
+error telling the operator to publish it (§D6).
 
 ---
 

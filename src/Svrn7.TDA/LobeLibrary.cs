@@ -76,30 +76,6 @@ public sealed partial class LobeLibrary
         return (pick.Version, pick.NupkgPath);
     }
 
-    /// <summary>
-    /// First-run convenience: copies any <c>*.nupkg</c> from <paramref name="bundledDir"/>
-    /// into the library that is not already there. Publish (§D16) is the real
-    /// population path; this just keeps a fresh install from starting empty.
-    /// </summary>
-    public static void SeedIfEmpty(string bundledDir, string libraryDir, ILogger log)
-    {
-        if (!System.IO.Directory.Exists(bundledDir)) return;
-        System.IO.Directory.CreateDirectory(libraryDir);
-
-        var existing = System.IO.Directory.EnumerateFiles(libraryDir, "*.nupkg")
-            .Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (existing.Count > 0) return; // only seed a genuinely empty library
-
-        var copied = 0;
-        foreach (var src in System.IO.Directory.EnumerateFiles(bundledDir, "*.nupkg"))
-        {
-            File.Copy(src, Path.Combine(libraryDir, Path.GetFileName(src)), overwrite: false);
-            copied++;
-        }
-        if (copied > 0)
-            log.LogInformation("LobeLibrary: seeded {N} bundled LOBE package(s) into '{Dir}'.", copied, libraryDir);
-    }
-
     // {Id}.{Major.Minor.Patch[-prerelease]}.nupkg  — Id may itself contain dots.
     [GeneratedRegex(@"^(?<id>.+?)\.(?<ver>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\.nupkg$")]
     private static partial Regex NupkgName();
