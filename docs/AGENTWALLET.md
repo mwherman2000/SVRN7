@@ -193,23 +193,35 @@ data is not carried over).
 `lobes/lobes.config.json`) under its slug folder. There is no shared *installed*
 LOBE catalog. The **package source** is machine-level:
 `~/.web7-pando/lobe-library/` holds the master copy of the LOBE NuGet packages
-(`.nupkg`). A fresh instance's `lobes/` is populated by expanding/installing from
-`lobe-library/`; each instance selects and pins its own versions.
+(`.nupkg`). An instance's `lobes/` is populated lazily — each LOBE is installed
+from `lobe-library/` on first reference and cached (see below); each instance
+selects and pins its own versions.
 
 **Rationale:** LOBE version isolation — one instance can upgrade a JIT LOBE, or
 run a different version, without affecting any other instance. A shared package
 source means a fresh instance needs no network access when the package is already
 cached. Aligns with the hot-reload and side-by-side-versioning backlog items.
 
-**Install is the TDA's own job, on demand.** The TDA resolves and installs LOBE
-NuGet packages from `lobe-library/` into `<slug>/lobes/` itself (via
-`NuGet.Protocol` against the folder feed) — no separate installer tool, no copy
-step:
+**Install is the TDA's own job, lazily, on first reference.** The TDA resolves
+and installs a LOBE NuGet package from `lobe-library/` into `<slug>/lobes/`
+itself (via `NuGet.Protocol` against the folder feed) — no separate installer
+tool, no copy step. A package is fetched only when first referenced and is
+cached in `<slug>/lobes/` thereafter, so it downloads once per instance (on
+first run) and every later run loads it straight from `<slug>/lobes/`.
 
-- **Eager (preloaded) LOBEs** — installed at startup, before the
-  `InitialSessionState` is built.
+This is true for **both** LOBE kinds — the eager/JIT distinction is about *when a
+LOBE is loaded into a runspace*, not *when its package is fetched*:
+
+- **Eager (preloaded) LOBEs** — the eager list is walked at startup; each entry
+  not already in `<slug>/lobes/` is downloaded and installed, then loaded into
+  the `InitialSessionState`. "First reference" for an eager LOBE is that startup
+  walk.
 - **JIT LOBEs** — installed the first time a message for one is dispatched, then
-  cached in `<slug>/lobes/` for subsequent runs.
+  loaded with `Import-Module -Force` per dispatch as today.
+
+**Source is `lobe-library/` only.** If a referenced package (or version) is not
+in `lobe-library/`, the TDA **hard-fails** with a message telling the operator to
+Publish it there. No remote-feed fallback for now (§14).
 
 **Consequences:** Installed LOBE modules are duplicated per instance (disk cost,
 accepted). `Program.cs` `LobesConfigPath` default moves from
@@ -671,6 +683,7 @@ pending (§D12, §14).
 | Item | Note |
 |---|---|
 | Endpoint-move mechanism (`--republish-endpoint`) | Deferred (§D12). Rewrite `serviceEndpoint` + bump DID Document `updated` + re-publish to drn.directory, with defined cache-invalidation semantics. Covers both the port and the `--url` host cases. Until built: `--reset` + re-bootstrap. |
+| Remote LOBE feed fallback | Deferred (§D6). When a referenced package is absent from `lobe-library/`, fall back to a configured remote NuGet feed and cache it into `lobe-library/`. For now a missing package is a hard error. |
 | Migration from `<BaseDir>/{port}/mem/` | Not built. `--reset` only. |
 | `systemd-creds` / Keychain / libsecret `ISecretProtector` impls | Behind the seam (§D15). |
 | `Svrn7.Trust.WalletCore` extraction | Only if a third consumer of the shared crypto appears. |
