@@ -448,12 +448,11 @@ if (isFirstRun)
 
     new IdentityMeta
     {
-        Did                   = agentDid,
-        Name                  = svrn7Name,
-        Role                  = role.ToString(),
-        Secp256k1PublicKeyHex = secpPubHex,
-        ServiceEndpointUrl    = serviceEndpointUrl,
-        CreatedUtc            = DateTimeOffset.UtcNow.ToString("O"),
+        Did                = agentDid,
+        Name               = svrn7Name,
+        Role               = role.ToString(),
+        ServiceEndpointUrl = serviceEndpointUrl,
+        CreatedUtc         = DateTimeOffset.UtcNow.ToString("O"),
     }.Save(metaPath);
 }
 else
@@ -512,7 +511,6 @@ else
         meta.Did = agentDid;
         meta.Name = svrn7Name;
         meta.Role = role.ToString();
-        meta.Secp256k1PublicKeyHex = secpPubHex;
         meta.ServiceEndpointUrl = publishedEndpoint;
         if (string.IsNullOrEmpty(meta.CreatedUtc)) meta.CreatedUtc = DateTimeOffset.UtcNow.ToString("O");
         meta.Save(metaPath);

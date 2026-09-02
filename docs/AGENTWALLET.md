@@ -139,18 +139,22 @@ the slug lengthened.
 ### D3 — Instance discovery by directory scan (no `instances.json`)
 
 **Decision:** No central index file. Each instance directory contains
-`identity.meta.json` — cleartext, non-secret:
+`identity.meta.json` — cleartext, non-secret, and kept minimal:
 
 ```jsonc
 {
-  "did":                   "did:drn:wanderer.svrn7.net/agent/1.0/<genesis-hash>",
-  "name":                  "Wanderer1",
-  "role":                  "Wanderer",
-  "secp256k1PublicKeyHex": "<66 hex, compressed>",
-  "serviceEndpointUrl":    "http://localhost:8440/didcomm",
-  "createdAt":             "2026-09-01T00:00:00.000Z"
+  "did":                  "did:drn:wanderer.svrn7.net/agent/1.0/<genesis-hash>", // startup selector
+  "name":                 "Wanderer1",                                           // startup selector
+  "role":                 "Wanderer",                                            // human legibility only — not read by code
+  "serviceEndpointUrl":   "http://localhost:8440/didcomm",                       // port bound on a later run, no wallet unlock
+  "createdUtc":            "2026-09-01T00:00:00.000Z",                           // human legibility only
+  "parentTdaDid":         "…",   // added by SetParentTda after registration (Citizen/Society); absent for a Wanderer
+  "parentTdaEndpointUrl": "…"    //   ""
 }
 ```
+
+`secp256k1PublicKeyHex` was dropped — it is already in the wallet's cleartext
+header and the DID Document, and nothing read the copy here.
 
 Startup resolves the instance by scanning `~/.web7-pando/*/identity.meta.json`
 and matching on `--name` (or `--did`). If exactly one instance directory exists
@@ -509,11 +513,20 @@ directory.
 
 ## 6. `identity.meta.json`
 
-Cleartext. Written at first-run bootstrap; `serviceEndpointUrl` rewritten if the
-endpoint ever changes (`--republish-endpoint`). Contains **no secret material**.
-Fields: `did`, `name`, `role`, `secp256k1PublicKeyHex`, `serviceEndpointUrl`,
-`createdAt`. The DID Document inside `svrn7-dids.db` is authoritative for the
-endpoint; this file is a discovery convenience.
+Cleartext, **no secret material**, kept minimal. Written at first-run bootstrap;
+`serviceEndpointUrl` rewritten if the endpoint changes (`--republish-endpoint`);
+`parentTdaDid` / `parentTdaEndpointUrl` added by `Svrn7RunspaceContext.SetParentTda`
+after a Society/Federation registration.
+
+| Field | Read by code? |
+|---|---|
+| `did`, `name` | yes — startup instance selectors |
+| `serviceEndpointUrl` | yes — the port to bind on a later run, without unlocking the wallet or opening the encrypted DID DB |
+| `parentTdaDid`, `parentTdaEndpointUrl` | yes — parent-tier wiring restored on restart |
+| `role`, `createdUtc` | no — human legibility only |
+
+The DID Document inside `svrn7-dids.db` is authoritative for the endpoint and for
+role; this file is a discovery/restart convenience.
 
 ---
 

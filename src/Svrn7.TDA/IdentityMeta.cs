@@ -12,10 +12,13 @@ namespace Svrn7.TDA;
 /// </summary>
 public sealed class IdentityMeta
 {
+    // Load-bearing: the startup locate step matches on did / name, and reads the
+    // port out of serviceEndpointUrl without unlocking the wallet or opening the
+    // (encrypted) DID database. role / createdUtc are not read by code — kept
+    // only so `cat identity.meta.json` tells a human what the instance is.
     [JsonPropertyName("did")]                    public string Did { get; set; } = "";
     [JsonPropertyName("name")]                   public string Name { get; set; } = "";
     [JsonPropertyName("role")]                   public string Role { get; set; } = "";
-    [JsonPropertyName("secp256k1PublicKeyHex")]  public string Secp256k1PublicKeyHex { get; set; } = "";
     [JsonPropertyName("serviceEndpointUrl")]     public string ServiceEndpointUrl { get; set; } = "";
     [JsonPropertyName("createdUtc")]             public string CreatedUtc { get; set; } = "";
 

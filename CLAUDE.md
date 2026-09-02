@@ -257,7 +257,7 @@ dotnet .\Svrn7.TDA.dll --name MyTDA [--port 8443] [--url http://localhost] [--re
 └── <name>-<genesisHash8>/         one directory per identity  (slug = Blake3(secp256k1 pub)[..8])
       ├── agent-identity.wallet    encrypted: secp256k1 + X25519 keys, did, role, recovery phrase, DB master key
       ├── agent-identity.wallet.bak / .lockout
-      ├── identity.meta.json       cleartext locator — did, name, role, pubkey, serviceEndpointUrl
+      ├── identity.meta.json       cleartext locator — did, name, role, serviceEndpointUrl, parent-tier wiring
       ├── lobes/                   per-instance; lobes.config.json materialized from the embedded default,
       │                            LOBE modules installed on first reference from lobe-library/
       └── mem/                     svrn7.db, svrn7-dids.db, svrn7-msg.db, svrn7-vcs.db, svrn7-schemas.db

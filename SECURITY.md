@@ -39,7 +39,7 @@ PowerShell runspace.
 | `agent-identity.wallet` | Cleartext header (format version, secp256k1 **public** key hex, created-at) **+** one AES-256-GCM blob | **Secret** — the blob holds both private keys, the DB master key, and the recovery phrase |
 | `agent-identity.wallet.bak` | The previous wallet file, kept by the atomic save | **Secret** — an *older* password/key; treat as the wallet |
 | `agent-identity.wallet.lockout` | JSON: failed-attempt count + last-failure timestamp (`UnlockThrottle`) | Non-secret |
-| `identity.meta.json` | `did`, `name`, `role`, `secp256k1PublicKeyHex`, `serviceEndpointUrl`, `createdUtc` | Non-secret — public locator; the only cleartext record of the identity |
+| `identity.meta.json` | `did`, `name`, `role`, `serviceEndpointUrl`, `createdUtc`, and `parentTdaDid` / `parentTdaEndpointUrl` once registered | Non-secret — public locator + parent-tier wiring; the only cleartext record of the identity |
 | `mem/svrn7.db`, `svrn7-dids.db`, `svrn7-msg.db`, `svrn7-vcs.db`, `svrn7-schemas.db` | LiteDB databases | **Encrypted** (AES) — key derived from the wallet |
 | `mem/*-log.db` | LiteDB write-ahead logs (one per database) | **Encrypted** — same key as their parent database |
 | `mem/crash.log` | Startup exception detail | Low — stack traces, no key material |
@@ -404,10 +404,15 @@ properties:
 
 ### 11.3 Instance discovery — directory scan, no index
 
-Each instance directory carries `identity.meta.json` (cleartext, non-secret:
-`did`, `name`, `role`, `secp256k1PublicKeyHex`, `serviceEndpointUrl`,
-`createdUtc`). Startup enumerates those files and matches on `--name` (or
-`--did`). Properties:
+Each instance directory carries `identity.meta.json` (cleartext, non-secret).
+It is kept minimal: `did` and `name` are the startup selectors,
+`serviceEndpointUrl` is the port a later run binds without unlocking the wallet
+or opening the encrypted DID database, and `parentTdaDid` /
+`parentTdaEndpointUrl` (added by `SetParentTda` after a Society/Federation
+registration) are the wiring a Citizen/Society needs restored on restart.
+`role` and `createdUtc` are not read by code — they are there only so
+`cat identity.meta.json` tells a human what the instance is. Startup enumerates
+these files and matches on `--name` (or `--did`). Properties:
 
 - **Self-healing** — drop a directory in, it appears; delete one, it is gone.
 - **No locking** — reads only; concurrent first-runs each create their own
