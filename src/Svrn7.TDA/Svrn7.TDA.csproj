@@ -4,7 +4,6 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>12</LangVersion>
-    <Version>0.8.0</Version>
     <Authors>Michael Herman</Authors>
     <Company>Web 7.0 Foundation</Company>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -81,14 +80,8 @@
       <_LobeNupkgToLibrary Include="$(LobeDistDir)\*.nupkg" />
     </ItemGroup>
     <MakeDir Directories="$(_LobeLibraryDir)" Condition="'@(_LobeNupkgToLibrary)' != ''" />
-    <Copy SourceFiles="@(_LobeNupkgToLibrary)"
-          DestinationFolder="$(_LobeLibraryDir)"
-          SkipUnchangedFiles="true"
-          OverwriteReadOnlyFiles="true"
-          Condition="'@(_LobeNupkgToLibrary)' != ''" />
-    <Message Importance="high"
-             Text="PublishLOBEsToLibrary: published LOBE package(s) to $(_LobeLibraryDir)\ (@(_LobeNupkgToLibrary))"
-             Condition="'@(_LobeNupkgToLibrary)' != ''" />
+    <Copy SourceFiles="@(_LobeNupkgToLibrary)" DestinationFolder="$(_LobeLibraryDir)" SkipUnchangedFiles="true" OverwriteReadOnlyFiles="true" Condition="'@(_LobeNupkgToLibrary)' != ''" />
+    <Message Importance="high" Text="PublishLOBEsToLibrary: published LOBE package(s) to $(_LobeLibraryDir)\ (@(_LobeNupkgToLibrary))" Condition="'@(_LobeNupkgToLibrary)' != ''" />
   </Target>
 
   <ItemGroup>

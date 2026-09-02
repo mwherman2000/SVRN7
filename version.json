@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/dotnet/Nerdbank.GitVersioning/main/src/NerdBank.GitVersioning/version.schema.json",
+  "version": "0.8",
+  "assemblyVersion": {
+    "precision": "minor"
+  },
+  "publicReleaseRefs": [
+    "^refs/heads/main$"
+  ],
+  "nugetPackageVersion": {
+    "semVer": 2
+  }
+}

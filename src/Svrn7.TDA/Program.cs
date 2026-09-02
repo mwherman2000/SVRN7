@@ -535,12 +535,14 @@ if (!string.IsNullOrEmpty(tdaOpts.FederationDomain) && string.IsNullOrEmpty(tdaO
 
 // ── Startup banner ──────────────────────────────────────────────────────────
 {
-    var rawVersion = typeof(Program).Assembly
-                         .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-                         ?.InformationalVersion
-                     ?? typeof(Program).Assembly.GetName().Version?.ToString(3)
-                     ?? "0.0.0";
-    var version = rawVersion.Contains('+') ? rawVersion[..rawVersion.IndexOf('+')] : rawVersion;
+    // Nerdbank.GitVersioning fills AssemblyInformationalVersion as
+    // "0.8.<gitHeight>[-<branch>]+<commit8>[.<dirtyMarker>]". Show it whole —
+    // the git height + commit is the point of automatic versioning.
+    var version = typeof(Program).Assembly
+                      .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                      ?.InformationalVersion
+                  ?? typeof(Program).Assembly.GetName().Version?.ToString(3)
+                  ?? "0.0.0";
 
     var federation = await driver.GetFederationAsync();
     var societies  = await driver.GetAllSocietiesAsync();
