@@ -319,25 +319,26 @@ Send-LocalDIDCommMessage -Port 8442 -Body $msg
 #
 # Step 14 — Verify persistence (Terminal C)
 #
-# Parent-tier wiring is written to W5's identity.meta.json by SetParentTda:
+# SetParentTda writes ONLY the parent DID (a routing pointer) into W5's
+# identity.meta.json — no endpoint URL is persisted anywhere in cleartext.
 
 Write-Host "--- Step 14 — Verify identity.meta.json ---"
 Get-ChildItem $pando -Directory -Filter 'w5-*' | Select-Object -First 1 |
     ForEach-Object { Get-Content (Join-Path $_.FullName 'identity.meta.json') -Raw | ConvertFrom-Json } |
-    Select-Object did, parentTdaDid, parentTdaEndpointUrl
+    Select-Object did, parentTdaDid
 
-# Expected:
-#   did                  parentTdaDid                                      parentTdaEndpointUrl
-#   ---                  ------------                                      --------------------
-#   did:drn:wanderer...  did:drn:federation.svrn7.net/bindloss/1.0/<hash>  http://localhost:8442/didcomm
+# Expected (note: NO parentTdaEndpointUrl — that field was removed):
+#   did                  parentTdaDid
+#   ---                  ------------
+#   did:drn:wanderer...  did:drn:federation.svrn7.net/bindloss/1.0/<hash>
 #
 # The Citizen + Society DID Documents are in W5's encrypted svrn7-dids.db — inspect with:
 #
 #   $env:PANDO_WALLET_PASSWORD = 'wanderer-debug'
 #   dotnet "$bin\Svrn7.TDA.dll" db-shell --name W5 --db dids --collection Documents
 #
-# On the next restart W5 reads parentTdaDid / parentTdaEndpointUrl from
-# identity.meta.json automatically — no appsettings.json entries needed.
+# On the next restart W5 reads parentTdaDid from identity.meta.json and re-resolves
+# the parent's endpoint from its DID Document — no appsettings.json entries needed.
 #
 # ---
 #

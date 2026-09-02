@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Caching.Memory;
+using Svrn7.Core;
 using Svrn7.Core.Interfaces;
 using Svrn7.Core.Models;
 using Svrn7.Society;
@@ -172,29 +174,51 @@ public sealed class Svrn7RunspaceContext
     // ── Parent TDA wiring ─────────────────────────────────────────────────────
 
     /// <summary>
-    /// Updates the in-memory parent TDA DID and endpoint and persists both to
-    /// <c>agent-identity.json</c>. Called by receipt/result LOBE handlers after
-    /// successful registration with a Society or Federation.
-    /// Thread-safe: volatile writes for the in-memory fields; file write is fire-and-forget.
+    /// Updates the in-memory parent TDA DID and endpoint, and persists <b>only the
+    /// DID</b> (a routing pointer) to <c>identity.meta.json</c>. Called by
+    /// receipt/result LOBE handlers after successful registration with a Society or
+    /// Federation. The endpoint is held in memory only — it is re-resolved from the
+    /// parent's DID Document on every startup, never written to a cleartext file
+    /// (SECURITY.md §11.3). Thread-safe: volatile writes for the in-memory fields;
+    /// file write is fire-and-forget.
     /// </summary>
     public void SetParentTda(string did, string endpointUrl)
     {
+        using var activity = Svrn7Telemetry.Source.StartActivity("tda.parent_tda.set");
+        activity?.SetTag("svrn7.has_endpoint", !string.IsNullOrEmpty(endpointUrl));
+
         _parentTdaDid         = did         ?? string.Empty;
         _parentTdaEndpointUrl = endpointUrl ?? string.Empty;
 
-        if (string.IsNullOrEmpty(_agentIdentityPath)) return;
+        if (string.IsNullOrEmpty(_agentIdentityPath))
+        {
+            activity?.SetTag("svrn7.persisted", false);
+            activity?.SetTag(Svrn7Telemetry.TagOutcome, "in_memory_only");
+            return;
+        }
         try
         {
             var json = File.Exists(_agentIdentityPath)
                 ? File.ReadAllText(_agentIdentityPath)
                 : "{}";
             var node = JsonNode.Parse(json)!.AsObject();
-            node["parentTdaDid"]         = _parentTdaDid;
-            node["parentTdaEndpointUrl"] = _parentTdaEndpointUrl;
+            // Persist only the parent DID (a routing pointer) into identity.meta.json.
+            // The parent's endpoint is re-derived from its DID Document on every
+            // startup — never stored in a cleartext file (SECURITY.md §11.3).
+            node["parentTdaDid"] = _parentTdaDid;
+            node.Remove("parentTdaEndpointUrl"); // scrub any value written by an older build
             File.WriteAllText(_agentIdentityPath,
                 node.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            activity?.SetTag("svrn7.persisted", true);
+            activity?.SetTag(Svrn7Telemetry.TagOutcome, "persisted");
         }
-        catch { /* non-critical — in-memory update already succeeded */ }
+        catch (Exception ex)
+        {
+            // non-critical — the in-memory update already succeeded
+            activity?.SetTag("svrn7.persisted", false);
+            activity?.SetTag(Svrn7Telemetry.TagOutcome, "persist_failed");
+            activity?.SetTag(Svrn7Telemetry.TagErrorType, ex.GetType().Name);
+        }
     }
 
     // ── DID Document exchange helpers ─────────────────────────────────────────

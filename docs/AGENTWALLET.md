@@ -143,18 +143,26 @@ the slug lengthened.
 
 ```jsonc
 {
-  "did":                  "did:drn:wanderer.svrn7.net/agent/1.0/<genesis-hash>", // startup selector
-  "name":                 "Wanderer1",                                           // startup selector
-  "role":                 "Wanderer",                                            // human legibility only — not read by code
-  "serviceEndpointUrl":   "http://localhost:8440/didcomm",                       // port bound on a later run, no wallet unlock
-  "createdUtc":            "2026-09-01T00:00:00.000Z",                           // human legibility only
-  "parentTdaDid":         "…",   // added by SetParentTda after registration (Citizen/Society); absent for a Wanderer
-  "parentTdaEndpointUrl": "…"    //   ""
+  "did":          "did:drn:wanderer.svrn7.net/agent/1.0/<genesis-hash>", // startup selector
+  "name":         "Wanderer1",                                           // startup selector
+  "role":         "Wanderer",                                            // human legibility only — not read by code
+  "createdUtc":   "2026-09-01T00:00:00.000Z",                            // human legibility only
+  "parentTdaDid": "…"    // routing POINTER, added by SetParentTda after registration (Citizen/Society); absent for a Wanderer
 }
 ```
 
 `secp256k1PublicKeyHex` was dropped — it is already in the wallet's cleartext
 header and the DID Document, and nothing read the copy here.
+
+**No endpoint URL lives in this file.** `serviceEndpointUrl` and
+`parentTdaEndpointUrl` were removed: the single secure source for every endpoint
+URL is the **encrypted** `svrn7-dids.db` (this identity's own DID Document; the
+parent's DID Document, resolved via `parentTdaDid`). The pre-host block reads its
+own bound port straight from that database with `DidRegistryPeek` — the wallet is
+already unlocked at that point, so the DB key is in hand — and re-derives the
+parent endpoint from the parent's DID Document after the host is built.
+`parentTdaDid` stays here only as an opaque pointer: tampering it can DoS the
+parent lookup, never redirect traffic to an attacker's endpoint.
 
 Startup resolves the instance by scanning `~/.web7-pando/*/identity.meta.json`
 and matching on `--name` (or `--did`). If exactly one instance directory exists
@@ -165,10 +173,12 @@ for concurrent instance creation, and drifts from what is actually on disk. The
 `*.d/`-style scan is self-healing (drop a directory in → it appears; delete →
 gone), needs no locking, and `n` is tiny.
 
-**Consequences:** `identity.meta.json` is the **only** cleartext record of what an
-instance directory holds — the DID Document (authoritative for the endpoint) is
-now inside an encrypted database. `serviceEndpointUrl` in the meta file is a
-mirror, rewritten whenever the endpoint changes.
+**Consequences:** `identity.meta.json` is the only cleartext record of what an
+instance directory holds, but it holds nothing security-sensitive — no keys, no
+endpoints. Every startup rewrites it unconditionally (`TryLoad` drops unknown
+keys), so a file written by an older build is scrubbed of `serviceEndpointUrl` /
+`secp256k1PublicKeyHex` on the next launch. The DID Document, authoritative for
+the endpoint, is inside the encrypted `svrn7-dids.db`.
 
 ---
 
@@ -345,12 +355,13 @@ raw (no phrase) → `ExportRecoveryPhrase` returns "none".
   and retry, up to `--port-span` (default 64) attempts. The bind itself is the
   atomic claim.
 - On the first successful bind, the actual port is written into **the local
-  (Wanderer) DID Document `serviceEndpoint`** (`{url}:{port}/didcomm`) — the
-  authoritative record — and mirrored into `identity.meta.json`.
-- **Subsequent runs:** read the published port from the DID Document
-  (`svrn7-dids.db`, after unlock) and bind **exactly** that port. If it is
-  taken, **hard fail** with a message naming the published port — no
-  re-selection.
+  (Wanderer) DID Document `serviceEndpoint`** (`{url}:{port}/didcomm`) inside the
+  encrypted `svrn7-dids.db` — the single authoritative record. It is **not**
+  mirrored anywhere in cleartext.
+- **Subsequent runs:** `DidRegistryPeek` reads the published endpoint straight
+  from `svrn7-dids.db` in the pre-host block (the wallet is unlocked by then, so
+  the DB key is available) and binds **exactly** that port. If it is taken,
+  **hard fail** with a message naming the published port — no re-selection.
 
 **Rationale for "never auto-change":** other Web 7 ecosystem components cache DID
 Documents. Silently rewriting a published `serviceEndpoint` breaks every cached
@@ -489,7 +500,7 @@ error telling the operator to publish it (§D6).
 │     └── Debug/net8.0-windows/                   Svrn7.TDA.dll + deps (config/TFM subpath)
 ├── lobe-library/                                 machine-level LOBE .nupkg package source (§D6)
 └── <name>-<genesisHash[..8]>/                    one directory per identity
-      ├── identity.meta.json                      cleartext, non-secret (§D3)
+      ├── identity.meta.json                      cleartext, non-secret, endpoint-free (§D3)
       ├── agent-identity.wallet                   AES-256-GCM / Argon2id (§7)
       ├── agent-identity.wallet.bak               previous version (atomic save)
       ├── agent-identity.wallet.lockout           UnlockThrottle state
@@ -513,20 +524,26 @@ directory.
 
 ## 6. `identity.meta.json`
 
-Cleartext, **no secret material**, kept minimal. Written at first-run bootstrap;
-`serviceEndpointUrl` rewritten if the endpoint changes (`--republish-endpoint`);
-`parentTdaDid` / `parentTdaEndpointUrl` added by `Svrn7RunspaceContext.SetParentTda`
-after a Society/Federation registration.
+Cleartext, **no secret material, no endpoint URLs**, kept minimal. Written at
+first-run bootstrap and **rewritten unconditionally on every subsequent startup**
+(`IdentityMeta.TryLoad` drops unknown JSON keys, so a file left by an older build
+is scrubbed of `serviceEndpointUrl` / `secp256k1PublicKeyHex` on the next launch).
+`parentTdaDid` is added by `Svrn7RunspaceContext.SetParentTda` after a
+Society/Federation registration.
 
 | Field | Read by code? |
 |---|---|
 | `did`, `name` | yes — startup instance selectors |
-| `serviceEndpointUrl` | yes — the port to bind on a later run, without unlocking the wallet or opening the encrypted DID DB |
-| `parentTdaDid`, `parentTdaEndpointUrl` | yes — parent-tier wiring restored on restart |
+| `parentTdaDid` | yes — opaque routing **pointer**; the parent endpoint is re-resolved every startup from the parent's DID Document, never stored here |
 | `role`, `createdUtc` | no — human legibility only |
 
-The DID Document inside `svrn7-dids.db` is authoritative for the endpoint and for
-role; this file is a discovery/restart convenience.
+**All endpoint URLs come from one secure source: the encrypted `svrn7-dids.db`.**
+This identity's own bound port is read pre-host by `DidRegistryPeek` (wallet
+already unlocked → DB key in hand); the parent-tier endpoint is resolved
+post-host from the parent's DID Document via `parentTdaDid`. Because no cleartext
+file carries an endpoint, a local attacker who edits `identity.meta.json` can at
+worst DoS a lookup — never redirect the listener or a DID-resolution escalation
+to an endpoint they control.
 
 ---
 
@@ -560,8 +577,7 @@ ciphertext`. Written via the atomic `.tmp` → `File.Replace(…, .bak)` pattern
   "x25519PrivateKeyHex":   "<64 hex>",            // 32 bytes — AgentKeyAgreementPrivateKey (inbound JWE)
   "x25519PublicKeyHex":    "<64 hex>",
 
-  "parentTdaDid":          "",                    // optional
-  "parentTdaEndpointUrl":  "",                    // optional
+  "parentTdaDid":          "",                    // optional — routing POINTER only; no endpoint is persisted anywhere
 
   "recoveryPhrase":        "<12 words>",          // the BIP39 phrase itself (§D10) — equally secret, no reconstruction step
   "bip39EntropyBits":      128,                   // forward-compat marker
@@ -649,7 +665,8 @@ time.
    d. create `mem/` and `lobes/`;
    e. `AgentWalletService.Create` writes `agent-identity.wallet` (one sealed
       payload holding the keys, the phrase, and `dbMasterKeyHex`); Program.cs
-      writes `identity.meta.json` after the port is bound.
+      writes `identity.meta.json` (did / name / role / createdUtc — no endpoint)
+      after the port is bound.
 6. **Unlock** (first and subsequent) — throttle → pin → one Argon2id pass →
    decrypt payload → read `dbMasterKeyHex` → copy secp256k1 + X25519 keys and
    `dbMaster` into `TdaOptions`; zero the password, the Argon2id key, and the
@@ -657,14 +674,21 @@ time.
 7. **Compute DB paths** — `mem/*.db` under the instance directory, each opened as
    `Filename="…";Password=hex(dbMaster)` (all five).
 8. **`ConfigureServices` / `.Build()`** — unchanged wiring, new paths.
-9. **Bind listen port:**
-   - first run → bind-with-retry from `--port-base`; on success, patch the DID
-     Document `serviceEndpoint` and the `identity.meta.json` mirror;
-   - later run → open `svrn7-dids.db`, read the published port, bind exactly;
-     taken → fail.
+9. **Bind listen port** (pre-host, atomic claim — §D11):
+   - first run → bind-with-retry from `--port-base`; the DID Document
+     `serviceEndpoint` is written with the real port after `.Build()` — nothing
+     is mirrored in cleartext;
+   - later run → `DidRegistryPeek` opens `svrn7-dids.db` read-only, reads this
+     identity's published endpoint, binds exactly that port; taken → fail.
 10. **DID Document creation** (first run) proceeds **after** the successful bind so
-    the endpoint carries the real port.
-11. Continue into the existing host lifecycle (`host.RunAsync()`).
+    the endpoint carries the real port. On a later run the parent-tier endpoint
+    is resolved here from the parent's DID Document via `parentTdaDid`, and
+    `identity.meta.json` is rewritten unconditionally (scrubbing any stale keys).
+11. **Bootstrap telemetry** — the pre-host decisions (endpoint-peek outcome,
+    port source) are replayed onto the `Svrn7.TDA.Bootstrap` meter / activity
+    source now that the OpenTelemetry pipeline is live; parent-endpoint
+    resolution and `SetParentTda` emit their own spans.
+12. Continue into the existing host lifecycle (`host.RunAsync()`).
 
 ### `TdaOptions` fields sourced from the wallet
 
@@ -675,9 +699,10 @@ Replacing the `agent-identity.json` reads in `Program.cs`:
 | `AgentSigningPrivateKey` | payload `secp256k1PrivateKeyHex` (32 bytes) |
 | `AgentKeyAgreementPrivateKey` | payload `x25519PrivateKeyHex` (32 bytes) |
 | `LocalDid`, `Role` | payload / resolved DID Document |
-| `ServiceEndpointUrl` | DID Document `serviceEndpoint` (bind result on first run) |
-| `ParentTdaDid`, `ParentTdaEndpointUrl` | payload (if not set via config/env) |
-| `AgentIdentityPath` | path to `agent-identity.wallet` |
+| `ServiceEndpointUrl` | first run: the bind result. Later runs: `DidRegistryPeek` → this identity's DID Document in `svrn7-dids.db` |
+| `ParentTdaDid` | `identity.meta.json` pointer, else payload, else config/env |
+| `ParentTdaEndpointUrl` | resolved at startup from the parent's DID Document (`parentTdaDid`); **never persisted** — in-memory only |
+| `AgentIdentityPath` | path to `identity.meta.json` (where `SetParentTda` persists the parent pointer) |
 
 ---
 

@@ -39,7 +39,7 @@ PowerShell runspace.
 | `agent-identity.wallet` | Cleartext header (format version, secp256k1 **public** key hex, created-at) **+** one AES-256-GCM blob | **Secret** — the blob holds both private keys, the DB master key, and the recovery phrase |
 | `agent-identity.wallet.bak` | The previous wallet file, kept by the atomic save | **Secret** — an *older* password/key; treat as the wallet |
 | `agent-identity.wallet.lockout` | JSON: failed-attempt count + last-failure timestamp (`UnlockThrottle`) | Non-secret |
-| `identity.meta.json` | `did`, `name`, `role`, `serviceEndpointUrl`, `createdUtc`, and `parentTdaDid` / `parentTdaEndpointUrl` once registered | Non-secret — public locator + parent-tier wiring; the only cleartext record of the identity |
+| `identity.meta.json` | `did`, `name`, `role`, `createdUtc`, and `parentTdaDid` once registered. **No endpoint URLs** (§11.3). | Non-secret — public locator + an opaque parent-tier pointer; the only cleartext record of the identity. Rewritten unconditionally every startup. |
 | `mem/svrn7.db`, `svrn7-dids.db`, `svrn7-msg.db`, `svrn7-vcs.db`, `svrn7-schemas.db` | LiteDB databases | **Encrypted** (AES) — key derived from the wallet |
 | `mem/*-log.db` | LiteDB write-ahead logs (one per database) | **Encrypted** — same key as their parent database |
 | `mem/crash.log` | Startup exception detail | Low — stack traces, no key material |
@@ -85,7 +85,7 @@ raised later without a new format version.
 | `bip39EntropyBits` | `128` — forward-compatibility marker |
 | `dbMasterKeyHex` | 32 random bytes — the LiteDB `Password=` for every database (see §6) |
 | `did`, `role`, `createdUtc` | identity metadata |
-| `parentTdaDid`, `parentTdaEndpointUrl` | optional tier wiring |
+| `parentTdaDid` | optional tier pointer — a DID only; the parent's endpoint is resolved from its DID Document at startup and is never persisted (§11.3) |
 
 ### 3.3 Key derivation and encryption
 
@@ -405,14 +405,14 @@ properties:
 ### 11.3 Instance discovery — directory scan, no index
 
 Each instance directory carries `identity.meta.json` (cleartext, non-secret).
-It is kept minimal: `did` and `name` are the startup selectors,
-`serviceEndpointUrl` is the port a later run binds without unlocking the wallet
-or opening the encrypted DID database, and `parentTdaDid` /
-`parentTdaEndpointUrl` (added by `SetParentTda` after a Society/Federation
-registration) are the wiring a Citizen/Society needs restored on restart.
-`role` and `createdUtc` are not read by code — they are there only so
-`cat identity.meta.json` tells a human what the instance is. Startup enumerates
-these files and matches on `--name` (or `--did`). Properties:
+It is kept minimal: `did` and `name` are the startup selectors; `parentTdaDid`
+(added by `SetParentTda` after a Society/Federation registration) is an **opaque
+pointer** to the parent identity. `role` and `createdUtc` are not read by code —
+they are there only so `cat identity.meta.json` tells a human what the instance
+is. Startup enumerates these files and matches on `--name` (or `--did`), then
+**rewrites the file unconditionally** (`IdentityMeta.TryLoad` drops unknown JSON
+keys, so a file from an older build is scrubbed of `serviceEndpointUrl` /
+`secp256k1PublicKeyHex` on the next launch). Properties:
 
 - **Self-healing** — drop a directory in, it appears; delete one, it is gone.
 - **No locking** — reads only; concurrent first-runs each create their own
@@ -421,19 +421,42 @@ these files and matches on `--name` (or `--did`). Properties:
 - `identity.meta.json` is the *only* cleartext record of an identity now that the
   DID Document lives inside an encrypted database. It is unauthenticated (§13).
 
+**One secure source for every endpoint URL.** `identity.meta.json` deliberately
+carries **no endpoint** — not this identity's, not its parent's. Every endpoint
+is read from the **encrypted** `svrn7-dids.db`:
+
+- *This identity's own bound port* — `DidRegistryPeek.TryReadServiceEndpoint`
+  opens `svrn7-dids.db` read-only in the pre-host block (the wallet is unlocked
+  by then, so the DB master key is in hand), pulls the `DIDCommMessaging`
+  service-endpoint URL from this identity's own DID Document, and binds exactly
+  that port.
+- *The parent-tier endpoint* — resolved after `Host.Build()` from the parent's
+  DID Document via `parentTdaDid`, held in memory only.
+
+Consequence: a local attacker who edits `identity.meta.json` can at worst make a
+lookup fail (DoS) — flipping `parentTdaDid` breaks the parent resolution, and it
+is re-derived cleanly on the next good startup. They **cannot** move the
+listener or point DID-resolution escalation at an endpoint they control, because
+no cleartext file feeds an endpoint into the process. (The plaintext
+`did-resolve-response` is unsigned, so a redirected escalation target would be a
+full MITM primitive — hence the hard rule that endpoints come only from the
+encrypted registry.)
+
 ### 11.4 Port — auto-select once, then fixed
 
 **First run only**, the listen port is chosen: `--port` if given verbatim,
 otherwise auto-selected upward from `--port-base` (default 8440) within
 `--port-span` (default 64). The chosen port is written into the DID Document
-`serviceEndpoint` and mirrored into `identity.meta.json`.
+`serviceEndpoint` inside the encrypted `svrn7-dids.db` — the single authoritative
+record; nothing mirrors it in cleartext.
 
-**Every later run** binds *exactly* the published port. A conflicting `--port` is
-**rejected**, not silently honoured, because other components across the
-ecosystem cache DID Documents — rewriting a published `serviceEndpoint` breaks
-every cached copy until it re-resolves. Moving the endpoint is a deliberate,
-separate gesture: `--republish-endpoint` rewrites the DID Document
-(`Version` + 1) and the meta mirror, with a printed cache-staleness notice.
+**Every later run** reads that endpoint back with `DidRegistryPeek` (§11.3) and
+binds *exactly* the published port. A conflicting `--port` is **rejected**, not
+silently honoured, because other components across the ecosystem cache DID
+Documents — rewriting a published `serviceEndpoint` breaks every cached copy
+until it re-resolves. Moving the endpoint is a deliberate, separate gesture:
+`--republish-endpoint` rewrites the DID Document (`Version` + 1), with a printed
+cache-staleness notice.
 
 ### 11.5 The port claim is atomic
 
@@ -508,9 +531,12 @@ the DID Document is written — means:
   verification** on LOBE packages today. Populate `lobe-library/` (and any
   `--lobe-feed`) only from sources you trust. (Tracked as a limitation, not yet
   addressed.)
-- **`identity.meta.json` tampering.** It is cleartext and unauthenticated; a
-  local attacker can edit the mirrored endpoint. The DID Document inside the
-  encrypted database remains authoritative, and the wallet/keys are untouched.
+- **`identity.meta.json` tampering.** It is cleartext and unauthenticated. It
+  holds nothing security-sensitive — no keys, **no endpoint URLs** (§11.3) — so
+  the worst a local edit achieves is a denial of service on the instance lookup
+  or the parent resolution, both of which recover on the next good startup. All
+  endpoints come from the encrypted `svrn7-dids.db`; the wallet and keys are
+  untouched.
 
 ---
 
@@ -526,4 +552,5 @@ the DID Document is written — means:
 - To inspect databases: `dotnet Svrn7.TDA.dll db-shell --name <instance>`.
 - To rotate the password: `AgentWalletService.ChangePassword` (no DB rebuild).
 - To move a published endpoint: `--republish-endpoint` (rewrites the DID Document
-  and the meta mirror; cached resolvers lag until they re-resolve).
+  in the encrypted `svrn7-dids.db`, `Version` + 1; cached resolvers lag until
+  they re-resolve).

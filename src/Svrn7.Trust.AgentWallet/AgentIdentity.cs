@@ -28,8 +28,9 @@ public sealed class AgentIdentity : IDisposable
 
     public string Did { get; }
     public string Role { get; }
+    /// <summary>Parent-tier DID (Society/Federation) — a routing pointer. The parent's
+    /// endpoint is never stored; it is resolved from the parent's DID Document at startup.</summary>
     public string? ParentTdaDid { get; }
-    public string? ParentTdaEndpointUrl { get; }
 
     /// <summary>
     /// <see cref="Blake3"/> hash of the compressed secp256k1 public key, lowercase
@@ -44,7 +45,7 @@ public sealed class AgentIdentity : IDisposable
         byte[] secp256k1PrivateKey, string secp256k1PublicKeyHex,
         byte[] x25519PrivateKey, string x25519PublicKeyHex,
         byte[] dbMasterKey,
-        string did, string role, string? parentTdaDid, string? parentTdaEndpointUrl,
+        string did, string role, string? parentTdaDid,
         string genesisHashHex)
     {
         Secp256k1PrivateKey = secp256k1PrivateKey;
@@ -55,7 +56,6 @@ public sealed class AgentIdentity : IDisposable
         Did = did;
         Role = role;
         ParentTdaDid = parentTdaDid;
-        ParentTdaEndpointUrl = parentTdaEndpointUrl;
         GenesisHashHex = genesisHashHex;
     }
 

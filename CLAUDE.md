@@ -243,7 +243,7 @@ dotnet .\Svrn7.TDA.dll --name MyTDA [--port 8443] [--url http://localhost] [--re
 | `--url` | `http://localhost` | Base URL for the DID Document service endpoint; full endpoint = `{url}:{port}/didcomm` |
 | `--data-root` / `$PANDO_HOME` | `~/.web7-pando` | Root for all per-identity data |
 | `--recovery-phrase "<12 words>"` | — | First run only: restore from an existing BIP39 phrase |
-| `--republish-endpoint` | off | Move the published endpoint to this run's `--port`/`--url` (rewrites the DID Document + `identity.meta.json`) |
+| `--republish-endpoint` | off | Move the published endpoint to this run's `--port`/`--url` (rewrites the DID Document in the encrypted `svrn7-dids.db`, `Version` + 1) |
 | `--reset` | off | Deletes the whole `<name>-<genesisHash8>/` directory and re-bootstraps (confirm prompt on a terminal) |
 | `--lobe-feed` / `Tda:LobeRemoteFeed` | — | Fallback source (dir/UNC or HTTP base URL) for a LOBE package not in `lobe-library/` |
 | `db-shell` (subcommand) | — | `Svrn7.TDA.dll db-shell --name X [--db dids\|msg\|vcs\|schemas\|main] [--collection C] [--sql "…"]` — read the encrypted databases after unlocking the wallet |
@@ -257,7 +257,10 @@ dotnet .\Svrn7.TDA.dll --name MyTDA [--port 8443] [--url http://localhost] [--re
 └── <name>-<genesisHash8>/         one directory per identity  (slug = Blake3(secp256k1 pub)[..8])
       ├── agent-identity.wallet    encrypted: secp256k1 + X25519 keys, did, role, recovery phrase, DB master key
       ├── agent-identity.wallet.bak / .lockout
-      ├── identity.meta.json       cleartext locator — did, name, role, serviceEndpointUrl, parent-tier wiring
+      ├── identity.meta.json       cleartext locator — did, name, role, createdUtc, parentTdaDid (pointer only).
+      │                            NO endpoint URLs: every endpoint comes from the encrypted svrn7-dids.db
+      │                            (own port via DidRegistryPeek pre-host; parent via its DID Document).
+      │                            Rewritten unconditionally each startup (scrubs stale keys from old builds).
       ├── lobes/                   per-instance; lobes.config.json materialized from the embedded default,
       │                            LOBE modules installed on first reference from lobe-library/
       └── mem/                     svrn7.db, svrn7-dids.db, svrn7-msg.db, svrn7-vcs.db, svrn7-schemas.db
@@ -312,8 +315,14 @@ the host is built:
    master key. **No plaintext key file.**
 
 After the host builds it creates the DID Document (secp256k1 + X25519 public keys,
-`X25519KeyAgreementKey2020`, service endpoint on the bound port) and writes the
-cleartext `identity.meta.json` mirror.
+`X25519KeyAgreementKey2020`, service endpoint on the bound port) inside the
+encrypted `svrn7-dids.db` — the single source for every endpoint URL — and writes
+the cleartext `identity.meta.json` locator (did / name / role / createdUtc /
+parentTdaDid only; no endpoint). Later runs read their own bound port from that
+DB via `DidRegistryPeek` in the pre-host block. Bootstrap telemetry:
+`Svrn7.TDA.Bootstrap` ActivitySource + Meter (`AddSource`/`AddMeter` in
+`Program.cs`), counters `tda.bootstrap.{endpoint_peek,port_resolved,meta_write,
+parent_endpoint_resolve}`.
 
 Key roles (unchanged): the secp256k1 key does genesis-hash derivation, DIDComm
 JWS signing (`AgentSigningPrivateKey`), and transaction signing; the X25519 key

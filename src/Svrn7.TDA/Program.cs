@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -6,6 +7,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenTelemetry;
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Svrn7.Core;
@@ -24,7 +26,7 @@ using Svrn7.Trust.AgentWallet;
 //   • Data root:  --data-root  ›  $PANDO_HOME  ›  ~/.web7-pando
 //   • One directory per identity:  <data-root>/<name>-<genesisHash[..8]>/
 //       ├── agent-identity.wallet   encrypted (Argon2id + AES-256-GCM) — keys + DB master key
-//       ├── identity.meta.json      cleartext locator mirror (did, role, endpoint)
+//       ├── identity.meta.json      cleartext locator (did, name, role) — NO endpoint URL
 //       ├── lobes/                  per-instance LOBE set
 //       └── mem/                    svrn7-*.db
 //   • Wallet password:  $PANDO_WALLET_PASSWORD  ›  interactive prompt (double-entry on first run)
@@ -148,13 +150,18 @@ string          x25519PubHex;
 byte[]          signingKey;
 byte[]          keyAgreementKey;
 byte[]          dbMasterKey;
-string?         parentTdaDid;
-string?         parentTdaEndpointUrl;
+string?         parentTdaDid = null;
+string?         parentTdaEndpointUrl = null;   // resolved post-.Build() from parentTdaDid's DID Document — never from the meta file
 bool            isFirstRun;
 int             listenPort;
+string?         publishedEndpoint = null; // this instance's own endpoint from its (encrypted) DID Document, later runs only
 string?         freshRecoveryPhrase = null;
 ListenPortClaim? portClaim = null;
 string?         crashDir = null;
+
+// ── Bootstrap telemetry (recorded after the host meter pipeline is live) ─────
+string?         bootstrapPeekOutcome = null; // BootstrapDiagnostics.Peek.* — set on later runs only
+string          bootstrapPortSource  = BootstrapDiagnostics.PortSource.FirstRunAuto;
 
 try
 {
@@ -270,13 +277,12 @@ try
                         signingKey = ok.Identity.Secp256k1PrivateKey.ToArray();
                         keyAgreementKey = ok.Identity.X25519PrivateKey.ToArray();
                         dbMasterKey = ok.Identity.DbMasterKey.ToArray();
-                        // Parent-tier wiring persists in identity.meta.json (written by
-                        // Svrn7RunspaceContext.SetParentTda after registration); the wallet
-                        // payload is the fallback for one created with it.
+                        // Parent-tier DID is a routing pointer: identity.meta.json first
+                        // (written by SetParentTda after registration), wallet payload as
+                        // the fallback. The parent ENDPOINT is never persisted anywhere —
+                        // it is resolved from the parent's DID Document after .Build().
                         parentTdaDid = string.IsNullOrEmpty(foundMeta!.ParentTdaDid)
                             ? ok.Identity.ParentTdaDid : foundMeta.ParentTdaDid;
-                        parentTdaEndpointUrl = string.IsNullOrEmpty(foundMeta.ParentTdaEndpointUrl)
-                            ? ok.Identity.ParentTdaEndpointUrl : foundMeta.ParentTdaEndpointUrl;
                     }
                     break;
 
@@ -313,16 +319,41 @@ try
     {
         claimBase = portArg ?? portBase;
         allowAuto = portArg is null; // an explicit --port on first run is used verbatim
+        bootstrapPortSource = portArg is null
+            ? BootstrapDiagnostics.PortSource.FirstRunAuto
+            : BootstrapDiagnostics.PortSource.FirstRunExplicit;
     }
     else
     {
-        var published = foundMeta!.EndpointPort();
-        if (portArg is not null && published is not null && portArg != published && !republishEndpoint)
+        // The published endpoint — and therefore the port and base URL — comes
+        // ONLY from this identity's own DID Document in the encrypted svrn7-dids.db
+        // (the wallet is already unlocked, so the DB key is in hand). No cleartext
+        // file feeds it: a tampered identity.meta.json cannot move the listener.
+        publishedEndpoint = DidRegistryPeek.TryReadServiceEndpoint(
+            Path.Combine(memDir, "svrn7-dids.db"),
+            Convert.ToHexString(dbMasterKey).ToLowerInvariant(),
+            agentDid,
+            out var peekOutcome);
+        bootstrapPeekOutcome = peekOutcome;
+        var published = DidRegistryPeek.PortOf(publishedEndpoint);
+        if (published is null)
+            Die("this identity's DID Document has no readable DIDComm endpoint. " +
+                "Re-bootstrap with --reset, or set one with --republish-endpoint --port <n>.");
+
+        if (portArg is not null && portArg != published && !republishEndpoint)
             Die($"--port {portArg} conflicts with this identity's published port {published}. " +
                 "Omit --port to keep it, or pass --republish-endpoint to move it (docs/AGENTWALLET.md §D12).");
-        claimBase = republishEndpoint ? (portArg ?? published ?? portBase)
-                                      : (published ?? portArg ?? portBase);
+
+        claimBase = republishEndpoint ? (portArg ?? published.Value) : published.Value;
         allowAuto = false;
+        bootstrapPortSource = republishEndpoint
+            ? BootstrapDiagnostics.PortSource.Republish
+            : BootstrapDiagnostics.PortSource.DidDocument;
+
+        // Later runs advertise exactly what the DID Document says (scheme+host too),
+        // unless this run is deliberately moving the endpoint.
+        if (!republishEndpoint)
+            tdaUrl = DidRegistryPeek.BaseUrlOf(publishedEndpoint) ?? tdaUrl;
     }
 
     var loggerFactory = LoggerFactory.Create(b => b.AddSimpleConsole());
@@ -359,7 +390,7 @@ var host = Host.CreateDefaultBuilder(args)
         // The atomically-claimed listen socket, handed to KestrelListenerService.
         services.AddSingleton(portClaim!);
 
-        // ── 0. OpenTelemetry tracing ─────────────────────────────────────────
+        // ── 0. OpenTelemetry tracing + metrics ───────────────────────────────
         services.AddOpenTelemetry()
             .ConfigureResource(r => r.AddService(
                 serviceName:       Svrn7Telemetry.SourceName,
@@ -369,12 +400,24 @@ var host = Host.CreateDefaultBuilder(args)
             {
                 tracing.SetSampler(new AlwaysOnSampler())
                        .AddSource(Svrn7Telemetry.SourceName)
-                       .AddSource(DIDDocumentService.ActivitySource.Name);
+                       .AddSource(DIDDocumentService.ActivitySource.Name)
+                       .AddSource(BootstrapDiagnostics.SourceName)
+                       .AddSource(AgentWalletDiagnostics.SourceName);
 
                 if (useJaeger)
                     tracing.AddOtlpExporter(o => o.Endpoint = new Uri(jaegerEndpoint));
                 else
                     tracing.AddConsoleExporter();
+            })
+            .WithMetrics(metrics =>
+            {
+                metrics.AddMeter(BootstrapDiagnostics.SourceName)
+                       .AddMeter(AgentWalletDiagnostics.SourceName);
+
+                if (useJaeger)
+                    metrics.AddOtlpExporter(o => o.Endpoint = new Uri(jaegerEndpoint));
+                else
+                    metrics.AddConsoleExporter();
             });
 
         // ── 1. SVRN7 Society stack ───────────────────────────────────────────
@@ -430,9 +473,28 @@ var host = Host.CreateDefaultBuilder(args)
     .Build();
 
 host.Services.GetRequiredService<TracerProvider>();
+host.Services.GetRequiredService<MeterProvider>();
 
 var driver  = host.Services.GetRequiredService<ISvrn7SocietyDriver>();
 var tdaOpts = host.Services.GetRequiredService<IOptions<TdaOptions>>().Value;
+
+// ── Bootstrap telemetry ─────────────────────────────────────────────────────
+// The pre-host block ran before the meter/tracer pipeline existed; replay what
+// it decided now that a listener is attached. One summary span carries the
+// pre-host tags; the DID-document reconciliation below adds its own spans.
+using var bootstrapActivity = BootstrapDiagnostics.ActivitySource.StartActivity(
+    BootstrapDiagnostics.ActivityBootstrap);
+bootstrapActivity?
+    .SetTag(BootstrapDiagnostics.TagFirstRun, isFirstRun)
+    .SetTag(BootstrapDiagnostics.TagListenPort, listenPort)
+    .SetTag(BootstrapDiagnostics.TagRepublish, republishEndpoint)
+    .SetTag(BootstrapDiagnostics.TagPortSource, bootstrapPortSource);
+if (bootstrapPeekOutcome is not null)
+{
+    bootstrapActivity?.SetTag("svrn7.endpoint_peek_outcome", bootstrapPeekOutcome);
+    BootstrapDiagnostics.RecordEndpointPeek(bootstrapPeekOutcome);
+}
+BootstrapDiagnostics.RecordPortResolved(bootstrapPortSource);
 
 // ── DID Document + identity.meta.json ────────────────────────────────────────
 if (isFirstRun)
@@ -448,24 +510,26 @@ if (isFirstRun)
 
     new IdentityMeta
     {
-        Did                = agentDid,
-        Name               = svrn7Name,
-        Role               = role.ToString(),
-        ServiceEndpointUrl = serviceEndpointUrl,
-        CreatedUtc         = DateTimeOffset.UtcNow.ToString("O"),
+        Did        = agentDid,
+        Name       = svrn7Name,
+        Role       = role.ToString(),
+        CreatedUtc = DateTimeOffset.UtcNow.ToString("O"),
     }.Save(metaPath);
+    BootstrapDiagnostics.RecordMetaWrite(firstRun: true);
 }
 else
 {
-    var result     = await driver.DidRegistry.ResolveAsync(agentDid);
-    var currentDoc  = result.Document;
-    tdaOpts.Role   = currentDoc?.Role ?? role;
-    svrn7Name      = currentDoc?.Svrn7Name ?? svrn7Name;
-    role           = tdaOpts.Role;
+    var result    = await driver.DidRegistry.ResolveAsync(agentDid);
+    var currentDoc = result.Document;
+    tdaOpts.Role  = currentDoc?.Role ?? role;
+    svrn7Name     = currentDoc?.Svrn7Name ?? svrn7Name;
+    role          = tdaOpts.Role;
 
-    var publishedEndpoint = currentDoc?.ServiceEndpoints
+    // publishedEndpoint was read pre-host straight from the encrypted DID DB;
+    // confirm it against the fully-resolved document here.
+    publishedEndpoint = currentDoc?.ServiceEndpoints
         .FirstOrDefault(s => s.ServiceEndpoint.EndsWith("/didcomm", StringComparison.OrdinalIgnoreCase))
-        ?.ServiceEndpoint ?? serviceEndpointUrl;
+        ?.ServiceEndpoint ?? publishedEndpoint;
 
     if (republishEndpoint)
     {
@@ -497,24 +561,46 @@ else
             Die("--republish-endpoint: this identity's DID Document could not be resolved.");
         }
     }
-    else if (serviceEndpointUrl != publishedEndpoint)
+
+    // ── Parent-tier endpoint: resolved from the parent's DID Document, never a file ──
+    if (!string.IsNullOrEmpty(parentTdaDid))
     {
-        Console.Error.WriteLine(
-            $"WARNING: bound {serviceEndpointUrl} but the published endpoint is {publishedEndpoint}. " +
-            "Pass --republish-endpoint to make the move permanent.");
+        using var parentActivity = BootstrapDiagnostics.ActivitySource.StartActivity(
+            BootstrapDiagnostics.ActivityResolveParent);
+
+        var parentDoc = (await driver.DidRegistry.ResolveAsync(parentTdaDid!)).Document;
+        parentTdaEndpointUrl = parentDoc?.ServiceEndpoints
+            .FirstOrDefault(s => s.ServiceEndpoint.EndsWith("/didcomm", StringComparison.OrdinalIgnoreCase))
+            ?.ServiceEndpoint;
+
+        var parentOutcome = string.IsNullOrEmpty(parentTdaEndpointUrl)
+            ? BootstrapDiagnostics.ParentOutcome.Unresolvable
+            : BootstrapDiagnostics.ParentOutcome.Resolved;
+        parentActivity?.SetTag(BootstrapDiagnostics.TagOutcome, parentOutcome);
+        BootstrapDiagnostics.RecordParentEndpointResolve(parentOutcome);
+
+        if (string.IsNullOrEmpty(parentTdaEndpointUrl))
+            Console.Error.WriteLine(
+                $"WARNING: parent '{parentTdaDid}' is not resolvable from the local DID registry — " +
+                "DID-resolution escalation is disabled until it is re-resolved.");
+    }
+    else
+    {
+        BootstrapDiagnostics.RecordParentEndpointResolve(BootstrapDiagnostics.ParentOutcome.NoParent);
     }
 
-    // Cleartext mirror tracks the authoritative published endpoint.
+    // identity.meta.json carries NO endpoint — only the routing/legibility fields.
+    // Rewrite it unconditionally every startup: TryLoad drops unknown JSON keys, so
+    // this scrubs stale fields (serviceEndpointUrl, secp256k1PublicKeyHex, …) left by
+    // an older build. Save is atomic (.tmp → replace).
     var meta = IdentityMeta.TryLoad(metaPath) ?? new IdentityMeta { Did = agentDid, Name = svrn7Name };
-    if (meta.ServiceEndpointUrl != publishedEndpoint || meta.Role != role.ToString() || meta.Did != agentDid)
-    {
-        meta.Did = agentDid;
-        meta.Name = svrn7Name;
-        meta.Role = role.ToString();
-        meta.ServiceEndpointUrl = publishedEndpoint;
-        if (string.IsNullOrEmpty(meta.CreatedUtc)) meta.CreatedUtc = DateTimeOffset.UtcNow.ToString("O");
-        meta.Save(metaPath);
-    }
+    meta.Did = agentDid;
+    meta.Name = svrn7Name;
+    meta.Role = role.ToString();
+    meta.ParentTdaDid = string.IsNullOrEmpty(parentTdaDid) ? null : parentTdaDid;
+    if (string.IsNullOrEmpty(meta.CreatedUtc)) meta.CreatedUtc = DateTimeOffset.UtcNow.ToString("O");
+    meta.Save(metaPath);
+    BootstrapDiagnostics.RecordMetaWrite(firstRun: false);
 }
 
 tdaOpts.AgentSigningPrivateKey      = signingKey;

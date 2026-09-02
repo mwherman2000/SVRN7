@@ -12,20 +12,22 @@ namespace Svrn7.TDA;
 /// </summary>
 public sealed class IdentityMeta
 {
-    // Load-bearing: the startup locate step matches on did / name, and reads the
-    // port out of serviceEndpointUrl without unlocking the wallet or opening the
-    // (encrypted) DID database. role / createdUtc are not read by code — kept
-    // only so `cat identity.meta.json` tells a human what the instance is.
-    [JsonPropertyName("did")]                    public string Did { get; set; } = "";
-    [JsonPropertyName("name")]                   public string Name { get; set; } = "";
-    [JsonPropertyName("role")]                   public string Role { get; set; } = "";
-    [JsonPropertyName("serviceEndpointUrl")]     public string ServiceEndpointUrl { get; set; } = "";
-    [JsonPropertyName("createdUtc")]             public string CreatedUtc { get; set; } = "";
+    // Deliberately minimal and endpoint-free. did / name are the startup
+    // selectors; parentTdaDid is a routing POINTER (not an endpoint) resolved
+    // against the encrypted DID registry. role / createdUtc are not read by code
+    // — kept only so `cat identity.meta.json` tells a human what the instance is.
+    // NO service endpoint URL lives here: all endpoints come from the encrypted
+    // DID Documents (SECURITY.md §11.3), so tampering this cleartext file can
+    // only DoS the lookup, never redirect traffic.
+    [JsonPropertyName("did")]          public string Did { get; set; } = "";
+    [JsonPropertyName("name")]         public string Name { get; set; } = "";
+    [JsonPropertyName("role")]         public string Role { get; set; } = "";
+    [JsonPropertyName("createdUtc")]   public string CreatedUtc { get; set; } = "";
 
     /// <summary>Parent-tier DID (Society for a Citizen, Federation for a Society) — written by
-    /// <see cref="Svrn7RunspaceContext.SetParentTda"/> after a successful registration. Non-secret.</summary>
-    [JsonPropertyName("parentTdaDid")]           public string? ParentTdaDid { get; set; }
-    [JsonPropertyName("parentTdaEndpointUrl")]   public string? ParentTdaEndpointUrl { get; set; }
+    /// <see cref="Svrn7RunspaceContext.SetParentTda"/> after registration. The parent's
+    /// endpoint is re-derived every startup from its DID Document; it is never stored here.</summary>
+    [JsonPropertyName("parentTdaDid")] public string? ParentTdaDid { get; set; }
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -55,12 +57,5 @@ public sealed class IdentityMeta
         File.WriteAllText(tmp, json);
         if (File.Exists(path)) File.Replace(tmp, path, null);
         else File.Move(tmp, path);
-    }
-
-    /// <summary>The port from <see cref="ServiceEndpointUrl"/> (e.g. <c>http://localhost:8442/didcomm</c> → 8442), or null.</summary>
-    public int? EndpointPort()
-    {
-        if (string.IsNullOrWhiteSpace(ServiceEndpointUrl)) return null;
-        return Uri.TryCreate(ServiceEndpointUrl, UriKind.Absolute, out var uri) && uri.Port > 0 ? uri.Port : null;
     }
 }

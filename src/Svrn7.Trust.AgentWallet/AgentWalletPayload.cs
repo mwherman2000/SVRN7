@@ -21,8 +21,10 @@ internal sealed class AgentWalletPayload
     [JsonPropertyName("x25519PrivateKeyHex")]    public string X25519PrivateKeyHex { get; set; } = "";
     [JsonPropertyName("x25519PublicKeyHex")]     public string X25519PublicKeyHex { get; set; } = "";
 
+    // Routing POINTER only — no endpoint URL is persisted. The parent's DIDComm
+    // endpoint is re-resolved from its DID Document (the encrypted svrn7-dids.db)
+    // on every startup: one secure source for every endpoint (SECURITY.md §11.3).
     [JsonPropertyName("parentTdaDid")]           public string? ParentTdaDid { get; set; }
-    [JsonPropertyName("parentTdaEndpointUrl")]   public string? ParentTdaEndpointUrl { get; set; }
 
     /// <summary>The 12-word BIP39 phrase itself. Stored here (inside the sealed blob) rather than as raw entropy — equally secret, and no reconstruction step for <c>ExportRecoveryPhrase</c>.</summary>
     [JsonPropertyName("recoveryPhrase")]         public string RecoveryPhrase { get; set; } = "";

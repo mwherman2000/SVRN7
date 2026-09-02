@@ -97,9 +97,13 @@ public sealed class AgentWalletService
         Func<string, string> didFromGenesisHash,
         string role,
         string? recoveryPhrase = null,
-        string? parentTdaDid = null,
-        string? parentTdaEndpointUrl = null)
+        string? parentTdaDid = null)
     {
+        var operation = recoveryPhrase is null ? "create" : "restore";
+        using var activity = AgentWalletDiagnostics.ActivitySource.StartActivity("AgentWallet.Create");
+        activity?.SetTag(AgentWalletDiagnostics.TagOperation, operation);
+        activity?.SetTag("agentwallet.has_parent", !string.IsNullOrEmpty(parentTdaDid));
+
         if (WalletExists)
             throw new InvalidOperationException($"A wallet already exists at '{_walletPath}'.");
 
@@ -121,14 +125,14 @@ public sealed class AgentWalletService
             X25519PrivateKeyHex = Convert.ToHexString(keys.X25519PrivateKey).ToLowerInvariant(),
             X25519PublicKeyHex = keys.X25519PublicKeyHex,
             ParentTdaDid = string.IsNullOrEmpty(parentTdaDid) ? null : parentTdaDid,
-            ParentTdaEndpointUrl = string.IsNullOrEmpty(parentTdaEndpointUrl) ? null : parentTdaEndpointUrl,
             RecoveryPhrase = phrase,
             Bip39EntropyBits = 128,
             DbMasterKeyHex = Convert.ToHexString(dbMaster).ToLowerInvariant()
         };
 
-        WriteWallet(payload, password, recoveryPhrase is null ? "create" : "restore");
+        WriteWallet(payload, password, operation);
 
+        activity?.SetStatus(ActivityStatusCode.Ok);
         return BuildIdentity(payload, dbMaster, genesisHash);
     }
 
@@ -348,6 +352,5 @@ public sealed class AgentWalletService
             payload.Did,
             payload.Role,
             payload.ParentTdaDid,
-            payload.ParentTdaEndpointUrl,
             genesisHash);
 }
