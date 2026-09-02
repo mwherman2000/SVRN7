@@ -83,6 +83,13 @@ if (Array.IndexOf(args, "--help") >= 0 || Array.IndexOf(args, "-h") >= 0)
                             (wallet, meta, lobes, databases) and re-bootstrap.
                             Irreversible. Prompts for confirmation on a terminal.
 
+          --republish-endpoint
+                            Move this identity's published DIDComm endpoint to the
+                            --port / --url given on this run: rewrites the DID
+                            Document service endpoint (version + 1) and the
+                            identity.meta.json mirror. Cached resolvers keep the
+                            old endpoint until they re-resolve.
+
           --jaeger          Export DIDComm pipeline traces to Jaeger via OTLP/gRPC
                             instead of the console exporter.
 
@@ -116,6 +123,7 @@ string? dataRootArg = OptionalArg("--data-root");
 string? recoveryPhraseArg = OptionalArg("--recovery-phrase");
 string  federationDomainArg = OptionalArg("--federationdomain")?.Trim() ?? string.Empty;
 bool    forceReset = Array.IndexOf(args, "--reset") >= 0;
+bool    republishEndpoint = Array.IndexOf(args, "--republish-endpoint") >= 0;
 
 string? jaegerEndpointArg = OptionalArg("--jaeger-endpoint")?.Trim();
 bool    useJaeger = Array.IndexOf(args, "--jaeger") >= 0 || jaegerEndpointArg is not null;
@@ -189,6 +197,9 @@ try
     }
 
     isFirstRun = foundDir is null;
+
+    if (republishEndpoint && isFirstRun)
+        Die($"--republish-endpoint has nothing to move — no existing identity for '{didArg ?? tdaName}'.");
 
     // ── Wallet: create or unlock ────────────────────────────────────────────
     var (pinStore, pinWarn) = AgentWalletPinStore();
@@ -301,10 +312,11 @@ try
     else
     {
         var published = foundMeta!.EndpointPort();
-        if (portArg is not null && published is not null && portArg != published)
+        if (portArg is not null && published is not null && portArg != published && !republishEndpoint)
             Die($"--port {portArg} conflicts with this identity's published port {published}. " +
-                "Omit --port, or move the endpoint (deferred — see docs/AGENTWALLET.md §D12).");
-        claimBase = published ?? portArg ?? portBase;
+                "Omit --port to keep it, or pass --republish-endpoint to move it (docs/AGENTWALLET.md §D12).");
+        claimBase = republishEndpoint ? (portArg ?? published ?? portBase)
+                                      : (published ?? portArg ?? portBase);
         allowAuto = false;
     }
 
@@ -439,20 +451,62 @@ if (isFirstRun)
 }
 else
 {
-    var result = await driver.DidRegistry.ResolveAsync(agentDid);
-    tdaOpts.Role = result.Document?.Role ?? role;
-    svrn7Name    = result.Document?.Svrn7Name ?? svrn7Name;
-    role         = tdaOpts.Role;
+    var result     = await driver.DidRegistry.ResolveAsync(agentDid);
+    var currentDoc  = result.Document;
+    tdaOpts.Role   = currentDoc?.Role ?? role;
+    svrn7Name      = currentDoc?.Svrn7Name ?? svrn7Name;
+    role           = tdaOpts.Role;
 
-    // Keep the cleartext mirror honest with what this run is actually serving.
+    var publishedEndpoint = currentDoc?.ServiceEndpoints
+        .FirstOrDefault(s => s.ServiceEndpoint.EndsWith("/didcomm", StringComparison.OrdinalIgnoreCase))
+        ?.ServiceEndpoint ?? serviceEndpointUrl;
+
+    if (republishEndpoint)
+    {
+        if (serviceEndpointUrl == publishedEndpoint)
+        {
+            Console.Error.WriteLine(
+                $"WARNING: --republish-endpoint given but the endpoint is unchanged ({publishedEndpoint}). Nothing to do.");
+        }
+        else if (currentDoc is not null)
+        {
+            var moved = driver.CreateDidDocument(agentDid, secpPubHex, "drn",
+                            serviceEndpointUrl, role, svrn7Name, x25519PublicKeyHex: x25519PubHex)
+                        with { Version = currentDoc.Version + 1, Id = currentDoc.Id, CreatedAt = currentDoc.CreatedAt };
+            await driver.DidRegistry.UpdateAsync(moved);
+
+            const string hr = "────────────────────────────────────────────────────────────────────────────────";
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(hr);
+            Console.Error.WriteLine($"  DID Document endpoint moved:  {publishedEndpoint}  →  {serviceEndpointUrl}");
+            Console.Error.WriteLine($"  DID Document version {currentDoc.Version} → {moved.Version}.");
+            Console.Error.WriteLine("  Peers holding a cached copy keep using the old endpoint until they");
+            Console.Error.WriteLine("  re-resolve this DID. Propagation to a Society/Federation is TDA-017.");
+            Console.Error.WriteLine(hr);
+            Console.Error.WriteLine();
+            publishedEndpoint = serviceEndpointUrl;
+        }
+        else
+        {
+            Die("--republish-endpoint: this identity's DID Document could not be resolved.");
+        }
+    }
+    else if (serviceEndpointUrl != publishedEndpoint)
+    {
+        Console.Error.WriteLine(
+            $"WARNING: bound {serviceEndpointUrl} but the published endpoint is {publishedEndpoint}. " +
+            "Pass --republish-endpoint to make the move permanent.");
+    }
+
+    // Cleartext mirror tracks the authoritative published endpoint.
     var meta = IdentityMeta.TryLoad(metaPath) ?? new IdentityMeta { Did = agentDid, Name = svrn7Name };
-    if (meta.ServiceEndpointUrl != serviceEndpointUrl || meta.Role != role.ToString())
+    if (meta.ServiceEndpointUrl != publishedEndpoint || meta.Role != role.ToString() || meta.Did != agentDid)
     {
         meta.Did = agentDid;
         meta.Name = svrn7Name;
         meta.Role = role.ToString();
         meta.Secp256k1PublicKeyHex = secpPubHex;
-        meta.ServiceEndpointUrl = serviceEndpointUrl;
+        meta.ServiceEndpointUrl = publishedEndpoint;
         if (string.IsNullOrEmpty(meta.CreatedUtc)) meta.CreatedUtc = DateTimeOffset.UtcNow.ToString("O");
         meta.Save(metaPath);
     }
