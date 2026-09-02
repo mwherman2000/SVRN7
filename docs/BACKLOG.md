@@ -1083,3 +1083,64 @@ happened (pull on next contact); loop/echo suppression when a tier both accepts
 and re-broadcasts.
 
 **No code change now** — backlog item.
+
+---
+
+## TDA-018 — Local UI apps get their own identity + keypairs (AgentWallet for apps)
+
+**Area:** `Svrn7.Trust.AgentWallet`, `TdaMailClient` / a future `TdaBoardClient`
+(and the extracted shared transport from TDA-016), `WebSocketNotifyHub` Hello
+handshake, `/localcomm-ws` pack-mode policy (PRINCIPLES.md P-008, BACKLOG
+TDA-009), a new app-enrollment DIDComm protocol; related to
+docs/AGENTWALLET.md (wallet format, first-run bootstrap) and SECURITY.md §11.
+
+**Summary:** Today PandoMail and PandoBoard hold **no key material** and **share
+the Citizen TDA's DID** — they are UI attachments, not DIDComm peers. This is
+the sole reason `/localcomm-ws` is plaintext and localhost-only (P-008 "WebSocket
+rule is permanent … If PandoMail ever runs on a separate host, this rule must be
+revisited"; TDA-009 companion note about an ephemeral per-connection session
+key). The direction: each app gets its **own DID + secp256k1 + X25519 keypairs**
+in its **own AgentWallet**, and the `AgentWallet` library is generalized from
+"the TDA's identity" to "an identity" that any first-party process can hold.
+
+**What it unblocks:**
+
+- **Encrypted `/localcomm-ws`** — once the app has X25519 keys the channel can be
+  SignThenEncrypt like every other DIDComm hop; revisits P-008's WebSocket
+  carve-out and the TDA-009 policy.
+- **Off-box UI** — PandoMail/PandoBoard could run on a different host from the
+  Citizen TDA (P-008 explicitly defers this until the app has key material).
+- **Distinct audit / authorization identity** — "who sent this" becomes
+  answerable per app (user via PandoMail vs. via PandoBoard vs. the TDA itself),
+  and the TDA can scope which protocols each enrolled app may invoke.
+- **Normal DID discovery** — an app with its own DID can be resolved and can
+  resolve the TDA through the standard path instead of relying on port injection
+  (the localhost bootstrap/first-contact problem still stands — see the
+  discovery discussion).
+
+**Design questions:**
+
+- **Identity model:** a new `Svrn7Role` (e.g. `App` / `LocalUiApp`) with its own
+  `did:drn:` form, vs. a delegated sub-identity of the Citizen (`controller` /
+  `alsoKnownAs`, app key added to the Citizen's DID Document `verificationMethod`
+  with a scoped relationship). Delegation keeps "send mail *as* the Citizen"
+  working without the app being a separate account.
+- **Enrollment / pairing flow:** the 1:1 app↔TDA binding is implicit-by-port
+  today. With its own identity the app needs an explicit enrollment handshake —
+  app presents its pubkey, TDA authorizes it (with user confirmation), TDA
+  records the grant. Plus revocation: user removes an app → TDA drops the grant,
+  app can no longer act.
+- **Wallet provisioning:** where the app wallet lives (its own dir under
+  `~/.web7-pando/`? per-user vs. per-machine), who supplies its password
+  (a `PANDO_WALLET_PASSWORD` equivalent per app; interactive prompt in a
+  WinForms app), first-run bootstrap reusing the TDA's flow.
+- **AgentWallet generalization:** multiple wallet consumers over one crypto core.
+  This partly re-opens the closed `WalletCore` extraction (BACKLOG: "KeyWallet
+  was removed; AgentWallet is the sole holder") — now there is a second holder,
+  so a small shared identity/wallet abstraction is back on the table.
+- **Unchanged invariant:** app keys stay app-side; they never enter a LOBE
+  runspace, same as the TDA's keys today.
+
+**No code change now** — backlog item; sequence after TDA-016 (shared transport
+extraction) so the enrollment handshake and encrypted-channel work land in one
+place for both apps.
