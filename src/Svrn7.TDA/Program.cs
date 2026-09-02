@@ -99,6 +99,11 @@ if (Array.IndexOf(args, "--help") >= 0 || Array.IndexOf(args, "-h") >= 0)
     Environment.Exit(0);
 }
 
+// ── Subcommands ─────────────────────────────────────────────────────────────
+
+if (args.Length > 0 && args[0] == "db-shell")
+    Environment.Exit(DbShell.Run(args[1..]));
+
 // ── Argument parsing ─────────────────────────────────────────────────────────
 
 string tdaName = RequireArg("--name");
