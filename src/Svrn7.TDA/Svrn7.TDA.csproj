@@ -80,6 +80,21 @@
           Condition="'@(_LobeNupkg)' != ''" />
   </Target>
 
+  <!-- Same, for `dotnet publish` — a raw Copy into OutDir isn't part of the
+       publish file set, so lobe-packages/ must be re-copied into PublishDir. -->
+  <Target Name="PublishLOBEPackages" AfterTargets="Publish">
+    <ItemGroup>
+      <_LobeNupkgPublish Include="$(LobeDistDir)\*.nupkg" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_LobeNupkgPublish)"
+          DestinationFolder="$(PublishDir)lobe-packages"
+          SkipUnchangedFiles="true"
+          Condition="'@(_LobeNupkgPublish)' != ''" />
+    <Message Importance="high"
+             Text="PublishLOBEPackages: copied bundled LOBE packages to $(PublishDir)lobe-packages\"
+             Condition="'@(_LobeNupkgPublish)' != ''" />
+  </Target>
+
   <ItemGroup>
     <PackageReference Include="DnsClient" Version="1.7.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
