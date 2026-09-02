@@ -121,6 +121,7 @@ var     jaegerEndpoint = jaegerEndpointArg ?? "http://localhost:4317";
 // close over the resolved paths and the claimed port.
 
 string          dataRoot;
+string          lobeLibraryDir;
 string          instanceDir;
 string          memDir;
 string          walletPath;
@@ -147,7 +148,15 @@ try
     dataRoot = PandoPaths.ResolveDataRoot(dataRootArg);
     crashDir = dataRoot;
     Directory.CreateDirectory(dataRoot);
-    Directory.CreateDirectory(PandoPaths.LobeLibraryDir(dataRoot));
+
+    lobeLibraryDir = PandoPaths.LobeLibraryDir(dataRoot);
+    Directory.CreateDirectory(lobeLibraryDir);
+    // First run only fills it (SeedIfEmpty no-ops once populated). Publish (§D16)
+    // is the real population path.
+    LobeLibrary.SeedIfEmpty(
+        Path.Combine(AppContext.BaseDirectory, "lobe-packages"),
+        lobeLibraryDir,
+        LoggerFactory.Create(b => b.AddSimpleConsole()).CreateLogger("LobeLibrary"));
 
     // ── Locate ──────────────────────────────────────────────────────────────
     var instances = PandoPaths.EnumerateInstances(dataRoot).ToList();
@@ -389,6 +398,7 @@ var host = Host.CreateDefaultBuilder(args)
             opts.MinRunspaces                     = 2;
             opts.MaxRunspaces                     = 0;
             opts.LobesConfigPath                  = ctx.Configuration["Tda:LobesConfigPath"] ?? lobesConfigPath;
+            opts.LobeLibraryDir                   = lobeLibraryDir;
             opts.IdentityMetaPath                 = metaPath;
             opts.InstanceDir                      = instanceDir;
             opts.DatabaseMasterKey               = dbMasterKey;

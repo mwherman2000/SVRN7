@@ -22,6 +22,15 @@
     </Description>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Default eager-LOBE list. Embedded in the assembly so a fresh instance can
+         materialize <instance>/lobes/lobes.config.json (LobeManager.LoadLobeConfig)
+         with no lobes/ folder next to the DLL. The per-instance copy, once written,
+         is the operator-editable one (hot-reload watcher). -->
+    <Content Remove="lobes.config.json" />
+    <EmbeddedResource Include="lobes.config.json">
+      <LogicalName>lobes.config.json</LogicalName>
+    </EmbeddedResource>
+
     <!-- Copy lobes to build output so the binary can run from bin/ without a source tree.
          Update (not Include) for .json — the SDK's default Content glob already covers them;
          Update only sets CopyToOutputDirectory without re-adding (avoids duplicate warning).
@@ -56,6 +65,19 @@
   <Target Name="BuildLOBEPackages" AfterTargets="Build" Inputs="@(_LobeSource)" Outputs="$(LobePackagesStamp)">
     <Exec Command="pwsh -NoProfile -File &quot;$(RepoRoot)\tools\Build-LOBEPackages.ps1&quot; -LobesDir &quot;$(MSBuildProjectDirectory)\lobes&quot; -OutDir &quot;$(LobeDistDir)&quot;" />
     <Touch Files="$(LobePackagesStamp)" AlwaysCreate="true" />
+  </Target>
+
+  <!-- Bundle the built LOBE .nupkg files into the output as lobe-packages/. First
+       run seeds an empty ~/.web7-pando/lobe-library/ from here so a fresh install
+       has its eager LOBEs available before anyone Publishes (docs/AGENTWALLET.md §D6). -->
+  <Target Name="BundleLOBEPackages" AfterTargets="BuildLOBEPackages;Build">
+    <ItemGroup>
+      <_LobeNupkg Include="$(LobeDistDir)\*.nupkg" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_LobeNupkg)"
+          DestinationFolder="$(OutDir)lobe-packages"
+          SkipUnchangedFiles="true"
+          Condition="'@(_LobeNupkg)' != ''" />
   </Target>
 
   <ItemGroup>

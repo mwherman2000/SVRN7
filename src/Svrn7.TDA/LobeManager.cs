@@ -68,14 +68,18 @@ public sealed class LobeManager : IDisposable
         Path.GetDirectoryName(Path.GetFullPath(_opts.LobesConfigPath))
         ?? AppContext.BaseDirectory;
 
+    private readonly LobeInstaller? _installer;
+
     public LobeManager(
         IOptions<TdaOptions>  opts,
         Svrn7RunspaceContext  ctx,
-        ILogger<LobeManager>  log)
+        ILogger<LobeManager>  log,
+        LobeInstaller?        installer = null)
     {
-        _opts = opts.Value;
-        _ctx  = ctx;
-        _log  = log;
+        _opts      = opts.Value;
+        _ctx       = ctx;
+        _log       = log;
+        _installer = installer;
     }
 
     // ── 1. BuildInitialSessionState ───────────────────────────────────────────
@@ -122,6 +126,17 @@ public sealed class LobeManager : IDisposable
         foreach (var modulePath in _config.Eager)
         {
             var resolved = ResolveLobePath(modulePath);
+            if (!File.Exists(resolved) && _installer is not null && !string.IsNullOrEmpty(_opts.LobeLibraryDir))
+            {
+                // First reference to an eager LOBE — install its package from the
+                // machine-level lobe-library into this instance's lobes/ (§D6).
+                // A missing package throws LobeNotAvailableException — an eager LOBE
+                // the TDA cannot obtain is a hard startup failure by design.
+                var firstSegment = modulePath.Replace('\\', '/').Split('/', 2)[0];
+                var (id, ver) = LobeLibrary.ParseIdVersion(firstSegment);
+                _installer.EnsureInstalled(id, ver);
+                resolved = ResolveLobePath(modulePath);
+            }
             if (!File.Exists(resolved))
             {
                 _log.LogWarning("LobeManager: eager LOBE not found — {Path}. Skipping.", resolved);
@@ -450,13 +465,43 @@ public sealed class LobeManager : IDisposable
     {
         var path = _opts.LobesConfigPath;
         if (!File.Exists(path))
+            MaterializeDefaultLobeConfig(path);
+
+        if (!File.Exists(path))
         {
-            _log.LogWarning("LobeManager: lobes.config.json not found at '{Path}'.", path);
+            _log.LogWarning("LobeManager: lobes.config.json not found at '{Path}' and no embedded default available.", path);
             return new LobeConfig();
         }
         var json = File.ReadAllText(path);
         return JsonSerializer.Deserialize<LobeConfig>(json, LobeDescriptor.JsonOpts)
             ?? new LobeConfig();
+    }
+
+    /// <summary>
+    /// Writes the default eager-LOBE list embedded in this assembly to
+    /// <paramref name="path"/>. Runs once per instance — the per-instance file is
+    /// operator-editable thereafter (hot-reload watcher). docs/AGENTWALLET.md §D6.
+    /// </summary>
+    private void MaterializeDefaultLobeConfig(string path)
+    {
+        try
+        {
+            using var stream = typeof(LobeManager).Assembly
+                .GetManifestResourceStream("lobes.config.json");
+            if (stream is null)
+            {
+                _log.LogWarning("LobeManager: embedded default lobes.config.json resource not found.");
+                return;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+            using var file = File.Create(path);
+            stream.CopyTo(file);
+            _log.LogInformation("LobeManager: seeded default lobes.config.json → '{Path}'.", path);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "LobeManager: could not seed default lobes.config.json at '{Path}'.", path);
+        }
     }
 
     private string ResolveLobePath(string configPath)

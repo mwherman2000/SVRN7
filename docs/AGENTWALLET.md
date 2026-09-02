@@ -685,9 +685,12 @@ Replacing the `agent-identity.json` reads in `Program.cs`:
 
 ## 13. Open (non-blocking)
 
-- **Which LOBE set a fresh instance installs** from `lobe-library/` — a shipped
-  `default-lobes.json` manifest (recommended) vs. an "all-latest" scan. Decide
-  during unit 3; does not affect the wallet or startup work.
+- **Which LOBE set a fresh instance installs** — *resolved (unit 3)*: a default
+  `lobes.config.json` (the eager list) is **embedded in the `Svrn7.TDA`
+  assembly**; `LobeManager.LoadLobeConfig` materializes it to
+  `<instance>/lobes/lobes.config.json` on first run, and the per-instance copy is
+  operator-editable (hot-reload) thereafter. Each listed LOBE is installed from
+  `lobe-library/` on first reference; a missing package is a hard error.
 
 All §4 decisions are accepted. The endpoint-move mechanism is **deferred**, not
 pending (§D12, §14).

@@ -121,6 +121,14 @@ public sealed class TdaOptions
     public string LobesConfigPath { get; set; } = "./lobes/lobes.config.json";
 
     /// <summary>
+    /// Machine-level LOBE package source (<c>~/.web7-pando/lobe-library/</c>) — a folder
+    /// of <c>{Id}.{Version}.nupkg</c> files. LOBEs are installed from here into this
+    /// instance's <c>lobes/</c> on first reference (docs/AGENTWALLET.md §D6). Empty ⇒
+    /// on-demand install disabled (only LOBEs already on disk are used).
+    /// </summary>
+    public string LobeLibraryDir { get; set; } = string.Empty;
+
+    /// <summary>
     /// Maximum age of an inbound message before it is dead-lettered without processing.
     /// A stale transfer or invoice from a prior session should never execute.
     /// Default: 3600 seconds (1 hour). Set to 0 to disable age checking.
@@ -327,8 +335,23 @@ public static class TdaServiceCollectionExtensions
         // 4a. WebSocketNotifyHub — local PandoMail push channel singleton.
         services.AddSingleton<WebSocketNotifyHub>();
 
-        // 4. LobeManager
+        // 4. LobeManager (+ on-demand install from the machine-level lobe-library)
         // Derived from: "LobeManager" (LOBE layer) — DSA 0.24 Epoch 0.
+        services.AddSingleton<LobeLibrary>(sp =>
+        {
+            var o = sp.GetRequiredService<IOptions<TdaOptions>>().Value;
+            return new LobeLibrary(o.LobeLibraryDir,
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<LobeLibrary>());
+        });
+        services.AddSingleton<LobeInstaller>(sp =>
+        {
+            var o = sp.GetRequiredService<IOptions<TdaOptions>>().Value;
+            var lobesDir = Path.GetDirectoryName(Path.GetFullPath(o.LobesConfigPath))
+                           ?? AppContext.BaseDirectory;
+            return new LobeInstaller(
+                sp.GetRequiredService<LobeLibrary>(), lobesDir,
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<LobeInstaller>());
+        });
         services.AddSingleton<LobeManager>();
 
         // 5. IsolatedRunspaceFactory
