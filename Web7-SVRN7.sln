@@ -69,6 +69,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Svrn7.Trust.KeyWallet", "sr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Svrn7.Trust.KeyWallet.Tests", "src\Svrn7.Trust.KeyWallet.Tests\Svrn7.Trust.KeyWallet.Tests.csproj", "{A1B2C3D4-0014-0000-0000-000000000014}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Svrn7.Trust.AgentWallet", "src\Svrn7.Trust.AgentWallet\Svrn7.Trust.AgentWallet.csproj", "{A1B2C3D4-0015-0000-0000-000000000015}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Svrn7.Trust.AgentWallet.Tests", "src\Svrn7.Trust.AgentWallet.Tests\Svrn7.Trust.AgentWallet.Tests.csproj", "{A1B2C3D4-0016-0000-0000-000000000016}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -147,6 +151,14 @@ Global
 		{A1B2C3D4-0014-0000-0000-000000000014}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A1B2C3D4-0014-0000-0000-000000000014}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A1B2C3D4-0014-0000-0000-000000000014}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-0015-0000-0000-000000000015}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-0015-0000-0000-000000000015}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-0015-0000-0000-000000000015}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-0015-0000-0000-000000000015}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-0016-0000-0000-000000000016}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-0016-0000-0000-000000000016}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-0016-0000-0000-000000000016}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-0016-0000-0000-000000000016}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -170,6 +182,8 @@ Global
 		{B209693E-6844-0243-BC63-85B17519315A} = {B0000001-0000-0000-0000-000000000001}
 		{A1B2C3D4-0013-0000-0000-000000000013} = {B0000001-0000-0000-0000-000000000001}
 		{A1B2C3D4-0014-0000-0000-000000000014} = {B0000002-0000-0000-0000-000000000002}
+		{A1B2C3D4-0015-0000-0000-000000000015} = {B0000001-0000-0000-0000-000000000001}
+		{A1B2C3D4-0016-0000-0000-000000000016} = {B0000002-0000-0000-0000-000000000002}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {4971CB3C-8CDD-4887-8750-664911974772}

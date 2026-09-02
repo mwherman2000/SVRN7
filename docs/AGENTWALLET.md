@@ -201,12 +201,22 @@ run a different version, without affecting any other instance. A shared package
 source means a fresh instance needs no network access when the package is already
 cached. Aligns with the hot-reload and side-by-side-versioning backlog items.
 
+**Install is the TDA's own job, on demand.** The TDA resolves and installs LOBE
+NuGet packages from `lobe-library/` into `<slug>/lobes/` itself (via
+`NuGet.Protocol` against the folder feed) — no separate installer tool, no copy
+step:
+
+- **Eager (preloaded) LOBEs** — installed at startup, before the
+  `InitialSessionState` is built.
+- **JIT LOBEs** — installed the first time a message for one is dispatched, then
+  cached in `<slug>/lobes/` for subsequent runs.
+
 **Consequences:** Installed LOBE modules are duplicated per instance (disk cost,
 accepted). `Program.cs` `LobesConfigPath` default moves from
-`<BaseDir>/lobes/lobes.config.json` to `<slug>/lobes/lobes.config.json`. First-run
-bootstrap installs an initial set from `lobe-library/` (which set = still to be
-defined — a manifest, or "all latest"). Populating/refreshing `lobe-library/`
-itself (from a remote feed) is out of scope here.
+`<BaseDir>/lobes/lobes.config.json` to `<slug>/lobes/lobes.config.json`. Which
+set the eager list contains on a fresh instance is still to be defined (a shipped
+manifest, or "all latest" — §13). Populating/refreshing `lobe-library/` itself
+from a remote feed is out of scope here.
 
 ---
 
@@ -326,13 +336,16 @@ so a base chosen by role would be wrong after the transition.
 - Later run, `--port` **conflicts** with the DID Document → **reject, do not
   start**.
 
-Moving a published endpoint is a deliberate, separate operation via
-**`--republish-endpoint`**: it rewrites `serviceEndpoint`, bumps the DID Document
-`updated` timestamp / version (so downstream caches have a refresh signal), and
-re-publishes to drn.directory where wired. Plain `--port` never triggers this.
+Moving a published endpoint would be a deliberate, separate operation
+(working name `--republish-endpoint`: rewrite `serviceEndpoint`, bump the DID
+Document `updated` timestamp / version so caches have a refresh signal,
+re-publish to drn.directory where wired).
 
-**Status:** `--republish-endpoint` as the sanctioned move mechanism is
-**confirm-pending** (§13). The rest of D12 is accepted.
+**Status: deferred.** The endpoint-move mechanism is out of scope for this phase —
+its cache-invalidation and DNS-republish semantics need their own design. The
+implemented behaviour now is **reject-only**: a conflicting `--port` on a later
+run fails startup; the published port is always bound exactly. A TDA that must
+move gets `--reset` + re-bootstrap until the move mechanism is built (§14).
 
 ---
 
@@ -401,10 +414,38 @@ pattern. The cache is convenience only — never required for operation.
 
 ---
 
+### D16 — Publish workflow targets `~/.web7-pando/`
+
+**Decision:** Visual Studio **Publish** (and the equivalent `dotnet` invocations)
+target the data root:
+
+| Project kind | Publish action | Destination |
+|---|---|---|
+| A LOBE | `dotnet nuget push <id>.nupkg` to the local folder feed | `~/.web7-pando/lobe-library/` |
+| `Svrn7.TDA` | copy published output | `~/.web7-pando/bin/<Config>/<TFM>/` (e.g. `bin/Debug/net8.0-windows/`) |
+
+`lobe-library/` is a NuGet **local (folder) feed** — a directory of `.nupkg`
+files is already a valid source, no server process (see the folder-feed notes).
+`dotnet nuget push -s <folder>` writes the hierarchical
+`<id>/<version>/<id>.<version>.nupkg` layout the client prefers.
+
+**Rationale:** One well-known location for both the runnable TDA and the LOBE
+package source, separate from the source tree, so a checkout/rebuild does not
+disturb a running deployment. Per-instance `lobes/` folders install from
+`lobe-library/`; the TDA process runs from `bin/`.
+
+**Consequences:** Implemented as VS publish profiles (`.pubxml`) and/or an MSBuild
+target, delivered in unit 3. Not part of the wallet or startup work. The
+`<TFM>` subpath is whatever `Svrn7.TDA` targets at publish time.
+
+---
+
 ## 5. Directory layout
 
 ```
 ~/.web7-pando/                                    ($PANDO_HOME | --data-root override)
+├── bin/                                          published TDA binaries (§D16)
+│     └── Debug/net8.0-windows/                   Svrn7.TDA.dll + deps (config/TFM subpath)
 ├── lobe-library/                                 machine-level LOBE .nupkg package source (§D6)
 └── <name>-<genesisHash[..8]>/                    one directory per identity
       ├── identity.meta.json                      cleartext, non-secret (§D3)
@@ -614,10 +655,14 @@ Replacing the `agent-identity.json` reads in `Program.cs`:
 
 ---
 
-## 13. Confirm-pending
+## 13. Open (non-blocking)
 
-- **`--republish-endpoint`** as the sanctioned mechanism for moving a published
-  endpoint (vs. manual-only editing). Everything else in §4 is accepted.
+- **Which LOBE set a fresh instance installs** from `lobe-library/` — a shipped
+  `default-lobes.json` manifest (recommended) vs. an "all-latest" scan. Decide
+  during unit 3; does not affect the wallet or startup work.
+
+All §4 decisions are accepted. The endpoint-move mechanism is **deferred**, not
+pending (§D12, §14).
 
 ---
 
@@ -625,7 +670,7 @@ Replacing the `agent-identity.json` reads in `Program.cs`:
 
 | Item | Note |
 |---|---|
-| `--url` host change across runs | The DID Document `serviceEndpoint` host goes stale — same class as D11/D12. Handle via `--republish-endpoint`. |
+| Endpoint-move mechanism (`--republish-endpoint`) | Deferred (§D12). Rewrite `serviceEndpoint` + bump DID Document `updated` + re-publish to drn.directory, with defined cache-invalidation semantics. Covers both the port and the `--url` host cases. Until built: `--reset` + re-bootstrap. |
 | Migration from `<BaseDir>/{port}/mem/` | Not built. `--reset` only. |
 | `systemd-creds` / Keychain / libsecret `ISecretProtector` impls | Behind the seam (§D15). |
 | `Svrn7.Trust.WalletCore` extraction | Only if a third consumer of the shared crypto appears. |
