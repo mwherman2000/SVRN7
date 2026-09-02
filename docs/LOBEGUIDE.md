@@ -299,14 +299,22 @@ src/Svrn7.TDA/lobes/
     └── Svrn7.MyLobe.lobe.json   ← LOBE descriptor
 ```
 
-Then register in `src/Svrn7.TDA/lobes/lobes.config.json`:
+The `lobes/` tree is **LOBE source for packaging** — the `BuildLOBEPackages`
+target turns each `{Name}/` into `dist/{Name}.{version}.nupkg`, and Publish (or
+`tools/Initialize-Testnet.ps1`) copies those into `~/.web7-pando/lobe-library/`.
+A TDA installs a LOBE from there into its own `<instance>/lobes/` on first
+reference (docs/AGENTWALLET.md §D6).
+
+To make a LOBE **eager** (pre-loaded at startup rather than JIT on first
+message), add it to the default eager list — `src/Svrn7.TDA/lobes.config.json`
+(project root, embedded in the assembly and materialized per instance):
 
 ```json
-{
-  "eager": [ ... ],
-  "jit":   [ ..., "Svrn7.MyLobe/Svrn7.MyLobe.psm1" ]
-}
+{ "eager": [ ..., "Svrn7.MyLobe.1.0.0/Svrn7.MyLobe.1.0.0.psm1" ] }
 ```
+
+JIT LOBEs are not listed anywhere — they are discovered by `@type` and installed
+on demand.
 
 ### The `.Impl.psm1` pattern
 

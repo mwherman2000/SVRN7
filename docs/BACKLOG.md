@@ -131,8 +131,10 @@ into `<instance>/lobes/`, registers its descriptors, and retries the lookup.
 Missed `@type`s that cannot be installed are remembered (no re-attempt storm)
 and the cache is cleared when the FileSystemWatcher sees a new descriptor land
 (so "Publish the package, then it works" holds without a restart). A package
-absent from `lobe-library/` still dead-letters — the **remote NuGet-feed
-fallback** below is the remaining open piece (backlogged in AGENTWALLET §14).
+absent from `lobe-library/` is fetched from the optional `--lobe-feed` /
+`Tda:LobeRemoteFeed` remote source (dir/UNC path or HTTP flat / flat-container
+URL) and cached in; with no feed configured it dead-letters. Full NuGet v3
+`index.json` resource negotiation is the only piece still open (AGENTWALLET §14).
 
 **Summary:** When a TDA receives a DIDComm message whose `@type` URI has no
 registered handler, the Switchboard calls `MarkFailedAsync(retry: false)` —
@@ -242,9 +244,20 @@ production mode rather than a development fallback.
 
 ---
 
-## TDA-004 — Per-instance LOBE directory (LOBE marketplace / registry)
+## TDA-004 — Per-instance LOBE directory (LOBE marketplace / registry)  ✓ DONE
 
 **Area:** `LobeManager`, `TdaOptions`, deployment, `Program.cs`
+
+**Status (docs/AGENTWALLET.md §D6):** each instance now has its own
+`~/.web7-pando/<name>-<hash8>/lobes/`. LOBEs install into it on first reference —
+eager at startup, JIT on first message — from the machine-level
+`~/.web7-pando/lobe-library/` (a folder of `{id}.{version}.nupkg`), which is
+filled by the `web7-pando` publish task or `--lobe-feed`. `lobes.config.json` is
+embedded in the assembly and materialized per instance (operator-editable,
+hot-reloaded). The build no longer copies a `lobes/` tree into the output. The
+original text below is retained for history.
+
+---
 
 **Summary:** Today all TDA instances share a single `lobes/` folder copied at build
 time.  This is sufficient while LOBEs are static and bundled with the binary.

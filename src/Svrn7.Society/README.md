@@ -57,6 +57,10 @@ builder.Services.AddSvrn7Society(opts =>
     opts.DidsDbPath   = "data/svrn7-dids.db";
     opts.VcsDbPath    = "data/svrn7-vcs.db";
     opts.MsgDbPath    = "data/svrn7-msg.db";
+
+    // Optional: opts.DatabasePassword = "<hex>";  → every db opened encrypted
+    // (docs/AGENTWALLET.md §D9). The TDA host sets this from the wallet's DB
+    // master key. Inherited from Svrn7Options; unset ⇒ cleartext.
 });
 
 // Optional: enable periodic maintenance sweeps (VC expiry, Merkle log auto-sign)

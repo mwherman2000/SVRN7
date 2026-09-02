@@ -178,12 +178,15 @@ Set-Location C:/SVRN7/repos/SVRN7
 dotnet build src/Svrn7.TDA/Svrn7.TDA.csproj
 
 Set-Location src/Svrn7.TDA/bin/Debug/net8.0
-dotnet .\Svrn7.TDA.dll --port 8443 --name VerifyTDA --reset
+$env:PANDO_WALLET_PASSWORD = 'verify'
+dotnet .\Svrn7.TDA.dll --name VerifyTDA --port 8443 --reset
 ```
 
-`--reset` wipes `8443/mem` so folder counts start at zero — makes the before/after deltas
-in later steps unambiguous. Note the `Agent DID` printed at startup banner; the scripts
-below need it for a self-addressed send.
+`--reset` deletes `~/.web7-pando/verifytda-<hash8>/` so counts start at zero — makes the
+before/after deltas in later steps unambiguous. (Needs `~/.web7-pando/lobe-library/`
+populated — run `tools/Initialize-Testnet.ps1` once, or publish with the `web7-pando`
+profile.) Note the `Agent DID` printed at the startup banner; the scripts below need it
+for a self-addressed send.
 
 Confirm in the startup log:
 

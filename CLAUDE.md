@@ -113,7 +113,7 @@ The TDA's public inbound surface is HTTP/2-only (no HTTP/1.1 fallback). Reasons:
 | `AgentKeyAgreementPrivateKey` | X25519 (32 bytes) | Inbound JWE decryption (`KestrelListenerService.UnpackAsync`) |
 | `AgentSigningPrivateKey` | secp256k1 (32 bytes) | Outbound JWS signing (`DIDCommMessageSwitchboard.PackOutboundAsync`) |
 
-Both are loaded from `agent-identity.json` at startup and held for the process lifetime. Neither is passed into LOBE runspaces.
+Both are decrypted from `agent-identity.wallet` at startup (pre-host) and held for the process lifetime. Neither is passed into LOBE runspaces.
 
 ---
 
@@ -225,34 +225,52 @@ http://localhost:8443/didcomm
 
 ## TDA Launch and Data Layout
 
+See **`docs/AGENTWALLET.md`** for the full design (per-identity storage, encrypted
+wallet, encrypted databases, per-instance LOBEs, publish workflow).
+
 ```powershell
-dotnet .\Svrn7.TDA.dll --port 8443 --name MyTDA [--url http://localhost] [--reset]
+$env:PANDO_WALLET_PASSWORD = '...'      # or you are prompted (double-entry on first run)
+dotnet .\Svrn7.TDA.dll --name MyTDA [--port 8443] [--url http://localhost] [--reset]
 ```
 
 | Parameter | Default | Notes |
 |---|---|---|
-| `--port` | (required) | Listen port; also scopes all data |
-| `--name` | (required) | Stored as `Svrn7Name` in Wanderer DID Document |
-| `--url` | `http://localhost` | Base URL for DID Document service endpoint; full endpoint = `{url}:{port}/didcomm` |
-| `--reset` | off | Deletes `{port}/mem/` before start; forces fresh Wanderer bootstrap |
+| `--name` | (required) | Selects the runtime directory; stored as `Svrn7Name` in the Wanderer DID Document on first run |
+| `--port` | auto | First run: used verbatim if given, else auto-selected from `--port-base` (8440). Later runs: rebinds the published port; a conflicting `--port` is rejected unless `--republish-endpoint` |
+| `--port-base` / `--port-span` | `8440` / `64` | First-run auto-select range |
+| `--url` | `http://localhost` | Base URL for the DID Document service endpoint; full endpoint = `{url}:{port}/didcomm` |
+| `--data-root` / `$PANDO_HOME` | `~/.web7-pando` | Root for all per-identity data |
+| `--recovery-phrase "<12 words>"` | — | First run only: restore from an existing BIP39 phrase |
+| `--republish-endpoint` | off | Move the published endpoint to this run's `--port`/`--url` (rewrites the DID Document + `identity.meta.json`) |
+| `--reset` | off | Deletes the whole `<name>-<genesisHash8>/` directory and re-bootstraps (confirm prompt on a terminal) |
+| `--lobe-feed` / `Tda:LobeRemoteFeed` | — | Fallback source (dir/UNC or HTTP base URL) for a LOBE package not in `lobe-library/` |
+| `db-shell` (subcommand) | — | `Svrn7.TDA.dll db-shell --name X [--db dids\|msg\|vcs\|schemas\|main] [--collection C] [--sql "…"]` — read the encrypted databases after unlocking the wallet |
 
-**Data layout** (relative to `Svrn7.TDA.dll`):
+**Data layout** (`~/.web7-pando/` by default):
 
 ```
-{BaseDir}/
-├── lobes/                    shared LOBE catalog (all TDA instances on this machine)
-│   └── lobes.config.json
-└── {port}/
-      └── mem/
-            ├── svrn7.db
-            ├── svrn7-dids.db
-            ├── svrn7-msg.db
-            ├── svrn7-vcs.db
-            ├── svrn7-schemas.db
-            └── agent-identity.json
+~/.web7-pando/
+├── bin/Debug/net8.0/              published TDA binaries (web7-pando publish profile)
+├── lobe-library/                  {id}.{version}.nupkg — LOBE package source (filled by Publish or --lobe-feed)
+└── <name>-<genesisHash8>/         one directory per identity  (slug = Blake3(secp256k1 pub)[..8])
+      ├── agent-identity.wallet    encrypted: secp256k1 + X25519 keys, did, role, recovery phrase, DB master key
+      ├── agent-identity.wallet.bak / .lockout
+      ├── identity.meta.json       cleartext locator — did, name, role, pubkey, serviceEndpointUrl
+      ├── lobes/                   per-instance; lobes.config.json materialized from the embedded default,
+      │                            LOBE modules installed on first reference from lobe-library/
+      └── mem/                     svrn7.db, svrn7-dids.db, svrn7-msg.db, svrn7-vcs.db, svrn7-schemas.db
+                                   (+ LiteDB *-log.db) — ALL AES-encrypted; key derived from the wallet
 ```
 
-Testnet script: `tools/Initialize-Testnet.ps1` launches Wanderer1–4 on ports 8441–8444 in separate titled console windows.
+Wallet: Argon2id (64 MiB/3/4) + AES-256-GCM (`Svrn7.Trust.AgentWallet`, copied
+from `Svrn7.Trust.KeyWallet`). Password from `$PANDO_WALLET_PASSWORD` else an
+interactive prompt (fails fast if neither). The DB master key is a stable random
+32 bytes inside the wallet payload, so a password change never re-keys the
+databases.
+
+Testnet script: `tools/Initialize-Testnet.ps1` builds, copies `dist/*.nupkg` into
+`~/.web7-pando/lobe-library/`, sets `$env:PANDO_WALLET_PASSWORD`, and launches
+Wanderer1–4 on 8441–8444 in separate titled console windows.
 
 ---
 
@@ -279,22 +297,28 @@ All DIDs use the `did:drn:` method. `<genesis-hash>` = `Blake3(genesis_secp256k1
 
 ### First-run Wanderer bootstrap
 
-On startup with an empty DID registry the TDA auto-generates a Wanderer identity and writes it to `{port}/mem/agent-identity.json`:
+On a first run (no `<name>-<hash8>/` directory for this `--name`) the TDA, before
+the host is built:
 
-```json
-{
-  "did":                "did:drn:wanderer.svrn7.net/agent/1.0/<genesis-hash>",
-  "publicKeyHex":       "<secp256k1 compressed public key, 66 hex chars>",
-  "privateKeyHex":      "<secp256k1 private key, 64 hex chars>",
-  "x25519PublicKeyHex": "<X25519 public key, 64 hex chars>",
-  "x25519PrivateKeyHex":"<X25519 private key, 64 hex chars>",
-  "role":               "Wanderer",
-  "createdAt":          "2026-01-01T00:00:00.000+00:00"
-}
-```
+1. generates a 12-word BIP39 phrase (or takes `--recovery-phrase`), derives the
+   **secp256k1** identity key (BIP32 `m/7'/0'/0'/0/0`) and the **X25519**
+   key-agreement key (HKDF from the same seed);
+2. `genesisHash = Blake3(secp256k1 compressed pubkey)` → instance dir
+   `~/.web7-pando/<name>-<genesisHash8>/`;
+3. generates a random 32-byte database master key;
+4. writes `agent-identity.wallet` — one AES-256-GCM blob (Argon2id password key)
+   holding both private keys, `did`, `role`, the recovery phrase, and the DB
+   master key. **No plaintext key file.**
 
-- `publicKeyHex` / `privateKeyHex` — secp256k1 identity key. Used for DID genesis hash derivation, DIDComm JWS signing (`AgentSigningPrivateKey`), and transaction signing.
-- `x25519PublicKeyHex` / `x25519PrivateKeyHex` — X25519 key agreement key. Used for JWE encryption/decryption (`AgentKeyAgreementPrivateKey`). Published in the DID Document as `X25519KeyAgreementKey2020`; required for receiving SignThenEncrypt messages.
+After the host builds it creates the DID Document (secp256k1 + X25519 public keys,
+`X25519KeyAgreementKey2020`, service endpoint on the bound port) and writes the
+cleartext `identity.meta.json` mirror.
+
+Key roles (unchanged): the secp256k1 key does genesis-hash derivation, DIDComm
+JWS signing (`AgentSigningPrivateKey`), and transaction signing; the X25519 key
+does JWE encrypt/decrypt (`AgentKeyAgreementPrivateKey`). Neither ever enters a
+LOBE runspace. `agent-identity.json` (plaintext) is superseded — migrate with
+`--reset`.
 
 ---
 

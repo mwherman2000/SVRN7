@@ -175,12 +175,15 @@ scalability with AI capability — see:
 ```
 
 Each participant — Federation, Society, and Citizen — operates a TDA. Every TDA
-starts as a **Wanderer**: on first run it auto-generates a secp256k1 key pair, creates
-a `did:drn:wanderer.svrn7.net/agent/1.0/{genesis-hash}` DID and DIDDocument with
-`Svrn7Role=Wanderer`, and persists the identity to `{port}/mem/agent-identity.json`.
-Role is **additive** — promoting a Wanderer to Federation, Society, or Citizen creates
-an additional DID alongside the primary Wanderer DID. The only required startup
-parameter is `--port`.
+starts as a **Wanderer**: on first run it derives a secp256k1 identity key (+ an
+X25519 key-agreement key) from a fresh 12-word BIP39 phrase, creates a
+`did:drn:wanderer.svrn7.net/agent/1.0/{genesis-hash}` DID and DIDDocument with
+`Svrn7Role=Wanderer`, and persists the identity to an **encrypted wallet**
+(`~/.web7-pando/<name>-<genesisHash8>/agent-identity.wallet`) — see
+`docs/AGENTWALLET.md`. Role is **additive** — promoting a Wanderer to Federation,
+Society, or Citizen creates an additional DID alongside the primary Wanderer DID.
+The only required startup parameter is `--name`; the wallet password comes from
+`$PANDO_WALLET_PASSWORD` or an interactive prompt.
 
 To start a local four-node dev network (all start as Wanderers):
 
@@ -638,11 +641,16 @@ GDPR erasure. UTXO records and tree heads are retained permanently — deletion 
 ## 13. Getting Started — TDA Host
 
 The TDA Host (`Svrn7.TDA`) is a deployable .NET 8 console app, not a NuGet package.
-`--port` and `--name` are required command-line arguments — there is no default port.
+`--name` is the only required argument; `--port` is auto-selected on first run and
+reused thereafter (see `docs/AGENTWALLET.md`). The wallet password comes from
+`$PANDO_WALLET_PASSWORD` (or a prompt), and eager LOBEs install from
+`~/.web7-pando/lobe-library/` (filled by the `web7-pando` publish profile or
+`tools/Initialize-Testnet.ps1`).
 
 ```bash
 cd src/Svrn7.TDA
-dotnet run -- --port 8443 --name MyTDA
+$env:PANDO_WALLET_PASSWORD = '...'
+dotnet run -- --name MyTDA --port 8443
 ```
 
 `appsettings.json` configures logging and the functional `Role` (`Federation` | `Society` | `Citizen`); network identity (port, name, URL) is supplied on the command line, not in this file:
