@@ -266,7 +266,7 @@ public sealed class Svrn7RunspaceContext
         // Filter to the inbound email message type only — not protocol control messages
         // (List-Emails, Enqueue-PandoMail, etc.) which share the same LOBE prefix but
         // carry no rfc5322Body and must not appear in the inbox listing.
-        const string emailTypePrefix = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail";
+        const string emailTypePrefix = "did:drn:svrn7.net/protocols/Svrn7.SMTPEmail.0.8.0/Signal-Email";
         var messages = await _inbox.ListByTypeAsync(emailTypePrefix, limit, ct);
         return messages
             .Select(m => new InboundMessageView(m.Id, m.MessageType, m.PackedPayload, m.FromDid, m.AttemptCount, m.ReceivedAt, m.Thid, m.WireId))
@@ -321,12 +321,12 @@ public sealed class Svrn7RunspaceContext
 
     /// <summary>
     /// Returns current message counts for the three PandoMail folder tree nodes.
-    /// Called by the Email LOBE's <c>New-FolderCountsNotification</c> helper after every
-    /// inbox/send/dead-letter operation so PandoMail can update its tree without reloading.
+    /// Called by the Svrn7.SMTPEmail.0.8.0 LOBE's <c>New-FolderCountsNotification</c> helper
+    /// after every inbox/send/dead-letter operation so PandoMail can update its tree without reloading.
     /// </summary>
     public async Task<FolderCounts> CountEmailFoldersAsync(CancellationToken ct = default)
     {
-        const string inboxType = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail";
+        const string inboxType = "did:drn:svrn7.net/protocols/Svrn7.SMTPEmail.0.8.0/Signal-Email";
         const string sentType  = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Enqueue-PandoMail";
         var inbox = await _inbox.CountByTypeAsync(inboxType, ct);
         var sent  = await _inbox.CountByTypeAsync(sentType,  ct);
