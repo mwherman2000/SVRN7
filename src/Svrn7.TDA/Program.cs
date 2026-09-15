@@ -14,8 +14,9 @@ using Svrn7.Core;
 using Svrn7.Core.Models;
 using Svrn7.Identity;
 using Svrn7.Society;
-using Svrn7.TDA;
 using Svrn7.Trust.AgentWallet;
+
+namespace Svrn7.TDA;
 
 // ── Web 7.0 Trusted Digital Assistant (TDA) — Console App Entry Point ────────
 //
@@ -33,761 +34,775 @@ using Svrn7.Trust.AgentWallet;
 //   • Listen port:      first run auto-selects from --port-base and records it in the DID
 //                       Document; every later run binds that exact port.
 
-if (Array.IndexOf(args, "--help") >= 0 || Array.IndexOf(args, "-h") >= 0)
+internal sealed class Program
 {
-    Console.WriteLine("""
-        SVRN7 Trusted Digital Assistant (TDA)
-        Web 7.0 Foundation — https://svrn7.net
-
-        Usage:
-          Svrn7.TDA --name <string> [--port <n>] [--port-base <n>] [--port-span <n>]
-                    [--did <did>] [--url <url>] [--data-root <path>]
-                    [--recovery-phrase "<12 words>"] [--federationdomain <domain>]
-                    [--reset] [--jaeger [--jaeger-endpoint <url>]] [--help]
-
-        Parameters:
-          --name <string>   (required) Human-readable name for this TDA instance.
-                            Selects the runtime directory and is stored in the DID
-                            Document on first run.
-
-          --port <n>        Listen port. On a first run it is used verbatim (no
-                            auto-selection). On a later run it must match this
-                            identity's published port or startup is refused.
-                            Omit it to auto-select on first run and reuse the
-                            published port thereafter.
-
-          --port-base <n>   First candidate port for first-run auto-selection.
-                            Default 8440.
-
-          --port-span <n>   How many consecutive ports auto-selection may try.
-                            Default 64.
-
-          --did <did>       Select the identity by DID instead of by --name
-                            (--name is still required for a first-run bootstrap).
-
-          --url <url>       Base URL (scheme + host) advertised in the DID Document
-                            service endpoint. Default: http://localhost
-                            Full endpoint: <url>:<port>/didcomm
-
-          --data-root <path>
-                            Root directory for all per-identity data. Overrides
-                            $PANDO_HOME. Default: ~/.web7-pando
-
-          --recovery-phrase "<12 words>"
-                            First run only: restore the identity from an existing
-                            12-word BIP39 phrase instead of generating a new one.
-
-          --federationdomain <domain>
-                            Bare domain to auto-discover the Federation TDA endpoint
-                            via drn.directory DNS at startup. Example: "svrn7.net".
-
-          --reset           Delete this identity's entire runtime directory
-                            (wallet, meta, lobes, databases) and re-bootstrap.
-                            Irreversible. Prompts for confirmation on a terminal.
-
-          --republish-endpoint
-                            Move this identity's published DIDComm endpoint to the
-                            --port / --url given on this run: rewrites the DID
-                            Document service endpoint (version + 1) and the
-                            identity.meta.json mirror. Cached resolvers keep the
-                            old endpoint until they re-resolve.
-
-          --jaeger          Export DIDComm pipeline traces to Jaeger via OTLP/gRPC
-                            instead of the console exporter.
-
-          --jaeger-endpoint <url>
-                            OTLP/gRPC endpoint to use with --jaeger. Implies --jaeger.
-
-          --help | -h       Display this help and exit.
-
-        Environment:
-          PANDO_WALLET_PASSWORD   Wallet password. When unset, the TDA prompts on a
-                                  terminal (and fails fast if there is none).
-          PANDO_HOME              Data root (overridden by --data-root).
-        """);
-    Environment.Exit(0);
-}
-
-// ── Subcommands ─────────────────────────────────────────────────────────────
-
-if (args.Length > 0 && args[0] == "db-shell")
-    Environment.Exit(DbShell.Run(args[1..]));
-
-// ── Argument parsing ─────────────────────────────────────────────────────────
-
-string tdaName = RequireArg("--name");
-string? didArg = OptionalArg("--did");
-int?    portArg = OptionalArg("--port") is { } ps && int.TryParse(ps, out var pv) ? pv : null;
-int     portBase = OptionalArg("--port-base") is { } pbs && int.TryParse(pbs, out var pbv) ? pbv : 8440;
-int     portSpan = OptionalArg("--port-span") is { } pss && int.TryParse(pss, out var psv) ? psv : 64;
-string  tdaUrl = (OptionalArg("--url") ?? "http://localhost").TrimEnd('/');
-string? dataRootArg = OptionalArg("--data-root");
-string? recoveryPhraseArg = OptionalArg("--recovery-phrase");
-string  federationDomainArg = OptionalArg("--federationdomain")?.Trim() ?? string.Empty;
-bool    forceReset = Array.IndexOf(args, "--reset") >= 0;
-bool    republishEndpoint = Array.IndexOf(args, "--republish-endpoint") >= 0;
-
-string? jaegerEndpointArg = OptionalArg("--jaeger-endpoint")?.Trim();
-bool    useJaeger = Array.IndexOf(args, "--jaeger") >= 0 || jaegerEndpointArg is not null;
-var     jaegerEndpoint = jaegerEndpointArg ?? "http://localhost:4317";
-
-// ── Pre-host: data root, identity, wallet, port claim ────────────────────────
-// All of this must run before Host.CreateDefaultBuilder so ConfigureServices can
-// close over the resolved paths and the claimed port.
-
-string          dataRoot;
-string          lobeLibraryDir;
-string          instanceDir;
-string          memDir;
-string          walletPath;
-string          metaPath;
-string          lobesConfigPath;
-string          agentDid;
-string          svrn7Name;
-Svrn7Role       role;
-string          secpPubHex;
-string          x25519PubHex;
-byte[]          signingKey;
-byte[]          keyAgreementKey;
-byte[]          dbMasterKey;
-string?         parentTdaDid = null;
-string?         parentTdaEndpointUrl = null;   // resolved post-.Build() from parentTdaDid's DID Document — never from the meta file
-bool            isFirstRun;
-int             listenPort;
-string?         publishedEndpoint = null; // this instance's own endpoint from its (encrypted) DID Document, later runs only
-string?         freshRecoveryPhrase = null;
-ListenPortClaim? portClaim = null;
-string?         crashDir = null;
-
-// ── Bootstrap telemetry (recorded after the host meter pipeline is live) ─────
-string?         bootstrapPeekOutcome = null; // BootstrapDiagnostics.Peek.* — set on later runs only
-string          bootstrapPortSource  = BootstrapDiagnostics.PortSource.FirstRunAuto;
-
-try
-{
-    dataRoot = PandoPaths.ResolveDataRoot(dataRootArg);
-    crashDir = dataRoot;
-    Directory.CreateDirectory(dataRoot);
-
-    lobeLibraryDir = PandoPaths.LobeLibraryDir(dataRoot);
-    Directory.CreateDirectory(lobeLibraryDir); // exists but may be empty — filled only by Publish (§D16)
-
-    // ── Locate ──────────────────────────────────────────────────────────────
-    var instances = PandoPaths.EnumerateInstances(dataRoot).ToList();
-    string?       foundDir  = null;
-    IdentityMeta? foundMeta = null;
-    if (didArg is not null)
+    static async Task Main(string[] args)
     {
-        var hit = instances.Where(x => string.Equals(x.Meta.Did, didArg, StringComparison.Ordinal)).ToList();
-        if (hit.Count == 1) (foundDir, foundMeta) = hit[0];
-    }
-    else
-    {
-        var hit = instances.Where(x => string.Equals(x.Meta.Name, tdaName, StringComparison.OrdinalIgnoreCase)).ToList();
-        if (hit.Count > 1)
-            Die($"more than one instance is named '{tdaName}' under {dataRoot}. Disambiguate with --did.");
-        if (hit.Count == 1) (foundDir, foundMeta) = hit[0];
-    }
 
-    if (forceReset && foundDir is not null)
-    {
-        if (!ConfirmReset(foundDir))
-            Die("--reset cancelled.");
-        DeleteDirWithRetry(foundDir);
-        Console.WriteLine($"--reset: deleted {foundDir}");
-        foundDir = null;
-        foundMeta = null;
-    }
-    else if (forceReset)
-    {
-        Console.WriteLine($"--reset: no existing instance for '{didArg ?? tdaName}' — nothing to delete.");
-    }
+        if (Array.IndexOf(args, "--help") >= 0 || Array.IndexOf(args, "-h") >= 0)
+        {
+            Console.WriteLine("""
+                SVRN7 Trusted Digital Assistant (TDA)
+                Web 7.0 Foundation — https://svrn7.net
 
-    isFirstRun = foundDir is null;
+                Usage:
+                  Svrn7.TDA --name <string> [--port <n>] [--port-base <n>] [--port-span <n>]
+                            [--did <did>] [--url <url>] [--data-root <path>]
+                            [--recovery-phrase "<12 words>"] [--federationdomain <domain>]
+                            [--reset] [--jaeger [--jaeger-endpoint <url>]] [--help]
 
-    if (republishEndpoint && isFirstRun)
-        Die($"--republish-endpoint has nothing to move — no existing identity for '{didArg ?? tdaName}'.");
+                Parameters:
+                  --name <string>   (required) Human-readable name for this TDA instance.
+                                    Selects the runtime directory and is stored in the DID
+                                    Document on first run.
 
-    // ── Wallet: create or unlock ────────────────────────────────────────────
-    var (pinStore, pinWarn) = AgentWalletPinStore();
-    if (pinWarn is not null)
-        Console.Error.WriteLine($"WARNING: public-key pinning disabled — {pinWarn}");
+                  --port <n>        Listen port. On a first run it is used verbatim (no
+                                    auto-selection). On a later run it must match this
+                                    identity's published port or startup is refused.
+                                    Omit it to auto-select on first run and reuse the
+                                    published port thereafter.
 
-    char[] password = WalletPasswordPrompt.Acquire(firstRunCreate: isFirstRun);
-    try
-    {
+                  --port-base <n>   First candidate port for first-run auto-selection.
+                                    Default 8440.
+
+                  --port-span <n>   How many consecutive ports auto-selection may try.
+                                    Default 64.
+
+                  --did <did>       Select the identity by DID instead of by --name
+                                    (--name is still required for a first-run bootstrap).
+
+                  --url <url>       Base URL (scheme + host) advertised in the DID Document
+                                    service endpoint. Default: http://localhost
+                                    Full endpoint: <url>:<port>/didcomm
+
+                  --data-root <path>
+                                    Root directory for all per-identity data. Overrides
+                                    $PANDO_HOME. Default: ~/.web7-pando
+
+                  --recovery-phrase "<12 words>"
+                                    First run only: restore the identity from an existing
+                                    12-word BIP39 phrase instead of generating a new one.
+
+                  --federationdomain <domain>
+                                    Bare domain to auto-discover the Federation TDA endpoint
+                                    via drn.directory DNS at startup. Example: "svrn7.net".
+
+                  --reset           Delete this identity's entire runtime directory
+                                    (wallet, meta, lobes, databases) and re-bootstrap.
+                                    Irreversible. Prompts for confirmation on a terminal.
+
+                  --republish-endpoint
+                                    Move this identity's published DIDComm endpoint to the
+                                    --port / --url given on this run: rewrites the DID
+                                    Document service endpoint (version + 1) and the
+                                    identity.meta.json mirror. Cached resolvers keep the
+                                    old endpoint until they re-resolve.
+
+                  --jaeger          Export DIDComm pipeline traces to Jaeger via OTLP/gRPC
+                                    instead of the console exporter.
+
+                  --jaeger-endpoint <url>
+                                    OTLP/gRPC endpoint to use with --jaeger. Implies --jaeger.
+
+                  --help | -h       Display this help and exit.
+
+                Environment:
+                  PANDO_WALLET_PASSWORD   Wallet password. When unset, the TDA prompts on a
+                                          terminal (and fails fast if there is none).
+                  PANDO_HOME              Data root (overridden by --data-root).
+                """);
+            Environment.Exit(0);
+        }
+
+        // ── Subcommands ─────────────────────────────────────────────────────────────
+
+        if (args.Length > 0 && args[0] == "db-shell")
+            Environment.Exit(DbShell.Run(args[1..]));
+
+        // ── Argument parsing ─────────────────────────────────────────────────────────
+
+        string tdaName = RequireArg(args, "--name");
+        string? didArg = OptionalArg(args, "--did");
+        int?    portArg = OptionalArg(args, "--port") is { } ps && int.TryParse(ps, out var pv) ? pv : null;
+        int     portBase = OptionalArg(args, "--port-base") is { } pbs && int.TryParse(pbs, out var pbv) ? pbv : 8440;
+        int     portSpan = OptionalArg(args, "--port-span") is { } pss && int.TryParse(pss, out var psv) ? psv : 64;
+        string  tdaUrl = (OptionalArg(args, "--url") ?? "http://localhost").TrimEnd('/');
+        string? dataRootArg = OptionalArg(args, "--data-root");
+        string? recoveryPhraseArg = OptionalArg(args, "--recovery-phrase");
+        string  federationDomainArg = OptionalArg(args, "--federationdomain")?.Trim() ?? string.Empty;
+        bool    forceReset = Array.IndexOf(args, "--reset") >= 0;
+        bool    republishEndpoint = Array.IndexOf(args, "--republish-endpoint") >= 0;
+
+        string? jaegerEndpointArg = OptionalArg(args, "--jaeger-endpoint")?.Trim();
+        bool    useJaeger = Array.IndexOf(args, "--jaeger") >= 0 || jaegerEndpointArg is not null;
+        var     jaegerEndpoint = jaegerEndpointArg ?? "http://localhost:4317";
+
+        // ── Pre-host: data root, identity, wallet, port claim ────────────────────────
+        // All of this must run before Host.CreateDefaultBuilder so ConfigureServices can
+        // close over the resolved paths and the claimed port.
+
+        string          dataRoot;
+        string          lobeLibraryDir;
+        string          instanceDir;
+        string          memDir;
+        string          walletPath;
+        string          metaPath;
+        string          lobesConfigPath;
+        string          agentDid;
+        string          svrn7Name;
+        Svrn7Role       role;
+        string          secpPubHex;
+        string          x25519PubHex;
+        byte[]          signingKey;
+        byte[]          keyAgreementKey;
+        byte[]          dbMasterKey;
+        string?         parentTdaDid = null;
+        string?         parentTdaEndpointUrl = null;   // resolved post-.Build() from parentTdaDid's DID Document — never from the meta file
+        bool            isFirstRun;
+        int             listenPort;
+        string?         publishedEndpoint = null; // this instance's own endpoint from its (encrypted) DID Document, later runs only
+        string?         freshRecoveryPhrase = null;
+        ListenPortClaim? portClaim = null;
+        string?         crashDir = null;
+
+        // ── Bootstrap telemetry (recorded after the host meter pipeline is live) ─────
+        string?         bootstrapPeekOutcome = null; // BootstrapDiagnostics.Peek.* — set on later runs only
+        string          bootstrapPortSource  = BootstrapDiagnostics.PortSource.FirstRunAuto;
+
+        try
+        {
+            dataRoot = PandoPaths.ResolveDataRoot(dataRootArg);
+            crashDir = dataRoot;
+            Directory.CreateDirectory(dataRoot);
+
+            lobeLibraryDir = PandoPaths.LobeLibraryDir(dataRoot);
+            Directory.CreateDirectory(lobeLibraryDir); // exists but may be empty — filled only by Publish (§D16)
+
+            // ── Locate ──────────────────────────────────────────────────────────────
+            var instances = PandoPaths.EnumerateInstances(dataRoot).ToList();
+            string?       foundDir  = null;
+            IdentityMeta? foundMeta = null;
+            if (didArg is not null)
+            {
+                var hit = instances.Where(x => string.Equals(x.Meta.Did, didArg, StringComparison.Ordinal)).ToList();
+                if (hit.Count == 1) (foundDir, foundMeta) = hit[0];
+            }
+            else
+            {
+                var hit = instances.Where(x => string.Equals(x.Meta.Name, tdaName, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (hit.Count > 1)
+                    Die($"more than one instance is named '{tdaName}' under {dataRoot}. Disambiguate with --did.");
+                if (hit.Count == 1) (foundDir, foundMeta) = hit[0];
+            }
+
+            if (forceReset && foundDir is not null)
+            {
+                if (!ConfirmReset(foundDir))
+                    Die("--reset cancelled.");
+                DeleteDirWithRetry(foundDir);
+                Console.WriteLine($"--reset: deleted {foundDir}");
+                foundDir = null;
+                foundMeta = null;
+            }
+            else if (forceReset)
+            {
+                Console.WriteLine($"--reset: no existing instance for '{didArg ?? tdaName}' — nothing to delete.");
+            }
+
+            isFirstRun = foundDir is null;
+
+            if (republishEndpoint && isFirstRun)
+                Die($"--republish-endpoint has nothing to move — no existing identity for '{didArg ?? tdaName}'.");
+
+            // ── Wallet: create or unlock ────────────────────────────────────────────
+            var (pinStore, pinWarn) = AgentWalletPinStore();
+            if (pinWarn is not null)
+                Console.Error.WriteLine($"WARNING: public-key pinning disabled — {pinWarn}");
+
+            char[] password = WalletPasswordPrompt.Acquire(firstRunCreate: isFirstRun);
+            try
+            {
+                if (isFirstRun)
+                {
+                    var phrase = recoveryPhraseArg ?? RecoveryPhrase.Generate();
+                    string genesisHash;
+                    using (var probe = RecoveryPhrase.Derive(phrase))
+                        genesisHash = GenesisHash.Compute(probe.Secp256k1PublicKeyHex);
+
+                    instanceDir = PandoPaths.InstanceDir(dataRoot, tdaName, genesisHash);
+                    if (Directory.Exists(instanceDir))
+                        Die($"'{instanceDir}' exists but has no identity.meta.json (corrupt or partial). Remove it or run --reset.");
+
+                    Directory.CreateDirectory(PandoPaths.MemDir(instanceDir));
+                    Directory.CreateDirectory(PandoPaths.LobesDir(instanceDir));
+                    crashDir = instanceDir;
+
+                    walletPath = PandoPaths.WalletPath(instanceDir);
+                    metaPath = PandoPaths.MetaPath(instanceDir);
+
+                    var svc = new AgentWalletService(walletPath, pinStore);
+                    using var id = svc.Create(
+                        password,
+                        h => $"did:drn:wanderer.svrn7.net/agent/1.0/{h}",
+                        Svrn7Role.Wanderer.ToString(),
+                        recoveryPhrase: phrase);
+
+                    agentDid = id.Did;
+                    svrn7Name = tdaName;
+                    role = Svrn7Role.Wanderer;
+                    secpPubHex = id.Secp256k1PublicKeyHex;
+                    x25519PubHex = id.X25519PublicKeyHex;
+                    signingKey = id.Secp256k1PrivateKey.ToArray();
+                    keyAgreementKey = id.X25519PrivateKey.ToArray();
+                    dbMasterKey = id.DbMasterKey.ToArray();
+                    parentTdaDid = null;
+                    parentTdaEndpointUrl = null;
+
+                    if (recoveryPhraseArg is null)
+                        freshRecoveryPhrase = phrase;
+                }
+                else
+                {
+                    instanceDir = foundDir!;
+                    crashDir = instanceDir;
+                    walletPath = PandoPaths.WalletPath(instanceDir);
+                    metaPath = PandoPaths.MetaPath(instanceDir);
+
+                    var svc = new AgentWalletService(walletPath, pinStore);
+                    var unlock = svc.Unlock(() => (char[])password.Clone());
+                    switch (unlock)
+                    {
+                        case AgentUnlockResult.Success ok:
+                            using (ok.Identity)
+                            {
+                                agentDid = ok.Identity.Did;
+                                svrn7Name = foundMeta!.Name;
+                                role = Enum.TryParse<Svrn7Role>(ok.Identity.Role, out var r) ? r : Svrn7Role.Wanderer;
+                                secpPubHex = ok.Identity.Secp256k1PublicKeyHex;
+                                x25519PubHex = ok.Identity.X25519PublicKeyHex;
+                                signingKey = ok.Identity.Secp256k1PrivateKey.ToArray();
+                                keyAgreementKey = ok.Identity.X25519PrivateKey.ToArray();
+                                dbMasterKey = ok.Identity.DbMasterKey.ToArray();
+                                // Parent-tier DID is a routing pointer: identity.meta.json first
+                                // (written by SetParentTda after registration), wallet payload as
+                                // the fallback. The parent ENDPOINT is never persisted anywhere —
+                                // it is resolved from the parent's DID Document after .Build().
+                                parentTdaDid = string.IsNullOrEmpty(foundMeta!.ParentTdaDid)
+                                    ? ok.Identity.ParentTdaDid : foundMeta.ParentTdaDid;
+                            }
+                            break;
+
+                        case AgentUnlockResult.WrongPassword:
+                            Die("wrong wallet password.");
+                            return;
+                        case AgentUnlockResult.Throttled t:
+                            Die($"wallet is locked out for another {t.RetryAfter.TotalSeconds:0}s after repeated failures.");
+                            return;
+                        case AgentUnlockResult.PinMismatch:
+                            Die($"wallet public key does not match its pin — '{walletPath}' was replaced or rolled back.");
+                            return;
+                        case AgentUnlockResult.NoWallet:
+                            Die($"no wallet at '{walletPath}'. Run with --reset to re-bootstrap this identity.");
+                            return;
+                        default:
+                            Die($"unexpected unlock result: {unlock.GetType().Name}");
+                            return;
+                    }
+                }
+            }
+            finally
+            {
+                Array.Clear(password);
+            }
+
+            memDir = PandoPaths.MemDir(instanceDir);
+            lobesConfigPath = Path.Combine(PandoPaths.LobesDir(instanceDir), "lobes.config.json");
+
+            // ── Port claim (atomic — docs/AGENTWALLET.md §D11 approach C) ────────────
+            int claimBase;
+            bool allowAuto;
+            if (isFirstRun)
+            {
+                claimBase = portArg ?? portBase;
+                allowAuto = portArg is null; // an explicit --port on first run is used verbatim
+                bootstrapPortSource = portArg is null
+                    ? BootstrapDiagnostics.PortSource.FirstRunAuto
+                    : BootstrapDiagnostics.PortSource.FirstRunExplicit;
+            }
+            else
+            {
+                // The published endpoint — and therefore the port and base URL — comes
+                // ONLY from this identity's own DID Document in the encrypted svrn7-dids.db
+                // (the wallet is already unlocked, so the DB key is in hand). No cleartext
+                // file feeds it: a tampered identity.meta.json cannot move the listener.
+                publishedEndpoint = DidRegistryPeek.TryReadServiceEndpoint(
+                    Path.Combine(memDir, "svrn7-dids.db"),
+                    Convert.ToHexString(dbMasterKey).ToLowerInvariant(),
+                    agentDid,
+                    out var peekOutcome);
+                bootstrapPeekOutcome = peekOutcome;
+                var published = DidRegistryPeek.PortOf(publishedEndpoint);
+                if (published is null)
+                    Die("this identity's DID Document has no readable DIDComm endpoint. " +
+                        "Re-bootstrap with --reset, or set one with --republish-endpoint --port <n>.");
+
+                if (portArg is not null && portArg != published && !republishEndpoint)
+                    Die($"--port {portArg} conflicts with this identity's published port {published}. " +
+                        "Omit --port to keep it, or pass --republish-endpoint to move it (docs/AGENTWALLET.md §D12).");
+
+                claimBase = republishEndpoint ? (portArg ?? published.Value) : published.Value;
+                allowAuto = false;
+                bootstrapPortSource = republishEndpoint
+                    ? BootstrapDiagnostics.PortSource.Republish
+                    : BootstrapDiagnostics.PortSource.DidDocument;
+
+                // Later runs advertise exactly what the DID Document says (scheme+host too),
+                // unless this run is deliberately moving the endpoint.
+                if (!republishEndpoint)
+                    tdaUrl = DidRegistryPeek.BaseUrlOf(publishedEndpoint) ?? tdaUrl;
+            }
+
+            var loggerFactory = LoggerFactory.Create(b => b.AddSimpleConsole());
+            portClaim = ListenPortClaim.Acquire(claimBase, portSpan, allowAuto, loggerFactory.CreateLogger("ListenPortClaim"));
+            listenPort = portClaim.Port;
+        }
+        catch (Exception ex)
+        {
+            portClaim?.Dispose();
+            WriteFatalError(ex, crashDir);
+            ExitWithPause(1);
+            return;
+        }
+
+        var serviceEndpointUrl = $"{tdaUrl}:{listenPort}/didcomm";
+
+        try
+        {
+
+        var host = Host.CreateDefaultBuilder(args)
+            .UseConsoleLifetime()
+            .ConfigureLogging(logging =>
+            {
+                logging.SetMinimumLevel(LogLevel.Debug);
+                logging.AddSimpleConsole(opts =>
+                {
+                    opts.TimestampFormat = "HH:mm:ss.fff ";
+                    opts.UseUtcTimestamp = true;
+                    opts.SingleLine      = false;
+                });
+            })
+            .ConfigureServices((ctx, services) =>
+            {
+                // The atomically-claimed listen socket, handed to DrawbridgeService.
+                services.AddSingleton(portClaim!);
+
+                // ── 0. OpenTelemetry tracing + metrics ───────────────────────────────
+                services.AddOpenTelemetry()
+                    .ConfigureResource(r => r.AddService(
+                        serviceName:       Svrn7Telemetry.SourceName,
+                        serviceVersion:    Svrn7Telemetry.SourceVersion,
+                        serviceInstanceId: $"{tdaName}:{listenPort}"))
+                    .WithTracing(tracing =>
+                    {
+                        tracing.SetSampler(new AlwaysOnSampler())
+                               .AddSource(Svrn7Telemetry.SourceName)
+                               .AddSource(DIDDocumentService.ActivitySource.Name)
+                               .AddSource(BootstrapDiagnostics.SourceName)
+                               .AddSource(AgentWalletDiagnostics.SourceName);
+
+                        if (useJaeger)
+                            tracing.AddOtlpExporter(o => o.Endpoint = new Uri(jaegerEndpoint));
+                        else
+                            tracing.AddConsoleExporter();
+                    })
+                    .WithMetrics(metrics =>
+                    {
+                        metrics.AddMeter(BootstrapDiagnostics.SourceName)
+                               .AddMeter(AgentWalletDiagnostics.SourceName);
+
+                        if (useJaeger)
+                            metrics.AddOtlpExporter(o => o.Endpoint = new Uri(jaegerEndpoint));
+                        else
+                            metrics.AddConsoleExporter();
+                    });
+
+                // ── 1. SVRN7 Society stack ───────────────────────────────────────────
+                services.AddSvrn7Society(opts =>
+                {
+                    opts.SocietyDid                        = ctx.Configuration["Svrn7:SocietyDid"]   ?? string.Empty;
+                    opts.FederationDid                     = ctx.Configuration["Svrn7:FederationDid"] ?? string.Empty;
+                    opts.Svrn7DbPath                       = ResolveDbPath(ctx.Configuration["Svrn7:DbPath"],        "svrn7.db",        memDir);
+                    opts.DidsDbPath                        = ResolveDbPath(ctx.Configuration["Svrn7:DidsDbPath"],    "svrn7-dids.db",   memDir);
+                    opts.VcsDbPath                         = ResolveDbPath(ctx.Configuration["Svrn7:VcsDbPath"],     "svrn7-vcs.db",    memDir);
+                    opts.MsgDbPath                         = ResolveDbPath(ctx.Configuration["Svrn7:MsgDbPath"],     "svrn7-msg.db",    memDir);
+                    opts.SchemasDbPath                     = ResolveDbPath(ctx.Configuration["Svrn7:SchemasDbPath"], "svrn7-schemas.db", memDir);
+                    opts.SocietyMessagingPrivateKeyEd25519 = []; // supplied at runtime
+
+                    // Every svrn7-*.db for this instance is AES-encrypted at rest under the
+                    // DB master key from the unlocked wallet (docs/AGENTWALLET.md §D9).
+                    opts.DatabasePassword                 = Convert.ToHexString(dbMasterKey).ToLowerInvariant();
+                });
+
+                services.AddSvrn7SocietyBackgroundServices();
+
+                // ── 2. TDA Host ──────────────────────────────────────────────────────
+                services.AddSvrn7Tda(opts =>
+                {
+                    opts.SocietyDid                        = ctx.Configuration["Tda:SocietyDid"] ?? string.Empty;
+                    opts.SocietyMessagingPrivateKeyEd25519 = []; // supplied at runtime
+                    opts.ListenPort                        = listenPort;
+                    opts.ListenPortBase                    = portBase;
+                    opts.ListenPortSpan                    = portSpan;
+                    opts.AllowPortAutoSelect               = false; // the claim already happened in the pre-host block
+                    opts.BaseUrl                           = tdaUrl;
+                    opts.Role                              = role;
+                    opts.TlsCertificatePath               = ctx.Configuration["Tda:TlsCertPath"];
+                    opts.TlsCertificatePassword           = ctx.Configuration["Tda:TlsCertPassword"];
+                    opts.RequireMutualTls                 = bool.Parse(ctx.Configuration["Tda:RequireMutualTls"] ?? "true");
+                    opts.AcceptSelfSignedPeerCertificates = bool.Parse(ctx.Configuration["Tda:AcceptSelfSigned"] ?? "false");
+                    opts.MinRunspaces                     = 2;
+                    opts.MaxRunspaces                     = 0;
+                    opts.LobesConfigPath                  = ctx.Configuration["Tda:LobesConfigPath"] ?? lobesConfigPath;
+                    opts.LobeLibraryDir                   = lobeLibraryDir;
+                    opts.LobeRemoteFeed                   = OptionalArg(args, "--lobe-feed")
+                                                            ?? ctx.Configuration["Tda:LobeRemoteFeed"] ?? string.Empty;
+                    opts.IdentityMetaPath                 = metaPath;
+                    opts.InstanceDir                      = instanceDir;
+                    opts.DatabaseMasterKey               = dbMasterKey;
+                    opts.ParentTdaDid                     = ctx.Configuration["Tda:ParentTdaDid"]         ?? string.Empty;
+                    opts.ParentTdaEndpointUrl             = ctx.Configuration["Tda:ParentTdaEndpointUrl"] ?? string.Empty;
+                    opts.FederationDomain                 = !string.IsNullOrEmpty(federationDomainArg)
+                                                            ? federationDomainArg
+                                                            : ctx.Configuration["Tda:FederationDomain"] ?? string.Empty;
+                });
+            })
+            .Build();
+
+        host.Services.GetRequiredService<TracerProvider>();
+        host.Services.GetRequiredService<MeterProvider>();
+
+        var driver  = host.Services.GetRequiredService<ISvrn7SocietyDriver>();
+        var tdaOpts = host.Services.GetRequiredService<IOptions<TdaOptions>>().Value;
+
+        // ── Bootstrap telemetry ─────────────────────────────────────────────────────
+        // The pre-host block ran before the meter/tracer pipeline existed; replay what
+        // it decided now that a listener is attached. One summary span carries the
+        // pre-host tags; the DID-document reconciliation below adds its own spans.
+        using var bootstrapActivity = BootstrapDiagnostics.ActivitySource.StartActivity(
+            BootstrapDiagnostics.ActivityBootstrap);
+        bootstrapActivity?
+            .SetTag(BootstrapDiagnostics.TagFirstRun, isFirstRun)
+            .SetTag(BootstrapDiagnostics.TagListenPort, listenPort)
+            .SetTag(BootstrapDiagnostics.TagRepublish, republishEndpoint)
+            .SetTag(BootstrapDiagnostics.TagPortSource, bootstrapPortSource);
+        if (bootstrapPeekOutcome is not null)
+        {
+            bootstrapActivity?.SetTag("svrn7.endpoint_peek_outcome", bootstrapPeekOutcome);
+            BootstrapDiagnostics.RecordEndpointPeek(bootstrapPeekOutcome);
+        }
+        BootstrapDiagnostics.RecordPortResolved(bootstrapPortSource);
+
+        // ── DID Document + identity.meta.json ────────────────────────────────────────
         if (isFirstRun)
         {
-            var phrase = recoveryPhraseArg ?? RecoveryPhrase.Generate();
-            string genesisHash;
-            using (var probe = RecoveryPhrase.Derive(phrase))
-                genesisHash = GenesisHash.Compute(probe.Secp256k1PublicKeyHex);
+            if (await driver.DidRegistry.CountAsync() == 0)
+            {
+                var didDoc = driver.CreateDidDocument(agentDid, secpPubHex, "drn",
+                                 serviceEndpointUrl, role, svrn7Name,
+                                 x25519PublicKeyHex: x25519PubHex);
+                await driver.CreateDidAsync(didDoc);
+            }
+            tdaOpts.Role = role;
 
-            instanceDir = PandoPaths.InstanceDir(dataRoot, tdaName, genesisHash);
-            if (Directory.Exists(instanceDir))
-                Die($"'{instanceDir}' exists but has no identity.meta.json (corrupt or partial). Remove it or run --reset.");
-
-            Directory.CreateDirectory(PandoPaths.MemDir(instanceDir));
-            Directory.CreateDirectory(PandoPaths.LobesDir(instanceDir));
-            crashDir = instanceDir;
-
-            walletPath = PandoPaths.WalletPath(instanceDir);
-            metaPath = PandoPaths.MetaPath(instanceDir);
-
-            var svc = new AgentWalletService(walletPath, pinStore);
-            using var id = svc.Create(
-                password,
-                h => $"did:drn:wanderer.svrn7.net/agent/1.0/{h}",
-                Svrn7Role.Wanderer.ToString(),
-                recoveryPhrase: phrase);
-
-            agentDid = id.Did;
-            svrn7Name = tdaName;
-            role = Svrn7Role.Wanderer;
-            secpPubHex = id.Secp256k1PublicKeyHex;
-            x25519PubHex = id.X25519PublicKeyHex;
-            signingKey = id.Secp256k1PrivateKey.ToArray();
-            keyAgreementKey = id.X25519PrivateKey.ToArray();
-            dbMasterKey = id.DbMasterKey.ToArray();
-            parentTdaDid = null;
-            parentTdaEndpointUrl = null;
-
-            if (recoveryPhraseArg is null)
-                freshRecoveryPhrase = phrase;
+            new IdentityMeta
+            {
+                Did        = agentDid,
+                Name       = svrn7Name,
+                Role       = role.ToString(),
+                CreatedUtc = DateTimeOffset.UtcNow.ToString("O"),
+            }.Save(metaPath);
+            BootstrapDiagnostics.RecordMetaWrite(firstRun: true);
         }
         else
         {
-            instanceDir = foundDir!;
-            crashDir = instanceDir;
-            walletPath = PandoPaths.WalletPath(instanceDir);
-            metaPath = PandoPaths.MetaPath(instanceDir);
+            var result    = await driver.DidRegistry.ResolveAsync(agentDid);
+            var currentDoc = result.Document;
+            tdaOpts.Role  = currentDoc?.Role ?? role;
+            svrn7Name     = currentDoc?.Svrn7Name ?? svrn7Name;
+            role          = tdaOpts.Role;
 
-            var svc = new AgentWalletService(walletPath, pinStore);
-            var unlock = svc.Unlock(() => (char[])password.Clone());
-            switch (unlock)
+            // publishedEndpoint was read pre-host straight from the encrypted DID DB;
+            // confirm it against the fully-resolved document here.
+            publishedEndpoint = currentDoc?.ServiceEndpoints
+                .FirstOrDefault(s => s.ServiceEndpoint.EndsWith("/didcomm", StringComparison.OrdinalIgnoreCase))
+                ?.ServiceEndpoint ?? publishedEndpoint;
+
+            if (republishEndpoint)
             {
-                case AgentUnlockResult.Success ok:
-                    using (ok.Identity)
-                    {
-                        agentDid = ok.Identity.Did;
-                        svrn7Name = foundMeta!.Name;
-                        role = Enum.TryParse<Svrn7Role>(ok.Identity.Role, out var r) ? r : Svrn7Role.Wanderer;
-                        secpPubHex = ok.Identity.Secp256k1PublicKeyHex;
-                        x25519PubHex = ok.Identity.X25519PublicKeyHex;
-                        signingKey = ok.Identity.Secp256k1PrivateKey.ToArray();
-                        keyAgreementKey = ok.Identity.X25519PrivateKey.ToArray();
-                        dbMasterKey = ok.Identity.DbMasterKey.ToArray();
-                        // Parent-tier DID is a routing pointer: identity.meta.json first
-                        // (written by SetParentTda after registration), wallet payload as
-                        // the fallback. The parent ENDPOINT is never persisted anywhere —
-                        // it is resolved from the parent's DID Document after .Build().
-                        parentTdaDid = string.IsNullOrEmpty(foundMeta!.ParentTdaDid)
-                            ? ok.Identity.ParentTdaDid : foundMeta.ParentTdaDid;
-                    }
-                    break;
+                if (serviceEndpointUrl == publishedEndpoint)
+                {
+                    Console.Error.WriteLine(
+                        $"WARNING: --republish-endpoint given but the endpoint is unchanged ({publishedEndpoint}). Nothing to do.");
+                }
+                else if (currentDoc is not null)
+                {
+                    var moved = driver.CreateDidDocument(agentDid, secpPubHex, "drn",
+                                    serviceEndpointUrl, role, svrn7Name, x25519PublicKeyHex: x25519PubHex)
+                                with { Version = currentDoc.Version + 1, Id = currentDoc.Id, CreatedAt = currentDoc.CreatedAt };
+                    await driver.DidRegistry.UpdateAsync(moved);
 
-                case AgentUnlockResult.WrongPassword:
-                    Die("wrong wallet password.");
-                    return;
-                case AgentUnlockResult.Throttled t:
-                    Die($"wallet is locked out for another {t.RetryAfter.TotalSeconds:0}s after repeated failures.");
-                    return;
-                case AgentUnlockResult.PinMismatch:
-                    Die($"wallet public key does not match its pin — '{walletPath}' was replaced or rolled back.");
-                    return;
-                case AgentUnlockResult.NoWallet:
-                    Die($"no wallet at '{walletPath}'. Run with --reset to re-bootstrap this identity.");
-                    return;
-                default:
-                    Die($"unexpected unlock result: {unlock.GetType().Name}");
-                    return;
+                    const string hr = "────────────────────────────────────────────────────────────────────────────────";
+                    Console.Error.WriteLine();
+                    Console.Error.WriteLine(hr);
+                    Console.Error.WriteLine($"  DID Document endpoint moved:  {publishedEndpoint}  →  {serviceEndpointUrl}");
+                    Console.Error.WriteLine($"  DID Document version {currentDoc.Version} → {moved.Version}.");
+                    Console.Error.WriteLine("  Peers holding a cached copy keep using the old endpoint until they");
+                    Console.Error.WriteLine("  re-resolve this DID. Propagation to a Society/Federation is TDA-017.");
+                    Console.Error.WriteLine(hr);
+                    Console.Error.WriteLine();
+                    publishedEndpoint = serviceEndpointUrl;
+                }
+                else
+                {
+                    Die("--republish-endpoint: this identity's DID Document could not be resolved.");
+                }
             }
-        }
-    }
-    finally
-    {
-        Array.Clear(password);
-    }
 
-    memDir = PandoPaths.MemDir(instanceDir);
-    lobesConfigPath = Path.Combine(PandoPaths.LobesDir(instanceDir), "lobes.config.json");
-
-    // ── Port claim (atomic — docs/AGENTWALLET.md §D11 approach C) ────────────
-    int claimBase;
-    bool allowAuto;
-    if (isFirstRun)
-    {
-        claimBase = portArg ?? portBase;
-        allowAuto = portArg is null; // an explicit --port on first run is used verbatim
-        bootstrapPortSource = portArg is null
-            ? BootstrapDiagnostics.PortSource.FirstRunAuto
-            : BootstrapDiagnostics.PortSource.FirstRunExplicit;
-    }
-    else
-    {
-        // The published endpoint — and therefore the port and base URL — comes
-        // ONLY from this identity's own DID Document in the encrypted svrn7-dids.db
-        // (the wallet is already unlocked, so the DB key is in hand). No cleartext
-        // file feeds it: a tampered identity.meta.json cannot move the listener.
-        publishedEndpoint = DidRegistryPeek.TryReadServiceEndpoint(
-            Path.Combine(memDir, "svrn7-dids.db"),
-            Convert.ToHexString(dbMasterKey).ToLowerInvariant(),
-            agentDid,
-            out var peekOutcome);
-        bootstrapPeekOutcome = peekOutcome;
-        var published = DidRegistryPeek.PortOf(publishedEndpoint);
-        if (published is null)
-            Die("this identity's DID Document has no readable DIDComm endpoint. " +
-                "Re-bootstrap with --reset, or set one with --republish-endpoint --port <n>.");
-
-        if (portArg is not null && portArg != published && !republishEndpoint)
-            Die($"--port {portArg} conflicts with this identity's published port {published}. " +
-                "Omit --port to keep it, or pass --republish-endpoint to move it (docs/AGENTWALLET.md §D12).");
-
-        claimBase = republishEndpoint ? (portArg ?? published.Value) : published.Value;
-        allowAuto = false;
-        bootstrapPortSource = republishEndpoint
-            ? BootstrapDiagnostics.PortSource.Republish
-            : BootstrapDiagnostics.PortSource.DidDocument;
-
-        // Later runs advertise exactly what the DID Document says (scheme+host too),
-        // unless this run is deliberately moving the endpoint.
-        if (!republishEndpoint)
-            tdaUrl = DidRegistryPeek.BaseUrlOf(publishedEndpoint) ?? tdaUrl;
-    }
-
-    var loggerFactory = LoggerFactory.Create(b => b.AddSimpleConsole());
-    portClaim = ListenPortClaim.Acquire(claimBase, portSpan, allowAuto, loggerFactory.CreateLogger("ListenPortClaim"));
-    listenPort = portClaim.Port;
-}
-catch (Exception ex)
-{
-    portClaim?.Dispose();
-    WriteFatalError(ex, crashDir);
-    Environment.Exit(1);
-    return;
-}
-
-var serviceEndpointUrl = $"{tdaUrl}:{listenPort}/didcomm";
-
-try
-{
-
-var host = Host.CreateDefaultBuilder(args)
-    .UseConsoleLifetime()
-    .ConfigureLogging(logging =>
-    {
-        logging.SetMinimumLevel(LogLevel.Debug);
-        logging.AddSimpleConsole(opts =>
-        {
-            opts.TimestampFormat = "HH:mm:ss.fff ";
-            opts.UseUtcTimestamp = true;
-            opts.SingleLine      = false;
-        });
-    })
-    .ConfigureServices((ctx, services) =>
-    {
-        // The atomically-claimed listen socket, handed to DrawbridgeService.
-        services.AddSingleton(portClaim!);
-
-        // ── 0. OpenTelemetry tracing + metrics ───────────────────────────────
-        services.AddOpenTelemetry()
-            .ConfigureResource(r => r.AddService(
-                serviceName:       Svrn7Telemetry.SourceName,
-                serviceVersion:    Svrn7Telemetry.SourceVersion,
-                serviceInstanceId: $"{tdaName}:{listenPort}"))
-            .WithTracing(tracing =>
+            // ── Parent-tier endpoint: resolved from the parent's DID Document, never a file ──
+            if (!string.IsNullOrEmpty(parentTdaDid))
             {
-                tracing.SetSampler(new AlwaysOnSampler())
-                       .AddSource(Svrn7Telemetry.SourceName)
-                       .AddSource(DIDDocumentService.ActivitySource.Name)
-                       .AddSource(BootstrapDiagnostics.SourceName)
-                       .AddSource(AgentWalletDiagnostics.SourceName);
+                using var parentActivity = BootstrapDiagnostics.ActivitySource.StartActivity(
+                    BootstrapDiagnostics.ActivityResolveParent);
 
-                if (useJaeger)
-                    tracing.AddOtlpExporter(o => o.Endpoint = new Uri(jaegerEndpoint));
-                else
-                    tracing.AddConsoleExporter();
-            })
-            .WithMetrics(metrics =>
+                var parentDoc = (await driver.DidRegistry.ResolveAsync(parentTdaDid!)).Document;
+                parentTdaEndpointUrl = parentDoc?.ServiceEndpoints
+                    .FirstOrDefault(s => s.ServiceEndpoint.EndsWith("/didcomm", StringComparison.OrdinalIgnoreCase))
+                    ?.ServiceEndpoint;
+
+                var parentOutcome = string.IsNullOrEmpty(parentTdaEndpointUrl)
+                    ? BootstrapDiagnostics.ParentOutcome.Unresolvable
+                    : BootstrapDiagnostics.ParentOutcome.Resolved;
+                parentActivity?.SetTag(BootstrapDiagnostics.TagOutcome, parentOutcome);
+                BootstrapDiagnostics.RecordParentEndpointResolve(parentOutcome);
+
+                if (string.IsNullOrEmpty(parentTdaEndpointUrl))
+                    Console.Error.WriteLine(
+                        $"WARNING: parent '{parentTdaDid}' is not resolvable from the local DID registry — " +
+                        "DID-resolution escalation is disabled until it is re-resolved.");
+            }
+            else
             {
-                metrics.AddMeter(BootstrapDiagnostics.SourceName)
-                       .AddMeter(AgentWalletDiagnostics.SourceName);
+                BootstrapDiagnostics.RecordParentEndpointResolve(BootstrapDiagnostics.ParentOutcome.NoParent);
+            }
 
-                if (useJaeger)
-                    metrics.AddOtlpExporter(o => o.Endpoint = new Uri(jaegerEndpoint));
-                else
-                    metrics.AddConsoleExporter();
-            });
-
-        // ── 1. SVRN7 Society stack ───────────────────────────────────────────
-        services.AddSvrn7Society(opts =>
-        {
-            opts.SocietyDid                        = ctx.Configuration["Svrn7:SocietyDid"]   ?? string.Empty;
-            opts.FederationDid                     = ctx.Configuration["Svrn7:FederationDid"] ?? string.Empty;
-            opts.Svrn7DbPath                       = ResolveDbPath(ctx.Configuration["Svrn7:DbPath"],        "svrn7.db",        memDir);
-            opts.DidsDbPath                        = ResolveDbPath(ctx.Configuration["Svrn7:DidsDbPath"],    "svrn7-dids.db",   memDir);
-            opts.VcsDbPath                         = ResolveDbPath(ctx.Configuration["Svrn7:VcsDbPath"],     "svrn7-vcs.db",    memDir);
-            opts.MsgDbPath                         = ResolveDbPath(ctx.Configuration["Svrn7:MsgDbPath"],     "svrn7-msg.db",    memDir);
-            opts.SchemasDbPath                     = ResolveDbPath(ctx.Configuration["Svrn7:SchemasDbPath"], "svrn7-schemas.db", memDir);
-            opts.SocietyMessagingPrivateKeyEd25519 = []; // supplied at runtime
-
-            // Every svrn7-*.db for this instance is AES-encrypted at rest under the
-            // DB master key from the unlocked wallet (docs/AGENTWALLET.md §D9).
-            opts.DatabasePassword                 = Convert.ToHexString(dbMasterKey).ToLowerInvariant();
-        });
-
-        services.AddSvrn7SocietyBackgroundServices();
-
-        // ── 2. TDA Host ──────────────────────────────────────────────────────
-        services.AddSvrn7Tda(opts =>
-        {
-            opts.SocietyDid                        = ctx.Configuration["Tda:SocietyDid"] ?? string.Empty;
-            opts.SocietyMessagingPrivateKeyEd25519 = []; // supplied at runtime
-            opts.ListenPort                        = listenPort;
-            opts.ListenPortBase                    = portBase;
-            opts.ListenPortSpan                    = portSpan;
-            opts.AllowPortAutoSelect               = false; // the claim already happened in the pre-host block
-            opts.BaseUrl                           = tdaUrl;
-            opts.Role                              = role;
-            opts.TlsCertificatePath               = ctx.Configuration["Tda:TlsCertPath"];
-            opts.TlsCertificatePassword           = ctx.Configuration["Tda:TlsCertPassword"];
-            opts.RequireMutualTls                 = bool.Parse(ctx.Configuration["Tda:RequireMutualTls"] ?? "true");
-            opts.AcceptSelfSignedPeerCertificates = bool.Parse(ctx.Configuration["Tda:AcceptSelfSigned"] ?? "false");
-            opts.MinRunspaces                     = 2;
-            opts.MaxRunspaces                     = 0;
-            opts.LobesConfigPath                  = ctx.Configuration["Tda:LobesConfigPath"] ?? lobesConfigPath;
-            opts.LobeLibraryDir                   = lobeLibraryDir;
-            opts.LobeRemoteFeed                   = OptionalArg("--lobe-feed")
-                                                    ?? ctx.Configuration["Tda:LobeRemoteFeed"] ?? string.Empty;
-            opts.IdentityMetaPath                 = metaPath;
-            opts.InstanceDir                      = instanceDir;
-            opts.DatabaseMasterKey               = dbMasterKey;
-            opts.ParentTdaDid                     = ctx.Configuration["Tda:ParentTdaDid"]         ?? string.Empty;
-            opts.ParentTdaEndpointUrl             = ctx.Configuration["Tda:ParentTdaEndpointUrl"] ?? string.Empty;
-            opts.FederationDomain                 = !string.IsNullOrEmpty(federationDomainArg)
-                                                    ? federationDomainArg
-                                                    : ctx.Configuration["Tda:FederationDomain"] ?? string.Empty;
-        });
-    })
-    .Build();
-
-host.Services.GetRequiredService<TracerProvider>();
-host.Services.GetRequiredService<MeterProvider>();
-
-var driver  = host.Services.GetRequiredService<ISvrn7SocietyDriver>();
-var tdaOpts = host.Services.GetRequiredService<IOptions<TdaOptions>>().Value;
-
-// ── Bootstrap telemetry ─────────────────────────────────────────────────────
-// The pre-host block ran before the meter/tracer pipeline existed; replay what
-// it decided now that a listener is attached. One summary span carries the
-// pre-host tags; the DID-document reconciliation below adds its own spans.
-using var bootstrapActivity = BootstrapDiagnostics.ActivitySource.StartActivity(
-    BootstrapDiagnostics.ActivityBootstrap);
-bootstrapActivity?
-    .SetTag(BootstrapDiagnostics.TagFirstRun, isFirstRun)
-    .SetTag(BootstrapDiagnostics.TagListenPort, listenPort)
-    .SetTag(BootstrapDiagnostics.TagRepublish, republishEndpoint)
-    .SetTag(BootstrapDiagnostics.TagPortSource, bootstrapPortSource);
-if (bootstrapPeekOutcome is not null)
-{
-    bootstrapActivity?.SetTag("svrn7.endpoint_peek_outcome", bootstrapPeekOutcome);
-    BootstrapDiagnostics.RecordEndpointPeek(bootstrapPeekOutcome);
-}
-BootstrapDiagnostics.RecordPortResolved(bootstrapPortSource);
-
-// ── DID Document + identity.meta.json ────────────────────────────────────────
-if (isFirstRun)
-{
-    if (await driver.DidRegistry.CountAsync() == 0)
-    {
-        var didDoc = driver.CreateDidDocument(agentDid, secpPubHex, "drn",
-                         serviceEndpointUrl, role, svrn7Name,
-                         x25519PublicKeyHex: x25519PubHex);
-        await driver.CreateDidAsync(didDoc);
-    }
-    tdaOpts.Role = role;
-
-    new IdentityMeta
-    {
-        Did        = agentDid,
-        Name       = svrn7Name,
-        Role       = role.ToString(),
-        CreatedUtc = DateTimeOffset.UtcNow.ToString("O"),
-    }.Save(metaPath);
-    BootstrapDiagnostics.RecordMetaWrite(firstRun: true);
-}
-else
-{
-    var result    = await driver.DidRegistry.ResolveAsync(agentDid);
-    var currentDoc = result.Document;
-    tdaOpts.Role  = currentDoc?.Role ?? role;
-    svrn7Name     = currentDoc?.Svrn7Name ?? svrn7Name;
-    role          = tdaOpts.Role;
-
-    // publishedEndpoint was read pre-host straight from the encrypted DID DB;
-    // confirm it against the fully-resolved document here.
-    publishedEndpoint = currentDoc?.ServiceEndpoints
-        .FirstOrDefault(s => s.ServiceEndpoint.EndsWith("/didcomm", StringComparison.OrdinalIgnoreCase))
-        ?.ServiceEndpoint ?? publishedEndpoint;
-
-    if (republishEndpoint)
-    {
-        if (serviceEndpointUrl == publishedEndpoint)
-        {
-            Console.Error.WriteLine(
-                $"WARNING: --republish-endpoint given but the endpoint is unchanged ({publishedEndpoint}). Nothing to do.");
+            // identity.meta.json carries NO endpoint — only the routing/legibility fields.
+            // Rewrite it unconditionally every startup: TryLoad drops unknown JSON keys, so
+            // this scrubs stale fields (serviceEndpointUrl, secp256k1PublicKeyHex, …) left by
+            // an older build. Save is atomic (.tmp → replace).
+            var meta = IdentityMeta.TryLoad(metaPath) ?? new IdentityMeta { Did = agentDid, Name = svrn7Name };
+            meta.Did = agentDid;
+            meta.Name = svrn7Name;
+            meta.Role = role.ToString();
+            meta.ParentTdaDid = string.IsNullOrEmpty(parentTdaDid) ? null : parentTdaDid;
+            if (string.IsNullOrEmpty(meta.CreatedUtc)) meta.CreatedUtc = DateTimeOffset.UtcNow.ToString("O");
+            meta.Save(metaPath);
+            BootstrapDiagnostics.RecordMetaWrite(firstRun: false);
         }
-        else if (currentDoc is not null)
+
+        tdaOpts.AgentSigningPrivateKey      = signingKey;
+        tdaOpts.AgentKeyAgreementPrivateKey = keyAgreementKey;
+        tdaOpts.LocalDid                    = agentDid;
+        tdaOpts.ServiceEndpointUrl          = serviceEndpointUrl;
+        tdaOpts.AgentIdentityPath           = metaPath; // SetParentTda persists parent-tier wiring into identity.meta.json
+
+        if (!string.IsNullOrEmpty(parentTdaDid) && string.IsNullOrEmpty(tdaOpts.ParentTdaDid))
+            tdaOpts.ParentTdaDid = parentTdaDid;
+        if (!string.IsNullOrEmpty(parentTdaEndpointUrl) && string.IsNullOrEmpty(tdaOpts.ParentTdaEndpointUrl))
+            tdaOpts.ParentTdaEndpointUrl = parentTdaEndpointUrl;
+
+        // ── drn.directory Federation endpoint discovery ─────────────────────────────
+        if (!string.IsNullOrEmpty(tdaOpts.FederationDomain) && string.IsNullOrEmpty(tdaOpts.FederationEndpointUrl))
         {
-            var moved = driver.CreateDidDocument(agentDid, secpPubHex, "drn",
-                            serviceEndpointUrl, role, svrn7Name, x25519PublicKeyHex: x25519PubHex)
-                        with { Version = currentDoc.Version + 1, Id = currentDoc.Id, CreatedAt = currentDoc.CreatedAt };
-            await driver.DidRegistry.UpdateAsync(moved);
+            var discovered = await DrnDirectory.GetFederationEndpointAsync(tdaOpts.FederationDomain);
+            if (discovered is not null)
+                tdaOpts.FederationEndpointUrl = discovered;
+        }
+
+        // ── Startup banner ──────────────────────────────────────────────────────────
+        {
+            // Nerdbank.GitVersioning fills AssemblyInformationalVersion as
+            // "0.8.<gitHeight>[-<branch>]+<commit8>[.<dirtyMarker>]". Show it whole —
+            // the git height + commit is the point of automatic versioning.
+            var version = typeof(Program).Assembly
+                              .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                              ?.InformationalVersion
+                          ?? typeof(Program).Assembly.GetName().Version?.ToString(3)
+                          ?? "0.0.0";
+
+            var federation = await driver.GetFederationAsync();
+            var societies  = await driver.GetAllSocietiesAsync();
+            var activeSocietyCount = societies.Count(s => s.IsActive);
 
             const string hr = "────────────────────────────────────────────────────────────────────────────────";
-            Console.Error.WriteLine();
-            Console.Error.WriteLine(hr);
-            Console.Error.WriteLine($"  DID Document endpoint moved:  {publishedEndpoint}  →  {serviceEndpointUrl}");
-            Console.Error.WriteLine($"  DID Document version {currentDoc.Version} → {moved.Version}.");
-            Console.Error.WriteLine("  Peers holding a cached copy keep using the old endpoint until they");
-            Console.Error.WriteLine("  re-resolve this DID. Propagation to a Society/Federation is TDA-017.");
-            Console.Error.WriteLine(hr);
-            Console.Error.WriteLine();
-            publishedEndpoint = serviceEndpointUrl;
+            Console.WriteLine(hr);
+            Console.WriteLine($"  SVRN7 Trusted Digital Assistant (TDA)  v{version}");
+            Console.WriteLine($"  Web 7.0 Foundation — https://svrn7.net");
+            Console.WriteLine(hr);
+            Console.WriteLine($"  Started     : {DateTimeOffset.Now.ToString("F")}");
+            Console.WriteLine($"  Executable  : {Environment.ProcessPath ?? "(unknown)"}");
+            Console.WriteLine($"  Runtime     : {RuntimeInformation.FrameworkDescription}");
+            Console.WriteLine($"  OS          : {RuntimeInformation.OSDescription}");
+            Console.WriteLine(hr);
+            Console.WriteLine($"  TDA Name    : {svrn7Name}");
+            Console.WriteLine($"  TDA Role    : {tdaOpts.Role}");
+            Console.WriteLine($"  Bootstrap   : {(isFirstRun ? "first run — new identity created" : "existing identity unlocked")}");
+            Console.WriteLine($"  Agent DID   : {agentDid}");
+            Console.WriteLine($"  Data root   : {dataRoot}");
+            Console.WriteLine($"  Instance    : {instanceDir}");
+            Console.WriteLine($"  Endpoint    : {serviceEndpointUrl}{(isFirstRun && portArg is null && portClaim!.Port != portBase ? "  (auto-selected)" : "")}");
+            Console.WriteLine($"  Fed Domain  : {(!string.IsNullOrEmpty(tdaOpts.FederationDomain)    ? tdaOpts.FederationDomain    : "(not configured)")}");
+            Console.WriteLine($"  Fed Endpoint: {(!string.IsNullOrEmpty(tdaOpts.FederationEndpointUrl) ? tdaOpts.FederationEndpointUrl : "(not resolved)")}");
+            Console.WriteLine(hr);
+            if (federation is not null)
+            {
+                Console.WriteLine($"  Federation  : {federation.FederationName}  ({federation.Did})");
+                Console.WriteLine($"  Supply      : {federation.TotalSupplyGrana / 1_000_000m:N6} SVRN7  ({federation.TotalSupplyGrana:N0} grana)");
+                Console.WriteLine($"  Epoch       : {driver.GetCurrentEpoch()}");
+                Console.WriteLine($"  Societies   : {societies.Count} registered  ({activeSocietyCount} active)");
+            }
+            else
+            {
+                Console.WriteLine($"  Federation  : (not yet initialised)");
+            }
+            Console.WriteLine(hr);
+            if (freshRecoveryPhrase is not null)
+            {
+                Console.WriteLine("  RECOVERY PHRASE — write this down now, it is shown only once:");
+                Console.WriteLine($"    {freshRecoveryPhrase}");
+                Console.WriteLine(hr);
+            }
+            Console.WriteLine();
+        }
+
+        await host.RunAsync();
+
+        }
+        catch (Exception ex)
+        {
+            portClaim?.Dispose();
+            WriteFatalError(ex, crashDir);
+            ExitWithPause(1);
+        }
+
+        Console.Write("Press Enter to exit...");
+        Console.ReadLine();
+    }
+
+    // ── Argument helpers ────────────────────────────────────────────────────────
+
+    static string RequireArg(string[] args, string flag)
+    {
+        var v = OptionalArg(args, flag);
+        if (string.IsNullOrWhiteSpace(v))
+            Die($"{flag} <value> is required.");
+        return v!;
+    }
+
+    static string? OptionalArg(string[] args, string flag)
+    {
+        var i = Array.IndexOf(args, flag);
+        return i >= 0 && i + 1 < args.Length && !string.IsNullOrWhiteSpace(args[i + 1]) ? args[i + 1] : null;
+    }
+
+    [DoesNotReturn]
+    static void Die(string message)
+    {
+        Console.Error.WriteLine($"ERROR: {message}");
+        ExitWithPause(1);
+    }
+
+    // Pauses so a console window opened by double-click (or any detached launch) doesn't
+    // vanish before the error/crash message above it can be read, then exits.
+    [DoesNotReturn]
+    static void ExitWithPause(int code)
+    {
+        Console.Write("Press Enter to exit...");
+        Console.ReadLine();
+        Environment.Exit(code);
+    }
+
+    static (Svrn7.Trust.AgentWallet.IPinStore Store, string? Warning) AgentWalletPinStore()
+    {
+        var r = Svrn7.Trust.AgentWallet.PinStores.CreateDefault();
+        return (r.Store, r.UnavailableReason);
+    }
+
+    static bool ConfirmReset(string dir)
+    {
+        if (Console.IsInputRedirected) return true; // non-interactive (testnet scripts) — proceed
+        Console.Write($"--reset will permanently delete '{dir}' and everything in it. Continue? [y/N] ");
+        var answer = Console.ReadLine()?.Trim();
+        return answer is "y" or "Y" or "yes" or "YES";
+    }
+
+    // Prints a short, actionable summary for a startup crash instead of the runtime's
+    // default unhandled-exception dump, and writes the full exception to a crash log.
+    static void WriteFatalError(Exception ex, string? crashDir)
+    {
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("────────────────────────────────────────────────────────────────────────────────");
+        if (ex.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase)
+            || ex.GetType().Name.Contains("AddressInUse", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.Error.WriteLine("  TDA failed to start: the listen port is already in use.");
+            Console.Error.WriteLine("  Stop whatever holds it, widen --port-span, or omit --port to auto-select.");
         }
         else
         {
-            Die("--republish-endpoint: this identity's DID Document could not be resolved.");
+            Console.Error.WriteLine($"  TDA failed to start: {ex.Message}");
         }
+
+        var crashLogPath = Path.Combine(crashDir ?? AppContext.BaseDirectory, "crash.log");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(crashLogPath))!);
+            File.AppendAllText(crashLogPath,
+                $"{DateTimeOffset.UtcNow:O} {ex}{Environment.NewLine}{new string('-', 80)}{Environment.NewLine}");
+            Console.Error.WriteLine($"  Full details written to: {crashLogPath}");
+        }
+        catch
+        {
+            Console.Error.WriteLine(ex.ToString());
+        }
+        Console.Error.WriteLine("────────────────────────────────────────────────────────────────────────────────");
+        Console.Error.WriteLine();
     }
 
-    // ── Parent-tier endpoint: resolved from the parent's DID Document, never a file ──
-    if (!string.IsNullOrEmpty(parentTdaDid))
+    // Deletes an instance directory for --reset, tolerating a brief IOException from a
+    // prior TDA's LiteDB handles not yet released (or a scanner/indexer touching a file).
+    static void DeleteDirWithRetry(string dir, int maxAttempts = 20, int delayMs = 250)
     {
-        using var parentActivity = BootstrapDiagnostics.ActivitySource.StartActivity(
-            BootstrapDiagnostics.ActivityResolveParent);
-
-        var parentDoc = (await driver.DidRegistry.ResolveAsync(parentTdaDid!)).Document;
-        parentTdaEndpointUrl = parentDoc?.ServiceEndpoints
-            .FirstOrDefault(s => s.ServiceEndpoint.EndsWith("/didcomm", StringComparison.OrdinalIgnoreCase))
-            ?.ServiceEndpoint;
-
-        var parentOutcome = string.IsNullOrEmpty(parentTdaEndpointUrl)
-            ? BootstrapDiagnostics.ParentOutcome.Unresolvable
-            : BootstrapDiagnostics.ParentOutcome.Resolved;
-        parentActivity?.SetTag(BootstrapDiagnostics.TagOutcome, parentOutcome);
-        BootstrapDiagnostics.RecordParentEndpointResolve(parentOutcome);
-
-        if (string.IsNullOrEmpty(parentTdaEndpointUrl))
-            Console.Error.WriteLine(
-                $"WARNING: parent '{parentTdaDid}' is not resolvable from the local DID registry — " +
-                "DID-resolution escalation is disabled until it is re-resolved.");
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try { Directory.Delete(dir, recursive: true); return; }
+            catch (IOException) when (attempt < maxAttempts) { Thread.Sleep(delayMs); }
+            catch (UnauthorizedAccessException) when (attempt < maxAttempts) { Thread.Sleep(delayMs); }
+        }
+        throw new IOException(
+            $"'{dir}' is still locked after {maxAttempts * delayMs / 1000.0:0.#}s. " +
+            "A previous TDA for this identity may not have fully shut down — wait a few seconds and retry, " +
+            "or check for a lingering dotnet process.");
     }
-    else
+
+    // Resolves a configured DB path: rooted paths used as-is, relative names placed
+    // under the instance's mem/ directory. Creates the parent so LiteDB never fails
+    // on a missing folder.
+    static string ResolveDbPath(string? configured, string defaultName, string memDir)
     {
-        BootstrapDiagnostics.RecordParentEndpointResolve(BootstrapDiagnostics.ParentOutcome.NoParent);
+        var path = configured is null
+            ? Path.Combine(memDir, defaultName)
+            : Path.IsPathRooted(configured) ? configured : Path.Combine(memDir, configured);
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        return path;
     }
-
-    // identity.meta.json carries NO endpoint — only the routing/legibility fields.
-    // Rewrite it unconditionally every startup: TryLoad drops unknown JSON keys, so
-    // this scrubs stale fields (serviceEndpointUrl, secp256k1PublicKeyHex, …) left by
-    // an older build. Save is atomic (.tmp → replace).
-    var meta = IdentityMeta.TryLoad(metaPath) ?? new IdentityMeta { Did = agentDid, Name = svrn7Name };
-    meta.Did = agentDid;
-    meta.Name = svrn7Name;
-    meta.Role = role.ToString();
-    meta.ParentTdaDid = string.IsNullOrEmpty(parentTdaDid) ? null : parentTdaDid;
-    if (string.IsNullOrEmpty(meta.CreatedUtc)) meta.CreatedUtc = DateTimeOffset.UtcNow.ToString("O");
-    meta.Save(metaPath);
-    BootstrapDiagnostics.RecordMetaWrite(firstRun: false);
 }
-
-tdaOpts.AgentSigningPrivateKey      = signingKey;
-tdaOpts.AgentKeyAgreementPrivateKey = keyAgreementKey;
-tdaOpts.LocalDid                    = agentDid;
-tdaOpts.ServiceEndpointUrl          = serviceEndpointUrl;
-tdaOpts.AgentIdentityPath           = metaPath; // SetParentTda persists parent-tier wiring into identity.meta.json
-
-if (!string.IsNullOrEmpty(parentTdaDid) && string.IsNullOrEmpty(tdaOpts.ParentTdaDid))
-    tdaOpts.ParentTdaDid = parentTdaDid;
-if (!string.IsNullOrEmpty(parentTdaEndpointUrl) && string.IsNullOrEmpty(tdaOpts.ParentTdaEndpointUrl))
-    tdaOpts.ParentTdaEndpointUrl = parentTdaEndpointUrl;
-
-// ── drn.directory Federation endpoint discovery ─────────────────────────────
-if (!string.IsNullOrEmpty(tdaOpts.FederationDomain) && string.IsNullOrEmpty(tdaOpts.FederationEndpointUrl))
-{
-    var discovered = await DrnDirectory.GetFederationEndpointAsync(tdaOpts.FederationDomain);
-    if (discovered is not null)
-        tdaOpts.FederationEndpointUrl = discovered;
-}
-
-// ── Startup banner ──────────────────────────────────────────────────────────
-{
-    // Nerdbank.GitVersioning fills AssemblyInformationalVersion as
-    // "0.8.<gitHeight>[-<branch>]+<commit8>[.<dirtyMarker>]". Show it whole —
-    // the git height + commit is the point of automatic versioning.
-    var version = typeof(Program).Assembly
-                      .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-                      ?.InformationalVersion
-                  ?? typeof(Program).Assembly.GetName().Version?.ToString(3)
-                  ?? "0.0.0";
-
-    var federation = await driver.GetFederationAsync();
-    var societies  = await driver.GetAllSocietiesAsync();
-    var activeSocietyCount = societies.Count(s => s.IsActive);
-
-    const string hr = "────────────────────────────────────────────────────────────────────────────────";
-    Console.WriteLine(hr);
-    Console.WriteLine($"  SVRN7 Trusted Digital Assistant (TDA)  v{version}");
-    Console.WriteLine($"  Web 7.0 Foundation — https://svrn7.net");
-    Console.WriteLine(hr);
-    Console.WriteLine($"  Started     : {DateTimeOffset.Now.ToString("F")}");
-    Console.WriteLine($"  Executable  : {Environment.ProcessPath ?? "(unknown)"}");
-    Console.WriteLine($"  Runtime     : {RuntimeInformation.FrameworkDescription}");
-    Console.WriteLine($"  OS          : {RuntimeInformation.OSDescription}");
-    Console.WriteLine(hr);
-    Console.WriteLine($"  TDA Name    : {svrn7Name}");
-    Console.WriteLine($"  TDA Role    : {tdaOpts.Role}");
-    Console.WriteLine($"  Bootstrap   : {(isFirstRun ? "first run — new identity created" : "existing identity unlocked")}");
-    Console.WriteLine($"  Agent DID   : {agentDid}");
-    Console.WriteLine($"  Data root   : {dataRoot}");
-    Console.WriteLine($"  Instance    : {instanceDir}");
-    Console.WriteLine($"  Endpoint    : {serviceEndpointUrl}{(isFirstRun && portArg is null && portClaim!.Port != portBase ? "  (auto-selected)" : "")}");
-    Console.WriteLine($"  Fed Domain  : {(!string.IsNullOrEmpty(tdaOpts.FederationDomain)    ? tdaOpts.FederationDomain    : "(not configured)")}");
-    Console.WriteLine($"  Fed Endpoint: {(!string.IsNullOrEmpty(tdaOpts.FederationEndpointUrl) ? tdaOpts.FederationEndpointUrl : "(not resolved)")}");
-    Console.WriteLine(hr);
-    if (federation is not null)
-    {
-        Console.WriteLine($"  Federation  : {federation.FederationName}  ({federation.Did})");
-        Console.WriteLine($"  Supply      : {federation.TotalSupplyGrana / 1_000_000m:N6} SVRN7  ({federation.TotalSupplyGrana:N0} grana)");
-        Console.WriteLine($"  Epoch       : {driver.GetCurrentEpoch()}");
-        Console.WriteLine($"  Societies   : {societies.Count} registered  ({activeSocietyCount} active)");
-    }
-    else
-    {
-        Console.WriteLine($"  Federation  : (not yet initialised)");
-    }
-    Console.WriteLine(hr);
-    if (freshRecoveryPhrase is not null)
-    {
-        Console.WriteLine("  RECOVERY PHRASE — write this down now, it is shown only once:");
-        Console.WriteLine($"    {freshRecoveryPhrase}");
-        Console.WriteLine(hr);
-    }
-    Console.WriteLine();
-}
-
-await host.RunAsync();
-
-}
-catch (Exception ex)
-{
-    portClaim?.Dispose();
-    WriteFatalError(ex, crashDir);
-    Environment.Exit(1);
-}
-
-// ── Argument helpers ────────────────────────────────────────────────────────
-
-string RequireArg(string flag)
-{
-    var v = OptionalArg(flag);
-    if (string.IsNullOrWhiteSpace(v))
-    {
-        Console.Error.WriteLine($"ERROR: {flag} <value> is required.");
-        Environment.Exit(1);
-    }
-    return v!;
-}
-
-string? OptionalArg(string flag)
-{
-    var i = Array.IndexOf(args, flag);
-    return i >= 0 && i + 1 < args.Length && !string.IsNullOrWhiteSpace(args[i + 1]) ? args[i + 1] : null;
-}
-
-[DoesNotReturn]
-static void Die(string message)
-{
-    Console.Error.WriteLine($"ERROR: {message}");
-    Environment.Exit(1);
-}
-
-static (Svrn7.Trust.AgentWallet.IPinStore Store, string? Warning) AgentWalletPinStore()
-{
-    var r = Svrn7.Trust.AgentWallet.PinStores.CreateDefault();
-    return (r.Store, r.UnavailableReason);
-}
-
-static bool ConfirmReset(string dir)
-{
-    if (Console.IsInputRedirected) return true; // non-interactive (testnet scripts) — proceed
-    Console.Write($"--reset will permanently delete '{dir}' and everything in it. Continue? [y/N] ");
-    var answer = Console.ReadLine()?.Trim();
-    return answer is "y" or "Y" or "yes" or "YES";
-}
-
-// Prints a short, actionable summary for a startup crash instead of the runtime's
-// default unhandled-exception dump, and writes the full exception to a crash log.
-static void WriteFatalError(Exception ex, string? crashDir)
-{
-    Console.Error.WriteLine();
-    Console.Error.WriteLine("────────────────────────────────────────────────────────────────────────────────");
-    if (ex.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase)
-        || ex.GetType().Name.Contains("AddressInUse", StringComparison.OrdinalIgnoreCase))
-    {
-        Console.Error.WriteLine("  TDA failed to start: the listen port is already in use.");
-        Console.Error.WriteLine("  Stop whatever holds it, widen --port-span, or omit --port to auto-select.");
-    }
-    else
-    {
-        Console.Error.WriteLine($"  TDA failed to start: {ex.Message}");
-    }
-
-    var crashLogPath = Path.Combine(crashDir ?? AppContext.BaseDirectory, "crash.log");
-    try
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(crashLogPath))!);
-        File.AppendAllText(crashLogPath,
-            $"{DateTimeOffset.UtcNow:O} {ex}{Environment.NewLine}{new string('-', 80)}{Environment.NewLine}");
-        Console.Error.WriteLine($"  Full details written to: {crashLogPath}");
-    }
-    catch
-    {
-        Console.Error.WriteLine(ex.ToString());
-    }
-    Console.Error.WriteLine("────────────────────────────────────────────────────────────────────────────────");
-    Console.Error.WriteLine();
-}
-
-// Deletes an instance directory for --reset, tolerating a brief IOException from a
-// prior TDA's LiteDB handles not yet released (or a scanner/indexer touching a file).
-static void DeleteDirWithRetry(string dir, int maxAttempts = 20, int delayMs = 250)
-{
-    for (var attempt = 1; attempt <= maxAttempts; attempt++)
-    {
-        try { Directory.Delete(dir, recursive: true); return; }
-        catch (IOException) when (attempt < maxAttempts) { Thread.Sleep(delayMs); }
-        catch (UnauthorizedAccessException) when (attempt < maxAttempts) { Thread.Sleep(delayMs); }
-    }
-    throw new IOException(
-        $"'{dir}' is still locked after {maxAttempts * delayMs / 1000.0:0.#}s. " +
-        "A previous TDA for this identity may not have fully shut down — wait a few seconds and retry, " +
-        "or check for a lingering dotnet process.");
-}
-
-// Resolves a configured DB path: rooted paths used as-is, relative names placed
-// under the instance's mem/ directory. Creates the parent so LiteDB never fails
-// on a missing folder.
-static string ResolveDbPath(string? configured, string defaultName, string memDir)
-{
-    var path = configured is null
-        ? Path.Combine(memDir, defaultName)
-        : Path.IsPathRooted(configured) ? configured : Path.Combine(memDir, configured);
-    Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
-    return path;
-}
-
-/// <summary>Marker type so <c>typeof(Program)</c> works for assembly-version reflection in the banner.</summary>
-internal sealed partial class Program;
