@@ -21,6 +21,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Reused for Anoncrypt-packing outbound /localcomm-ws traffic (PackEncryptedAsync)
+         instead of reimplementing ECDH-ES+A256KW+AES-GCM client-side. PandoMail never
+         calls the JWS/SignThenEncrypt paths: it has no signing key of its own. -->
+    <ProjectReference Include="..\..\..\Svrn7.DIDComm\Svrn7.DIDComm.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <EmbeddedResource Include="Images\Web7Pinwheel.ico" />
   </ItemGroup>
 

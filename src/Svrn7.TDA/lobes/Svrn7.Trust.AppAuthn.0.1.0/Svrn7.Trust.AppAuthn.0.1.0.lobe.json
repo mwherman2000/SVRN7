@@ -1,31 +1,31 @@
 {
   "lobe": {
-    "id": "svrn7.signin",
-    "name": "Svrn7.Signin",
-    "title": "SVRN7 Signin LOBE",
-    "description": "Generic local-UI wallet-password verification. Any local UI client sharing this TDA's identity (PandoMail, a future PandoBoard, admin tooling) can verify the operator knows this TDA's wallet password before treating a /localcomm-ws connection as signed in. Verification happens entirely inside the TDA host (VerifyWalletPassword) using the same Argon2id + AES-256-GCM decrypt as bootstrap; the password itself travels in plaintext over /localcomm-ws (same as every other local-UI message) but no key material ever crosses back to the client.",
+    "id": "svrn7.trust.appauthn",
+    "name": "Svrn7.Trust.AppAuthn",
+    "title": "SVRN7 Trust AppAuthn LOBE",
+    "description": "Generic local-UI wallet-password verification. Any local UI client sharing this TDA's identity (PandoMail, a future PandoBoard, admin tooling) can verify the operator knows this TDA's wallet password before treating a /localcomm-ws connection as signed in. Verification happens entirely inside the TDA host (VerifyWalletPassword) using the same Argon2id + AES-256-GCM decrypt as bootstrap; no key material ever crosses back to the client. Named alongside Svrn7.Trust.AgentWallet, the wallet library this LOBE's verification ultimately calls into.",
     "version": "0.1.0",
     "author": "Michael Herman",
     "organization": "Web 7.0 Foundation",
     "website": "https://svrn7.net",
     "license": "MIT",
     "epochRequired": 0,
-    "module": "Svrn7.Signin.0.1.0.psm1"
+    "module": "Svrn7.Trust.AppAuthn.0.1.0.psm1"
   },
   "protocols": [
     {
-      "uri": "did:drn:svrn7.net/protocols/Svrn7.Signin.0.1.0/Authenticate",
+      "uri": "did:drn:svrn7.net/protocols/Svrn7.Trust.AppAuthn.0.1.0/Authenticate",
       "title": "Authenticate (verify wallet password)",
       "description": "Local UI request to verify a candidate wallet password. Body: { password: string }. Replies with AuthResult over WebSocket (envelope thid = this request's id).",
       "direction": "inbound",
       "match": "exact",
-      "entrypoint": "Invoke-Svrn7SigninAuthenticate",
+      "entrypoint": "Invoke-Svrn7TrustAppAuthnAuthenticate",
       "epochRequired": 0
     }
   ],
   "cmdlets": [
     {
-      "name": "Invoke-Svrn7SigninAuthenticate",
+      "name": "Invoke-Svrn7TrustAppAuthnAuthenticate",
       "title": "Authenticate",
       "description": "Verifies a candidate wallet password via $SVRN7.VerifyWalletPassword and replies with AuthResult over the WebSocket push channel.",
       "epochRequired": 0,
@@ -54,7 +54,7 @@
           "reason": { "type": ["string", "null"] }
         }
       },
-      "example": "Invoke-Svrn7SigninAuthenticate -MessageDid \"did:drn:wanderer.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678\""
+      "example": "Invoke-Svrn7TrustAppAuthnAuthenticate -MessageDid \"did:drn:wanderer.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678\""
     }
   ],
   "dependencies": {
@@ -73,7 +73,6 @@
       "A wrong password does not lock the caller out server-side beyond an in-memory, per-TDA-process attempt window (separate from the wallet's own restart-persisted UnlockThrottle)"
     ],
     "limitations": [
-      "Password travels in plaintext over /localcomm-ws, same as every other local-UI message (P-008: localhost-only is the trust boundary for this channel).",
       "Not a server-side gate: /localcomm-ws still accepts all local traffic regardless of AuthResult."
     ]
   }

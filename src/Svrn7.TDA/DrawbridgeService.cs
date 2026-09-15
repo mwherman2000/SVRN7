@@ -482,7 +482,7 @@ public sealed class DrawbridgeService : IHostedService, IAsyncDisposable
         // Svrn7.LocalUI.0.1.0 control frames (Hello/Goodbye/Ping) are connection-lifecycle
         // concerns handled directly by the hub — never enqueued to the inbox/Switchboard.
         // Password verification for local UI clients (e.g. PandoMail's TDA picker) is a
-        // separate, generic LOBE-routed protocol (Svrn7.Signin.0.1.0/Authenticate) — real
+        // separate, generic LOBE-routed protocol (Svrn7.Trust.AppAuthn.0.1.0/Authenticate) — real
         // verification against the wallet with no key material ever crossing the wire, but
         // deliberately not a server-side gate on every other message: /localcomm-ws is
         // documented (P-008) as accepting all local traffic, and existing tools

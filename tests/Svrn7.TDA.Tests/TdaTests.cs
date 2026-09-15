@@ -954,6 +954,28 @@ internal sealed class NullInboxStore : Svrn7.Core.Interfaces.IInboxStore
     public Task<int> CountByTypeAsync(string typePrefix, CancellationToken ct = default) => Task.FromResult(0);
 }
 
+/// <summary>Minimal IDidDocumentRegistry stub for constructing a Svrn7RunspaceContext in
+/// tests that don't exercise DID resolution — ResolveAsync always reports "not found"
+/// rather than throwing, since WebSocketNotifyHub's Hello handler now calls
+/// GetDidDocumentJson (and therefore this) unconditionally on every Hello.</summary>
+internal sealed class NullDidDocumentRegistry : Svrn7.Core.Interfaces.IDidDocumentRegistry
+{
+    public Task CreateAsync(Svrn7.Core.Models.DidDocument document, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task UpdateAsync(Svrn7.Core.Models.DidDocument document, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task DeactivateAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task SuspendAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task ReinstateAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<Svrn7.Core.Models.DidResolutionResult> ResolveAsync(string did, CancellationToken ct = default) =>
+        Task.FromResult(new Svrn7.Core.Models.DidResolutionResult { Document = null, Did = did, Found = false });
+    public Task<Svrn7.Core.Models.DidDocument?> ResolveVersionAsync(string did, int version, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.DidDocument>> GetHistoryAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<bool> IsActiveAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<string?> FindDidByPublicKeyHexAsync(string publicKeyHex, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.DidDocument>> QueryAsync(string? methodName = null,
+        Svrn7.Core.Models.DidStatus? status = null, CancellationToken ct = default) => throw new NotImplementedException();
+    public Task<long> CountAsync(CancellationToken ct = default) => throw new NotImplementedException();
+}
+
 internal sealed class NullDeadLetterStore : Svrn7.Core.Interfaces.IDeadLetterStore
 {
     public Task EnqueueAsync(Svrn7.Core.Models.DeadLetterRecord record, CancellationToken ct = default) => Task.CompletedTask;
@@ -986,7 +1008,7 @@ internal sealed class NullSocietyDriver : Svrn7.Society.ISvrn7SocietyDriver
     public Task<Svrn7.Core.Interfaces.CrossSocietyVcQueryResult> FindVcsBySubjectAcrossSocietiesAsync(string subjectDid, TimeSpan? timeout = null, CancellationToken ct = default) => throw new NotImplementedException();
 
     // ── ISvrn7Driver members ───────────────────────────────────────────────────
-    public Svrn7.Core.Interfaces.IDidDocumentRegistry DidRegistry => throw new NotImplementedException();
+    public Svrn7.Core.Interfaces.IDidDocumentRegistry DidRegistry => new NullDidDocumentRegistry();
     public Svrn7.Core.Interfaces.IVcRegistry VcRegistry => throw new NotImplementedException();
     public int GetCurrentEpoch() => throw new NotImplementedException();
     public Task AdvanceEpochAuthorisedAsync(int toEpoch, string governanceRef, string foundationSignature, string? notes = null, CancellationToken ct = default) => throw new NotImplementedException();
@@ -1048,6 +1070,23 @@ internal sealed class NullSocietyDriver : Svrn7.Society.ISvrn7SocietyDriver
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }
 
+/// <summary>Builds a minimal Svrn7RunspaceContext for tests that only need
+/// WebSocketNotifyHub to construct — it now takes a ctx dependency for
+/// GetDidDocumentJson in its Hello handler.</summary>
+internal static class TestSvrn7RunspaceContext
+{
+    public static Svrn7RunspaceContext Minimal(string agentDid = "did:drn:test.svrn7.net") =>
+        new(
+            new NullSocietyDriver(),
+            new RecordingInboxStore(),
+            new NullDeadLetterStore(),
+            new Microsoft.Extensions.Caching.Memory.MemoryCache(
+                new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions()),
+            new NullProcessedOrderStore(),
+            new PendingResolutionStore(),
+            agentDid: agentDid);
+}
+
 // ── DrawbridgeService Integration Tests ──────────────────────────────────
 //
 // Starts a real Kestrel server in cleartext HTTP/2 dev mode (no TLS cert).
@@ -1078,7 +1117,7 @@ public sealed class DrawbridgeServiceIntegrationTests : IAsyncLifetime
             opts,
             new StubDIDCommService("test/1.0/msg", """{"amount":500}"""),
             _inbox,
-            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, opts),
+            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, opts, TestSvrn7RunspaceContext.Minimal()),
             NullLogger<DrawbridgeService>.Instance);
     }
 
@@ -1182,7 +1221,7 @@ public sealed class DrawbridgeServiceIntegrationTests : IAsyncLifetime
             }),
             new ThrowingDIDCommService(),
             inbox,
-            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, Options.Create(new TdaOptions())),
+            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, Options.Create(new TdaOptions()), TestSvrn7RunspaceContext.Minimal()),
             NullLogger<DrawbridgeService>.Instance);
 
         await badListener.StartAsync(CancellationToken.None);
@@ -1589,7 +1628,7 @@ public class SwitchboardStartupTests : IDisposable
         return new DIDCommMessageSwitchboard(
             ctx, pool, inbox, outbox, lobes,
             new NullHttpClientFactory(),
-            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, Options.Create(tdaOpts)),
+            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, Options.Create(tdaOpts), TestSvrn7RunspaceContext.Minimal()),
             new StubDIDCommService("test/1.0/msg", "{}"),
             Options.Create(tdaOpts),
             NullLogger<DIDCommMessageSwitchboard>.Instance);
@@ -1624,7 +1663,7 @@ public sealed class KestrelListenerRateLimitTests : IAsyncLifetime
             }),
             new StubDIDCommService("test/1.0/msg", "{}"),
             new RecordingInboxStore(),
-            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, Options.Create(new TdaOptions())),
+            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, Options.Create(new TdaOptions()), TestSvrn7RunspaceContext.Minimal()),
             NullLogger<DrawbridgeService>.Instance);
     }
 
@@ -1678,7 +1717,7 @@ public sealed class KestrelListenerRateLimitTests : IAsyncLifetime
             }),
             new StubDIDCommService("test/1.0/msg", "{}"),
             new RecordingInboxStore(),
-            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, Options.Create(new TdaOptions())),
+            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, Options.Create(new TdaOptions()), TestSvrn7RunspaceContext.Minimal()),
             NullLogger<DrawbridgeService>.Instance);
 
         await noLimit.StartAsync(CancellationToken.None);
@@ -1817,7 +1856,7 @@ public sealed class WebSocketNotifyHubTests : IAsyncLifetime
     public WebSocketNotifyHubTests()
     {
         _port = FindFreePort();
-        _hub  = new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, Options.Create(new TdaOptions()));
+        _hub  = new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, Options.Create(new TdaOptions()), TestSvrn7RunspaceContext.Minimal());
         _listener = new DrawbridgeService(
             Options.Create(new TdaOptions
             {

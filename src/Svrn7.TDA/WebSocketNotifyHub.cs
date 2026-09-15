@@ -60,14 +60,16 @@ public sealed class WebSocketNotifyHub : IDisposable
 
     private readonly ILogger<WebSocketNotifyHub> _log;
     private readonly IOptions<TdaOptions> _opts;
+    private readonly Svrn7RunspaceContext _ctx;
     private readonly ConcurrentDictionary<Guid, Connection> _connections = new();
     private readonly ConcurrentDictionary<string, PendingCorrelation> _pendingCorrelations = new();
     private readonly Timer _watchdogTimer;
 
-    public WebSocketNotifyHub(ILogger<WebSocketNotifyHub> log, IOptions<TdaOptions> opts)
+    public WebSocketNotifyHub(ILogger<WebSocketNotifyHub> log, IOptions<TdaOptions> opts, Svrn7RunspaceContext ctx)
     {
         _log = log;
         _opts = opts;
+        _ctx = ctx;
         _watchdogTimer = new Timer(_ => CloseIdleConnections(), null, WatchdogInterval, WatchdogInterval);
     }
 
@@ -122,12 +124,14 @@ public sealed class WebSocketNotifyHub : IDisposable
     internal async Task<bool> TryHandleControlFrameAsync(Guid id, string json, CancellationToken ct)
     {
         string type;
+        string wireId;
         JsonElement body;
         try
         {
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
-            type = root.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
+            type   = root.TryGetProperty("type", out var t)  ? t.GetString()  ?? "" : "";
+            wireId = root.TryGetProperty("id",   out var idEl) ? idEl.GetString() ?? "" : "";
             body = ExtractBody(root);
         }
         catch (Exception ex)
@@ -163,22 +167,38 @@ public sealed class WebSocketNotifyHub : IDisposable
                 "({Count} subscription(s)).",
                 conn.App, conn.AppVersion, conn.InstanceId, conn.Subscriptions.Count);
 
-            // Identity in the Subscribed ack is discovery-only, not a secret: name and DID
-            // are already public in this TDA's own DID Document. This is what lets a client
-            // (e.g. PandoMail's TDA picker) show "name / port / DID" for an unauthenticated
-            // connection before the user has entered a password — Authenticate below is the
-            // actual access gate.
+            // Identity in the Subscribed ack is discovery-only, not a secret: this TDA's own
+            // DID Document (name, DID, X25519 public key, all of it) is already public. This
+            // is the same DID Document $SVRN7.GetDidDocumentJson returns to LOBEs like
+            // Get-TdaDid and Resolve-PandoDid — reused here rather than a bespoke field, so a
+            // client (e.g. PandoMail's TDA picker) learns everything it needs — "name / port /
+            // DID" for the picker list, and the X25519 key to Anoncrypt every subsequent
+            // outbound message to — from this one bootstrap exchange, the same
+            // discovery-must-be-plaintext reasoning as P-008's DID-discovery carve-out on the
+            // HTTP side. Authenticate below is still the actual access gate; this exchange
+            // grants no access by itself.
             var meta = IdentityMeta.TryLoad(_opts.Value.IdentityMetaPath);
+            var localDid = meta?.Did ?? _opts.Value.LocalDid;
+            var didDocumentJson = _ctx.GetDidDocumentJson(localDid);
+            JsonElement? didDocumentElement = null;
+            if (didDocumentJson is not null)
+            {
+                using var didDoc = JsonDocument.Parse(didDocumentJson);
+                didDocumentElement = didDoc.RootElement.Clone();
+            }
+
             var ack = JsonSerializer.Serialize(new
             {
                 typ  = "application/didcomm-plain+json",
                 id   = Svrn7.Core.TdaResourceId.DIDCommMessage(Guid.NewGuid().ToString("N")),
+                thid = wireId,
                 type = SubscribedType,
                 body = new
                 {
                     subscriptions = conn.Subscriptions.Select(s => new { uri = s.Uri, match = s.Match }),
                     name = meta?.Name ?? "",
-                    did  = meta?.Did  ?? _opts.Value.LocalDid
+                    did  = localDid,
+                    didDocument = didDocumentElement
                 }
             });
             await SendToConnectionAsync(id, ack, ct);

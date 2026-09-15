@@ -11,6 +11,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Svrn7.DIDComm;
 
 namespace Web7.SVRN7.Apps
 {
@@ -50,6 +51,12 @@ namespace Web7.SVRN7.Apps
         private ClientWebSocket              _ws;
         private readonly CancellationTokenSource _cts = new();
         private readonly ILogger<TdaMailClient> _log = AppLog.CreateLogger<TdaMailClient>();
+
+        // Anoncrypt-packs every message SendEnvelopeAsync sends (see TdaX25519PublicKeyHex).
+        // No resolver needed -- PandoMail only calls the pack side, never UnpackAsync; replies
+        // stay plaintext and are parsed directly in DispatchReceived (see docs/BACKLOG.md
+        // TDA-018 for the still-open reverse direction).
+        private readonly DIDCommPackingService _didCommPack = new();
 
         // Reconnect policy — the retry *mechanics* (fresh ClientWebSocket per attempt,
         // bounded ConnectTimeout via a linked token) are ported from
@@ -129,6 +136,15 @@ namespace Web7.SVRN7.Apps
 
         /// <summary>The connected TDA's Svrn7Name, populated after GetTdaDidAsync() completes.</summary>
         public string TdaName { get; private set; } = string.Empty;
+
+        /// <summary>
+        /// The connected TDA's X25519 public key (hex), populated from the Hello/Subscribed
+        /// ack before ConnectAsync returns. Every message SendEnvelopeAsync sends is Anoncrypt
+        /// (JWE, ECDH-ES+A256KW) packed to this key — PandoMail never signs (no private key
+        /// of its own), so plain JWE encryption is the whole of what it can do; see
+        /// docs/BACKLOG.md TDA-018/TDA-019 for the still-open reverse direction (TDA to app).
+        /// </summary>
+        public string TdaX25519PublicKeyHex { get; private set; } = string.Empty;
 
         /// <summary>True when the WebSocket connection to the TDA is open.</summary>
         public bool IsConnected => _ws.State == WebSocketState.Open;
@@ -358,10 +374,14 @@ namespace Web7.SVRN7.Apps
         }
 
         /// <summary>
-        /// Declares this connection's identity and subscriptions to WebSocketNotifyHub.
-        /// Sent as the last step of ConnectAsync, before any other traffic — the hub is
-        /// fail-closed (see docs/BACKLOG.md TDA-011): a connection that hasn't sent Hello
-        /// receives no broadcast notifications (correlated request replies are unaffected).
+        /// Declares this connection's identity and subscriptions to WebSocketNotifyHub, and
+        /// waits for the Subscribed ack — which now also carries the TDA's X25519 public key
+        /// (see WebSocketNotifyHub's Hello handler). Sent as the last step of ConnectAsync,
+        /// before any other traffic: the hub is fail-closed (see docs/BACKLOG.md TDA-011) for
+        /// broadcast notifications, and SendEnvelopeAsync needs TdaX25519PublicKeyHex populated
+        /// before it can Anoncrypt anything. Hello itself must stay plaintext — this is the one
+        /// bootstrap exception (same reasoning as P-008's DID-discovery plaintext carve-out on
+        /// the HTTP side): you cannot encrypt to a key you have not learned yet.
         /// </summary>
         private async Task SendHelloAsync(CancellationToken ct)
         {
@@ -369,24 +389,42 @@ namespace Web7.SVRN7.Apps
                 .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
                 ?.InformationalVersion ?? "unknown";
 
-            string envelope = JsonSerializer.Serialize(new
+            string id = NewMessageId();
+            var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _pending[id] = tcs;
+
+            try
             {
-                typ  = "application/didcomm-plain+json",
-                id   = "did:drn:svrn7.net/didcomm/msg/" + Guid.NewGuid().ToString("N"),
-                type = "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Hello",
-                body = new
+                string envelope = JsonSerializer.Serialize(new
                 {
-                    app           = "PandoMail",
-                    appVersion,
-                    appFullName   = typeof(TdaMailClient).Assembly.GetName().FullName,
-                    instanceId    = _instanceId.ToString(),
-                    mvid          = typeof(TdaMailClient).Module.ModuleVersionId.ToString(),
-                    subscriptions = Subscriptions.Select(s => new { uri = s.Uri, match = s.Match })
-                }
-            });
-            byte[] bytes = Encoding.UTF8.GetBytes(envelope);
-            await _ws.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
-            _log.LogDebug("sent Hello: {Envelope}", envelope);
+                    typ  = "application/didcomm-plain+json",
+                    id,
+                    type = "did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Hello",
+                    body = new
+                    {
+                        app           = "PandoMail",
+                        appVersion,
+                        appFullName   = typeof(TdaMailClient).Assembly.GetName().FullName,
+                        instanceId    = _instanceId.ToString(),
+                        mvid          = typeof(TdaMailClient).Module.ModuleVersionId.ToString(),
+                        subscriptions = Subscriptions.Select(s => new { uri = s.Uri, match = s.Match })
+                    }
+                });
+                byte[] bytes = Encoding.UTF8.GetBytes(envelope);
+                await _ws.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
+                _log.LogDebug("sent Hello: {Envelope}", envelope);
+
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(TimeSpan.FromSeconds(10));
+                timeout.Token.Register(() => tcs.TrySetCanceled());
+
+                string replyJson = await tcs.Task;
+                TdaX25519PublicKeyHex = ParseX25519PublicKeyHex(replyJson);
+            }
+            finally
+            {
+                _pending.TryRemove(id, out _);
+            }
         }
 
         /// <summary>
@@ -606,10 +644,10 @@ namespace Web7.SVRN7.Apps
             }
         }
 
-        // ── Signin: verify the wallet password (Svrn7.Signin.0.1.0) ────────────
+        // ── Signin: verify the wallet password (Svrn7.Trust.AppAuthn.0.1.0) ────────────
 
         /// <summary>
-        /// Verifies the TDA operator's wallet password via the generic Svrn7.Signin LOBE.
+        /// Verifies the TDA operator's wallet password via the generic Svrn7.Trust.AppAuthn LOBE.
         /// The TDA re-runs its own wallet unlock and discards the result immediately —
         /// no key material is ever returned here, only pass/fail (+ a reason on failure).
         /// This is a client-side gate only: PandoMail simply won't proceed past its
@@ -626,7 +664,7 @@ namespace Web7.SVRN7.Apps
             {
                 string msgBody = JsonSerializer.Serialize(new { password });
                 await SendEnvelopeAsync(
-                    "did:drn:svrn7.net/protocols/Svrn7.Signin.0.1.0/Authenticate",
+                    "did:drn:svrn7.net/protocols/Svrn7.Trust.AppAuthn.0.1.0/Authenticate",
                     id, msgBody, ct);
 
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -664,26 +702,44 @@ namespace Web7.SVRN7.Apps
         /// Callers awaiting a correlated reply generate this id themselves, register it in
         /// _pending *before* calling this method, and match the reply by its 'thid' (which
         /// the TDA sets to this id) — see docs/BACKLOG.md TDA-014.
+        ///
+        /// Every message sent through here is Anoncrypt-packed (JWE, ECDH-ES+A256KW) to the
+        /// TDA's X25519 public key (captured from the Hello/Subscribed ack — see
+        /// TdaX25519PublicKeyHex) before it goes over the wire. This is the single outbound
+        /// choke point for real protocol traffic, so encrypting here covers everything —
+        /// List-Emails, Enqueue-PandoMail, Authenticate, all of it — uniformly. Hello itself
+        /// stays plaintext (SendHelloAsync sends directly, not through here): you cannot
+        /// encrypt to a key you have not learned yet, same reasoning as P-008's DID-discovery
+        /// plaintext carve-out. PandoMail has no signing key of its own, so Anoncrypt (no
+        /// sender authentication) is the whole of what it can do — see docs/BACKLOG.md TDA-018
+        /// for the still-open reverse direction (TDA to app), which needs PandoMail to have a
+        /// keypair before the TDA has anything to encrypt to.
         /// </summary>
         /// <param name="body">
-        /// Pre-serialized JSON text (e.g. from JsonSerializer.Serialize(new {...})). Parsed
-        /// back into a JsonElement here so it's embedded in the envelope as a raw JSON object
-        /// per the DIDComm v2 spec ("body... MUST be a JSON object") — not as a string-typed
-        /// property, which would double-encode it (e.g. "body":"{\"limit\":50}" instead of
-        /// "body":{"limit":50}).
+        /// Pre-serialized JSON text (e.g. from JsonSerializer.Serialize(new {...})). Embedded
+        /// as the DIDComm message body before packing.
         /// </param>
         private async Task SendEnvelopeAsync(string type, string id, string body, CancellationToken ct)
         {
-            using JsonDocument bodyDoc = JsonDocument.Parse(body);
-            string envelope = JsonSerializer.Serialize(new
+            if (string.IsNullOrEmpty(TdaX25519PublicKeyHex))
+                throw new InvalidOperationException(
+                    "Cannot send — the TDA's X25519 public key is not yet known (Hello has not completed).");
+
+            var message = new DIDCommMessage
             {
-                typ = "application/didcomm-plain+json",
-                id,
-                type,
-                body = bodyDoc.RootElement
-            });
-            byte[] bytes = Encoding.UTF8.GetBytes(envelope);
-            _log.LogDebug("WS SEND type={Type} bytes={Bytes} state={State}", type, bytes.Length, _ws.State);
+                Id   = id,
+                Type = type,
+                To   = string.IsNullOrEmpty(TdaDid) ? null : TdaDid,
+                Body = body,
+            };
+
+            byte[] recipientPublicKey = Convert.FromHexString(TdaX25519PublicKeyHex);
+            string wire = await _didCommPack.PackEncryptedAsync(
+                message, recipientPublicKey, senderPrivateKey: Array.Empty<byte>(),
+                mode: DIDCommPackMode.Anoncrypt, ct);
+
+            byte[] bytes = Encoding.UTF8.GetBytes(wire);
+            _log.LogDebug("WS SEND (Anoncrypt) type={Type} bytes={Bytes} state={State}", type, bytes.Length, _ws.State);
             try
             {
                 await _ws.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
@@ -745,7 +801,13 @@ namespace Web7.SVRN7.Apps
 
                 _log.LogDebug("WS DISPATCH type={Type}", type);
 
-                if (type.EndsWith("/Reply-TdaDid", StringComparison.Ordinal))
+                if (type.EndsWith("/Subscribed", StringComparison.Ordinal))
+                {
+                    string thid = ExtractThid(root);
+                    if (!string.IsNullOrEmpty(thid) && _pending.TryGetValue(thid, out var tcs))
+                        tcs.TrySetResult(json);
+                }
+                else if (type.EndsWith("/Reply-TdaDid", StringComparison.Ordinal))
                 {
                     string thid = ExtractThid(root);
                     if (!string.IsNullOrEmpty(thid) && _pending.TryGetValue(thid, out var tcs))
@@ -919,6 +981,43 @@ namespace Web7.SVRN7.Apps
                 return new AuthResult(authenticated, reason);
             }
             catch (Exception ex) { return new AuthResult(false, $"Malformed AuthResult ({ex.Message})."); }
+        }
+
+        // Case-insensitive because DidDocument/DidVerificationMethod (Svrn7.Core.Models) have
+        // no [JsonPropertyName] attributes — GetDidDocumentJson serializes them with the raw
+        // C# PascalCase property names (VerificationMethod/Type/PublicKeyHex), not camelCase.
+        // Deserializing into the real model instead of hand-parsing JsonElement fields means
+        // this can never drift out of sync with however that type happens to serialize.
+        private static readonly JsonSerializerOptions _didDocJsonOpts =
+            new() { PropertyNameCaseInsensitive = true };
+
+        /// <summary>
+        /// Extracts the X25519 key-agreement public key from the TDA's own DID Document,
+        /// embedded whole in the Hello/Subscribed ack's body.didDocument (see
+        /// WebSocketNotifyHub's Hello handler — the same document $SVRN7.GetDidDocumentJson
+        /// returns to LOBEs). Looks for the verificationMethod entry whose type is
+        /// X25519KeyAgreementKey2020, matching how every DID Document in this codebase
+        /// represents its key-agreement key.
+        /// </summary>
+        private static string ParseX25519PublicKeyHex(string envelopeJson)
+        {
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(envelopeJson);
+                JsonElement root = doc.RootElement;
+                if (!root.TryGetProperty("body", out JsonElement bodyEl)) return string.Empty;
+                if (!bodyEl.TryGetProperty("didDocument", out JsonElement didDocEl) ||
+                    didDocEl.ValueKind != JsonValueKind.Object)
+                    return string.Empty;
+
+                var didDoc = didDocEl.Deserialize<Svrn7.Core.Models.DidDocument>(_didDocJsonOpts);
+                if (didDoc is null) return string.Empty;
+
+                var vm = didDoc.VerificationMethod
+                    .FirstOrDefault(v => v.Type == "X25519KeyAgreementKey2020");
+                return vm?.PublicKeyHex ?? string.Empty;
+            }
+            catch { return string.Empty; }
         }
 
         private static (int Inbox, int Sent, int DeadLetters) ParseFolderCounts(string envelopeJson)

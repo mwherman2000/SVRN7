@@ -32,7 +32,7 @@ namespace Web7.SVRN7.Apps
 			// Scan for locally running TDAs (or, with --port, verify just that one) and
 			// require the wallet password before anything else runs. TdaPickerForm never
 			// receives key material — it only learns pass/fail from the TDA's own
-			// Svrn7.Signin LOBE (see docs/BACKLOG.md TDA-019 for the related, separate,
+			// Svrn7.Trust.AppAuthn LOBE (see docs/BACKLOG.md TDA-019 for the related, separate,
 			// not-yet-built AuthZ gate for TDA-to-TDA traffic).
 			int? picked = TdaPickerForm.PickTda(portGivenExplicitly ? TdaPort : (int?)null);
 			if (picked is null)

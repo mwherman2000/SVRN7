@@ -9,7 +9,7 @@ namespace Web7.SVRN7.Apps
     /// Startup dialog: scans for locally running TDAs (via <see cref="TdaDiscovery"/>),
     /// lets the user pick one by name/port/DID, then requires the TDA's wallet password
     /// before PandoMail will proceed to <see cref="MainForm"/>. Password verification is
-    /// real (Svrn7.Signin LOBE re-checks the wallet server-side) but this dialog itself is
+    /// real (Svrn7.Trust.AppAuthn LOBE re-checks the wallet server-side) but this dialog itself is
     /// the only enforcement point — PandoMail never receives key material either way.
     /// </summary>
     public sealed class TdaPickerForm : Form

@@ -337,7 +337,7 @@ public sealed class Svrn7RunspaceContext
         return new FolderCounts(inbox, sent, dead);
     }
 
-    // ── Wallet password verification (Svrn7.Signin LOBE) ─────────────────────
+    // ── Wallet password verification (Svrn7.Trust.AppAuthn LOBE) ─────────────────────
 
     // Attempt limiter for VerifyWalletPasswordAsync — deliberately separate from
     // AgentWalletService's own UnlockThrottle (exponential backoff persisted next to the
@@ -354,7 +354,7 @@ public sealed class Svrn7RunspaceContext
     /// <summary>
     /// Verifies a candidate wallet password against this TDA's own wallet — the same
     /// Argon2id + AES-256-GCM decrypt Program.cs performs at bootstrap — without ever
-    /// returning key material to the caller. Called by the generic Svrn7.Signin LOBE;
+    /// returning key material to the caller. Called by the generic Svrn7.Trust.AppAuthn LOBE;
     /// the password itself travels to this TDA in plaintext, same as everything else on
     /// /localcomm-ws (P-008: localhost-only is the trust boundary for this channel, not
     /// per-message encryption). Not a server-side access gate — see

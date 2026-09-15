@@ -1145,10 +1145,19 @@ in its **own AgentWallet**, and the `AgentWallet` library is generalized from
 extraction) so the enrollment handshake and encrypted-channel work land in one
 place for both apps.
 
+**Update (2026-09-15) — answers the Identity model / Wallet provisioning
+questions above:** app keypairs come from a registration process that pairs a
+specific app with a specific TDA identity. The app's registration is stored as
+a DID Document in the *TDA's* DID registry (`svrn7-dids.db`) — an app does
+**not** get its own separate DID registry. The app's private key material is
+held in its own app wallet (a `Svrn7.Trust.AgentWallet`-family wallet file,
+per the "AgentWallet generalization" point above), never in the TDA's wallet
+and never in a LOBE runspace.
+
 ## TDA-019 — AuthZ gate for external (TDA-to-TDA) inbound traffic in DrawbridgeService
 
 **Area:** `DrawbridgeService`, `POST /didcomm` inbound path only — not
-`/localcomm-ws` (see the Svrn7.Signin LOBE, added alongside this entry, for the
+`/localcomm-ws` (see the Svrn7.Trust.AppAuthn LOBE, added alongside this entry, for the
 separate local-UI password-verification mechanism, which is deliberately not a
 server-side gate — see its own design note).
 
