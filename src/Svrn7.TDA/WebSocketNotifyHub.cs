@@ -185,7 +185,7 @@ public sealed class WebSocketNotifyHub : IDisposable
 
         if (type == PingType)
         {
-            // KestrelListenerService already called MarkReceived before this method ran —
+            // DrawbridgeService already called MarkReceived before this method ran —
             // that alone is enough to keep the server's own idle clock fresh. The Pong reply
             // is for the *client's* benefit: TdaMailClient tracks time-since-last-received
             // and needs proof the server is actually still there, not just that its own send
@@ -339,7 +339,7 @@ public sealed class WebSocketNotifyHub : IDisposable
             await SendToConnectionAsync(id, notice, CancellationToken.None);
 
             // Half-close: send the close frame and rely on the client responding with its
-            // own, which lets KestrelListenerService's ReceiveAsync loop end and Detach
+            // own, which lets DrawbridgeService's ReceiveAsync loop end and Detach
             // naturally. No hard-cancel fallback — this channel serves a small, trusted set
             // of first-party local processes, not adversarial peers (see BACKLOG.md TDA-013).
             using var closeCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));

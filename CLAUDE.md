@@ -31,7 +31,7 @@ SVRN7/
 
 ```
 POST /didcomm (HTTP/2, Kestrel)
-  └── KestrelListenerService
+  └── DrawbridgeService
         └── IDIDCommService.UnpackAsync       ← JWE decrypt + JWS verify at inbound boundary
               └── LiteInboxStore.EnqueueAsync
                     └── DIDCommMessageSwitchboard (drain loop)
@@ -48,7 +48,7 @@ POST /didcomm (HTTP/2, Kestrel)
 
 | Class | Role |
 |---|---|
-| `KestrelListenerService` | Single inbound gate: `POST /didcomm` only |
+| `DrawbridgeService` | Single inbound gate: `POST /didcomm` only |
 | `DIDCommMessageSwitchboard` | Inbox drain loop; routes by `@type`; outbound delivery |
 | `LobeManager` | Protocol registry; eager/JIT import; `EnsureLoadedAsync` |
 | `IsolatedRunspaceFactory` | Runspace pool (min 2, max ProcessorCount×2) |
@@ -89,8 +89,8 @@ The TDA's public inbound surface is HTTP/2-only (no HTTP/1.1 fallback). Reasons:
 |---|---|---|---|---|
 | HTTP (`POST /didcomm`) — TDA-to-TDA | outbound | General | SignThenEncrypt (secp256k1 ES256K JWS inside X25519 JWE) | Switchboard `PackOutboundAsync` |
 | HTTP (`POST /didcomm`) — TDA-to-TDA | outbound | DID discovery | Plaintext (`application/didcomm-plain+json`) | Switchboard `IsPlaintextDiscoveryMessage` → skip `PackOutboundAsync` |
-| HTTP (`POST /didcomm`) — TDA-to-TDA | inbound | General | SignThenEncrypt required | `KestrelListenerService` rejects non-encrypted with 415 |
-| HTTP (`POST /didcomm`) — TDA-to-TDA | inbound | DID discovery | Plaintext accepted | `KestrelListenerService` admits `application/didcomm-plain+json` only for `PlaintextDiscoveryProtocols`; rejects other plaintext with 403 |
+| HTTP (`POST /didcomm`) — TDA-to-TDA | inbound | General | SignThenEncrypt required | `DrawbridgeService` rejects non-encrypted with 415 |
+| HTTP (`POST /didcomm`) — TDA-to-TDA | inbound | DID discovery | Plaintext accepted | `DrawbridgeService` admits `application/didcomm-plain+json` only for `PlaintextDiscoveryProtocols`; rejects other plaintext with 403 |
 | WebSocket (`/localcomm-ws`) — TDA-to-local-UI | outbound | All | Plaintext (`application/didcomm-plain+json`) | Switchboard (PeerEndpoint starts with `ws://`) |
 | WebSocket (`/localcomm-ws`) — local-UI/tool-to-TDA | inbound | All | Plaintext accepted | localhost-only; no content-type gate |
 
@@ -102,7 +102,7 @@ The TDA's public inbound surface is HTTP/2-only (no HTTP/1.1 fallback). Reasons:
 
 **Why plaintext for WebSocket?** The `/localcomm-ws` channel is localhost-only. PandoMail holds no key material and shares the Citizen TDA's DID. Encryption would require giving PandoMail long-lived private keys — that contradicts the shared-identity design and would expand the attack surface unnecessarily.
 
-**Symmetric design:** This is the outbound counterpart of the decrypt-at-boundary pattern on the inbound side. `KestrelListenerService` unpacks every inbound message at the HTTP boundary before anything enters the inbox; `DIDCommMessageSwitchboard.PackOutboundAsync` packs every outbound HTTP message at the delivery boundary before anything leaves the process (DID discovery protocols excepted).
+**Symmetric design:** This is the outbound counterpart of the decrypt-at-boundary pattern on the inbound side. `DrawbridgeService` unpacks every inbound message at the HTTP boundary before anything enters the inbox; `DIDCommMessageSwitchboard.PackOutboundAsync` packs every outbound HTTP message at the delivery boundary before anything leaves the process (DID discovery protocols excepted).
 
 **Fallback behaviour:** If the recipient's DID Document does not contain an `X25519KeyAgreementKey2020` entry — for example, a TDA bootstrapped before X25519 keys were added — `PackOutboundAsync` logs a warning and sends plaintext. This is a degraded mode. All TDAs bootstrapped with the current codebase include an X25519 key by default.
 
@@ -110,16 +110,16 @@ The TDA's public inbound surface is HTTP/2-only (no HTTP/1.1 fallback). Reasons:
 
 | Field | Key type | Use |
 |---|---|---|
-| `AgentKeyAgreementPrivateKey` | X25519 (32 bytes) | Inbound JWE decryption (`KestrelListenerService.UnpackAsync`) |
+| `AgentKeyAgreementPrivateKey` | X25519 (32 bytes) | Inbound JWE decryption (`DrawbridgeService.UnpackAsync`) |
 | `AgentSigningPrivateKey` | secp256k1 (32 bytes) | Outbound JWS signing (`DIDCommMessageSwitchboard.PackOutboundAsync`) |
 
 Both are decrypted from `agent-identity.wallet` at startup (pre-host) and held for the process lifetime. Neither is passed into LOBE runspaces.
 
 ---
 
-## Design Rationale: Decrypt-at-Boundary (KestrelListenerService)
+## Design Rationale: Decrypt-at-Boundary (DrawbridgeService)
 
-`KestrelListenerService` fully unpacks every inbound DIDComm message — JWE decryption and JWS signature verification — **before** anything is written to the inbox. The decrypted plaintext body is what gets stored in `InboxMessage.PackedPayload`. The original wire envelope is preserved separately in `InboxMessage.JweEnvelope` for audit. This is a deliberate architectural constraint, not an implementation convenience.
+`DrawbridgeService` fully unpacks every inbound DIDComm message — JWE decryption and JWS signature verification — **before** anything is written to the inbox. The decrypted plaintext body is what gets stored in `InboxMessage.PackedPayload`. The original wire envelope is preserved separately in `InboxMessage.JweEnvelope` for audit. This is a deliberate architectural constraint, not an implementation convenience.
 
 Storing the raw JWE and decrypting later (in the Switchboard or in a LOBE) would break the system in five distinct ways:
 
@@ -131,7 +131,7 @@ Storing the raw JWE and decrypting later (in the Switchboard or in a LOBE) would
    ```
    If `PackedPayload` is a JWE envelope, `ConvertFrom-Json` returns the JWE structure, not the application payload. All existing LOBEs would require a decrypt-first step, making LOBE authoring significantly more complex and error-prone.
 
-3. **Key material must enter the LOBE runspace** — Decrypting in a LOBE requires the X25519 private key (`AgentKeyAgreementPrivateKey`) to be available there. Currently it is held only by `KestrelListenerService` and never enters a runspace. Injecting it into `$SVRN7` expands the attack surface: a buggy or malicious LOBE would have access to the TDA's decryption key.
+3. **Key material must enter the LOBE runspace** — Decrypting in a LOBE requires the X25519 private key (`AgentKeyAgreementPrivateKey`) to be available there. Currently it is held only by `DrawbridgeService` and never enters a runspace. Injecting it into `$SVRN7` expands the attack surface: a buggy or malicious LOBE would have access to the TDA's decryption key.
 
 4. **`FromDid` is unavailable for reply routing** — The sender DID is extracted from the JWS inner layer during `UnpackJwsAsync`. Without unpacking at the boundary, `InboxMessage.FromDid` is null. LOBE handlers that need to send a reply have no sender identity without repeating the full unpack.
 
@@ -420,7 +420,7 @@ determines dispatch on the PandoMail side. See `Principles.md` P-008.
 Sender TDA (remote)
   └── DIDComm V2 SignThenEncrypt (secp256k1 JWS + X25519 JWE)
         └── POST /didcomm → Local Citizen TDA (Kestrel, HTTP/2, mTLS)
-              └── KestrelListenerService.UnpackAsync  ← decrypt + verify at inbound boundary
+              └── DrawbridgeService.UnpackAsync  ← decrypt + verify at inbound boundary
                     └── Switchboard (routes by @type)
                           └── Svrn7.Email LOBE (.psm1)
                                 ├── Persist to LiteDB (Long-Term Message Memory)

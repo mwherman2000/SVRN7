@@ -116,7 +116,7 @@ Web7-DSA.sln
     ├── LobeManager.cs           — eager/JIT LOBE loader, lobes.config.json
     ├── IsolatedRunspaceFactory.cs   — PowerShell RunspacePool lifecycle
     ├── DIDCommMessageSwitchboard.cs — sole inbox reader, pass-by-reference routing
-    ├── KestrelListenerService.cs    — POST /didcomm, HTTP/2 + mTLS
+    ├── DrawbridgeService.cs    — POST /didcomm, HTTP/2 + mTLS
     ├── TdaHost.cs               — TdaOptions, SwitchboardHostedService, DI extensions
     └── Program.cs               — console app entry point     — ISvrn7SocietyDriver, Society operations, cross-Society protocol
 └── tests/
@@ -209,7 +209,7 @@ specs/
 - **Initial Federation supply: 1,000,000,000 SVRN7 = 10¹⁵ grana**
 - **Citizen endowment: 1,000 grana = 0.001 SVRN7 (changed from 1,000 SVRN7 in v0.8.0, DSA 0.24)**
 - **Step 3 nonce replay: `ConcurrentDictionary` → `ITransferNonceStore` / `LiteTransferNonceStore` (LiteDB TTL collection in `Svrn7LiteContext.ColNonces`). `NonceRecord { Nonce, SeenAt, ExpiresAt }` in `Models.cs`. Sweep-on-access + duplicate-key insert = replay detection. Survives process restarts.**
-- **Durable inbox: `ConcurrentQueue` → `IInboxStore` / `LiteInboxStore` (svrn7-msg.db via `MsgLiteContext`). `InboxMessage { Id, MessageType, PackedPayload, FromDid, WireId, ReceivedAt, Status, ProcessedAt, LastError, AttemptCount }`. `FromDid` is the sender DID from the DIDComm envelope; `WireId` is the sender's DIDComm wire `id` field — both threaded from `KestrelListenerService` via `unpacked.From` / `unpacked.Id` → `IInboxStore.EnqueueAsync(messageType, packedPayload, fromDid?, wireId?, ct)`. `WireId` is null for encrypted messages (the wire `id` is inside the ciphertext; populated only for plaintext messages). Exposed to LOBE cmdlets as `InboxMessageView.FromDid` via `$SVRN7.GetMessageAsync()`. Lifecycle: `Pending → Processing → Processed | Failed`. `ResetStuckMessagesAsync` on startup. Max 3 retries then dead-letter. `MsgDbPath` option on `Svrn7SocietyOptions`.**
+- **Durable inbox: `ConcurrentQueue` → `IInboxStore` / `LiteInboxStore` (svrn7-msg.db via `MsgLiteContext`). `InboxMessage { Id, MessageType, PackedPayload, FromDid, WireId, ReceivedAt, Status, ProcessedAt, LastError, AttemptCount }`. `FromDid` is the sender DID from the DIDComm envelope; `WireId` is the sender's DIDComm wire `id` field — both threaded from `DrawbridgeService` via `unpacked.From` / `unpacked.Id` → `IInboxStore.EnqueueAsync(messageType, packedPayload, fromDid?, wireId?, ct)`. `WireId` is null for encrypted messages (the wire `id` is inside the ciphertext; populated only for plaintext messages). Exposed to LOBE cmdlets as `InboxMessageView.FromDid` via `$SVRN7.GetMessageAsync()`. Lifecycle: `Pending → Processing → Processed | Failed`. `ResetStuckMessagesAsync` on startup. Max 3 retries then dead-letter. `MsgDbPath` option on `Svrn7SocietyOptions`.**
 - **DIDCommTransferHandler idempotency: `ConcurrentDictionary._processedOrders` → `IProcessedOrderStore` / `LiteProcessedOrderStore` (also in svrn7-msg.db). `ProcessedOrderRecord { TransferId, PackedReceipt, ProcessedAt }`. Ensures duplicate `TransferOrder` DIDComm messages return the cached receipt without re-crediting.**
 
 ### Supply Rules
@@ -580,7 +580,7 @@ zip -r svrn7-society-v0.7.0-final.zip svrn7-society/ \
 src/Svrn7.TDA/
 ├── Program.cs                   — .NET 8 console app entry point
 ├── TdaHost.cs                   — TdaOptions, SwitchboardHostedService, AddSvrn7Tda() DI
-├── KestrelListenerService.cs    — POST /didcomm, HTTP/2 + mTLS, UnpackAsync boundary
+├── DrawbridgeService.cs    — POST /didcomm, HTTP/2 + mTLS, UnpackAsync boundary
 ├── DIDCommMessageSwitchboard.cs — sole inbox reader, epoch gate, DID URL pass-by-reference
 ├── IsolatedRunspaceFactory.cs       — PowerShell RunspacePool (min=2, max=N), epoch refresh
 ├── LobeManager.cs               — eager/JIT LOBE loading from lobes.config.json
@@ -597,7 +597,7 @@ GetMessageAsync() accepts the DID URL, uses it as IMemoryCache key directly.
 
 ### InboxMessage.WireId — DIDComm Wire Identity
 InboxMessage.WireId stores the sender's DIDComm wire `id` field (e.g. `did:drn:svrn7.net/didcomm/msg/{guid}`).
-Threaded from KestrelListenerService via DIDCommUnpackedMessage.Id → IInboxStore.EnqueueAsync(wireId?).
+Threaded from DrawbridgeService via DIDCommUnpackedMessage.Id → IInboxStore.EnqueueAsync(wireId?).
 Null for encrypted messages — the wire id is inside the JWE ciphertext and not recoverable without decryption.
 Populated only for plaintext messages (dev/internal traffic). Enables correlation between a stored InboxMessage
 and the original DIDComm message identity on the wire without re-parsing PackedPayload.
@@ -724,7 +724,7 @@ Formally defined in draft-herman-parchment-programming-00 Section 5.2.1.
 |11 | Conditional Components  | Blue dashed    | Very light blue   | Conditional deployment group | No              |
 
 ### Derivation rules (each element type → software artefact):
-- Protocol (1)  → KestrelListenerService.cs + HttpClient named "didcomm"
+- Protocol (1)  → DrawbridgeService.cs + HttpClient named "didcomm"
 - LOBE (3)      → {Name}.psm1 + {Name}.psd1 + {Name}.lobe.json + exported cmdlets
 - Data Storage (5) → LiteDB context class + IXxxStore interface + implementation
 - Data Access (6)  → IXxxResolver interface + implementation(s)

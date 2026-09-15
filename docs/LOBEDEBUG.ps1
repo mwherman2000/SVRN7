@@ -63,7 +63,7 @@ dotnet .\Svrn7.TDA.dll --port 8443 --name MyTDA
 #
 # info: DIDCommMessageSwitchboard[0]
 #       DIDCommMessageSwitchboard: drain loop started.
-# info: KestrelListenerService[0]
+# info: DrawbridgeService[0]
 #       TDA Kestrel listener started on port 8443 (h2c).
 #
 # Pando.Diagnostics is a JIT LOBE — it is not loaded at startup.  It is imported

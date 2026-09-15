@@ -149,7 +149,7 @@ All outbound DIDComm messages follow this rule:
 **HTTP enforcement point:** `DIDCommMessageSwitchboard.PackOutboundAsync`.  LOBEs construct
 plaintext envelopes and return `OutboundMessage`; the Switchboard applies SignThenEncrypt
 at delivery time.  This mirrors the decrypt-at-boundary pattern on the inbound side
-(`KestrelListenerService.HandleInboundAsync`).
+(`DrawbridgeService.HandleInboundAsync`).
 
 **Fallback behaviour:** If the recipient's DID Document does not contain an
 `X25519KeyAgreementKey2020` entry, `PackOutboundAsync` logs a warning and sends

@@ -80,7 +80,7 @@ public static class Svrn7Constants
     /// relationship. Encryption is impossible on this path — you cannot encrypt
     /// to a peer whose DID Document you haven't yet resolved.
     ///
-    /// Inbound: <c>KestrelListenerService</c> admits these without the SignThenEncrypt
+    /// Inbound: <c>DrawbridgeService</c> admits these without the SignThenEncrypt
     /// content-type gate; any other plaintext on POST /didcomm is rejected 403.
     /// Outbound: <c>DIDCommMessageSwitchboard</c> skips <c>PackOutboundAsync</c>
     /// for these and sends <c>application/didcomm-plain+json</c> directly.

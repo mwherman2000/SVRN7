@@ -120,7 +120,7 @@ Internally, the TDA is structured around the PPML Legend 0.25 element types:
 | LOBE              | PowerShell modules (.psm1)              | .psm1 + .psd1 + .lobe.json          |
 | Data Storage      | LiteDB databases                        | LiteDB context class + IXxxStore    |
 | Data Access       | Resolvers / caches                      | IXxxResolver + IMemoryCache         |
-| Protocol          | Kestrel listener + HttpClient           | KestrelListenerService.cs           |
+| Protocol          | Kestrel listener + HttpClient           | DrawbridgeService.cs           |
 | Network           | Internet/LAN/P2P                        | Transport configuration             |
 
 Every component is traceable to a diagram element in DSA 0.24 via a derivation trace comment.
@@ -235,7 +235,7 @@ Svrn7.Society
 Derived from: "Citizen/Society TDA (Host)" — element type Host — DSA 0.24 Epoch 0 (PPML).
 
 **Inbound**: `POST /didcomm` (Kestrel HTTP/2 + mTLS; body size limit 2 MB; rate-limited: 100 req/s default)
-→ `KestrelListenerService.UnpackAsync()` — security boundary: full JWE decrypt + JWS verify for `application/didcomm-encrypted+json`; parse-only for whitelisted plaintext DID-discovery messages; extracts `Id`, `Type`, `From`, `Body` from the resulting plaintext in both cases;
+→ `DrawbridgeService.UnpackAsync()` — security boundary: full JWE decrypt + JWS verify for `application/didcomm-encrypted+json`; parse-only for whitelisted plaintext DID-discovery messages; extracts `Id`, `Type`, `From`, `Body` from the resulting plaintext in both cases;
   returns 503 + `Retry-After: 5` if EnqueueAsync throws; returns 429 when rate limit exceeded
 → `LiteInboxStore.EnqueueAsync(type, body, fromDid?, wireId?)` — persists to `svrn7-msg.db`; `wireId = unpacked.Id`
 → `DIDCommMessageSwitchboard` — on startup: calls `ResetStuckMessagesAsync()` (recovery) and re-enqueues dead-lettered outbound messages;
@@ -256,7 +256,7 @@ than the host loading them:
 
 | Layer | Owns | Never does |
 |---|---|---|
-| **C# host** — `KestrelListenerService`, storage (`LiteInboxStore`/DID/VC registries), `DIDCommMessageSwitchboard`, `LobeManager` | Decrypt/verify at the inbound boundary; durable persistence; routing by `@type`; SignThenEncrypt at the outbound boundary; runspace pool lifecycle | Run LOBE-author-supplied business logic |
+| **C# host** — `DrawbridgeService`, storage (`LiteInboxStore`/DID/VC registries), `DIDCommMessageSwitchboard`, `LobeManager` | Decrypt/verify at the inbound boundary; durable persistence; routing by `@type`; SignThenEncrypt at the outbound boundary; runspace pool lifecycle | Run LOBE-author-supplied business logic |
 | **LOBE** (`.psm1` protocol entrypoints) | Application/protocol logic on an already-decrypted message body; returns a plaintext `[Svrn7.TDA.OutboundMessage]` (or `$null`) | Touch DIDComm envelope crypto (JWE/JWS) or the TDA's own transport signing/key-agreement key material — both stay C#-only |
 
 See `docs/LOBEGUIDE.md`'s "Division of Responsibility" section for the full detail,
@@ -267,7 +267,7 @@ were reachable from any dispatch runspace despite never being a registered entry
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  NETWORK                                                       │
-│  HTTP/2 + mTLS  POST /didcomm  (KestrelListenerService.cs)   │
+│  HTTP/2 + mTLS  POST /didcomm  (DrawbridgeService.cs)   │
 └──────────────────────────┬───────────────────────────────────┘
                            │ writes packed DIDComm payload
                            ▼
@@ -850,7 +850,7 @@ src/Svrn7.Core/
 src/Svrn7.TDA/
     Program.cs                    Entry point -- Generic Host startup
     TdaHost.cs                    DI container configuration
-    KestrelListenerService.cs     POST /didcomm -- unpack -> persist -> enqueue
+    DrawbridgeService.cs     POST /didcomm -- unpack -> persist -> enqueue
     DIDCommMessageSwitchboard.cs  Descriptor-driven routing + Option A transfer idempotency
     LobeManager.cs                RegisterFromDescriptor, EnsureLoadedAsync, FileSystemWatcher
     LobeRegistration.cs           C# model for .lobe.json (MCP-aligned)

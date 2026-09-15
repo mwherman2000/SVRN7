@@ -48,12 +48,12 @@ public sealed class TdaOptions
 
     /// <summary>
     /// Society Ed25519 messaging private key (raw 32 bytes).
-    /// Used by KestrelListenerService for UnpackAsync (DIDComm V2 Messaging boundary).
+    /// Used by DrawbridgeService for UnpackAsync (DIDComm V2 Messaging boundary).
     /// </summary>
     [Required]
     public byte[] SocietyMessagingPrivateKeyEd25519 { get; set; } = [];
 
-    /// <summary>X25519 key agreement private key (raw 32 bytes). Used by KestrelListenerService for JWE decryption in UnpackAsync.</summary>
+    /// <summary>X25519 key agreement private key (raw 32 bytes). Used by DrawbridgeService for JWE decryption in UnpackAsync.</summary>
     public byte[] AgentKeyAgreementPrivateKey { get; set; } = [];
 
     /// <summary>secp256k1 signing private key (raw 32 bytes). Used by DIDCommMessageSwitchboard for SignThenEncrypt on outbound HTTP messages.</summary>
@@ -297,7 +297,7 @@ public sealed class SwitchboardHostedService : BackgroundService
 ///   5.  IsolatedRunspaceFactory (PowerShell Runspace Pool lifecycle)
 ///   6.  DIDCommMessageSwitchboard (sole inbox reader + outbound queue)
 ///   7.  SwitchboardHostedService (drain loop BackgroundService)
-///   8.  KestrelListenerService (POST /didcomm, HTTP/2 + mTLS)
+///   8.  DrawbridgeService (POST /didcomm, HTTP/2 + mTLS)
 ///
 /// Call after AddSvrn7Society() in Program.cs.
 /// </summary>
@@ -419,9 +419,9 @@ public static class TdaServiceCollectionExtensions
                 hostOpts.ShutdownTimeout = TimeSpan.FromSeconds(
                     tdaOpts.Value.LobeInvocationTimeoutSeconds + 10));
 
-        // 8. KestrelListenerService (POST /didcomm, HTTP/2 + mTLS)
+        // 8. DrawbridgeService (POST /didcomm, HTTP/2 + mTLS)
         // Derived from: "HTTP Listener/Sender (HTTPClient)" — DSA 0.24 Epoch 0.
-        services.AddHostedService<KestrelListenerService>();
+        services.AddHostedService<DrawbridgeService>();
 
         return services;
     }

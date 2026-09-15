@@ -12,7 +12,7 @@
     <Description>
       Web 7.0 Trusted Digital Assistant (TDA) Host — DSA 0.24 Epoch 0.
       Implements the five Critical-priority DSA 0.24 components:
-        1. KestrelListenerService  — POST /didcomm, HTTP/2 + mTLS inbound gate
+        1. DrawbridgeService  — POST /didcomm, HTTP/2 + mTLS inbound gate
         2. DIDCommMessageSwitchboard — sole inbox reader, pass-by-reference ObjectId routing
         3. RunspacePoolManager     — PowerShell RunspacePool lifecycle
         4. LobeManager             — eager/JIT LOBE loading from lobes.config.json

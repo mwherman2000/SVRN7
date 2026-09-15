@@ -3,7 +3,7 @@
 This guide covers manually exercising `/localcomm-ws` (Hello handshake, subscription-based
 broadcast routing, correlation-based reply routing) and the PandoMail folder-count / Cc
 fan-out behavior that rides on top of it, end-to-end against a live TDA. No unit-test
-stubs — real `WebSocketNotifyHub`, real `KestrelListenerService`, real LOBEs.
+stubs — real `WebSocketNotifyHub`, real `DrawbridgeService`, real LOBEs.
 
 See `docs/BACKLOG.md` TDA-011 for the design this exercises, and
 `src/Svrn7.TDA/WebSocketNotifyHub.cs` for the implementation.
@@ -143,7 +143,7 @@ carries data the hub must act on (subscriptions) — WsExample2's `attach` is pu
 announcement, nothing to acknowledge. And Hello/Goodbye are the *only* two message types
 on this channel that get intercepted before the normal DIDComm unpack/enqueue pipeline —
 everything else (`List-Emails`, `Enqueue-PandoMail`, etc.) flows through
-`KestrelListenerService` → inbox → Switchboard → LOBE exactly as it always has.
+`DrawbridgeService` → inbox → Switchboard → LOBE exactly as it always has.
 
 ---
 
@@ -164,7 +164,7 @@ $PSVersionTable.PSVersion   # Major must be 7
 "Svrn7.TDA.WebSocketNotifyHub": "Debug",
 ```
 
-If it's missing, add it next to the `Svrn7.TDA.KestrelListenerService` entry and rebuild.
+If it's missing, add it next to the `Svrn7.TDA.DrawbridgeService` entry and rebuild.
 Without it you'll see the WebSocket attach/detach and raw frame bytes, but nothing about
 Hello parsing, subscription matching, or correlated-reply routing — which looks exactly
 like a silent failure even when everything is working correctly.
@@ -191,7 +191,7 @@ for a self-addressed send.
 Confirm in the startup log:
 
 ```
-KestrelListenerService: POST /didcomm (HTTP/2 inbound) and GET /localcomm-ws (WebSocket RFC 8441) active on port 8443.
+DrawbridgeService: POST /didcomm (HTTP/2 inbound) and GET /localcomm-ws (WebSocket RFC 8441) active on port 8443.
 ```
 
 If this says `/didcomm-notify` instead of `/localcomm-ws`, the build predates the path
@@ -211,8 +211,8 @@ Start-Process "C:\SVRN7\repos\SVRN7\src\Web7.SVRN7.Apps.PandoMail\C#\OLAF\bin\De
 Watch the TDA console (or tail its log) for, in order:
 
 ```
-info: Svrn7.TDA.KestrelListenerService[0]
-      KestrelListenerService: local-UI WebSocket attached on /localcomm-ws (id=<guid>).
+info: Svrn7.TDA.DrawbridgeService[0]
+      DrawbridgeService: local-UI WebSocket attached on /localcomm-ws (id=<guid>).
 info: Svrn7.TDA.WebSocketNotifyHub[0]
       WebSocketNotifyHub: Hello from app='PandoMail' version='<version>' instance=<guid> (2 subscription(s)).
 ```
@@ -427,7 +427,7 @@ reachable in this environment.
 2. ✅ Launched real `PandoMail.exe` → TDA attached the socket, but no further activity
    appeared in the log at all.
 3. 🔍 Investigated the silence — `WebSocketNotifyHub` had no `appsettings.json` log-level
-   entry (fell back to `Default: Warning`, unlike `KestrelListenerService`/
+   entry (fell back to `Default: Warning`, unlike `DrawbridgeService`/
    `DIDCommMessageSwitchboard`, which have explicit `Debug` entries). Every Hello/
    Subscribed/routing log written this session was silently suppressed — not a functional
    bug, but it made the feature look broken when it wasn't. Fixed by adding the entry
@@ -493,7 +493,7 @@ RECV: {"type":"...PandoMail.0.8.0/Notify-FolderCounts","body":{"inboxCount":1,"s
 
 If you see `WebSocketNotifyHub: connection ... idle for over 60s - closing.` and then,
 later, *more* frames processed on that same connection id before
-`KestrelListenerService: local-UI WebSocket detached` finally appears — that was a real
+`DrawbridgeService: local-UI WebSocket detached` finally appears — that was a real
 bug (fixed 2026-07-02, see `docs/BACKLOG.md` TDA-013): a message that arrives after the
 server's local half-close (`CloseOutputAsync`) has already begun used to still get fully
 processed (LOBE work and all), only for its reply to vanish with

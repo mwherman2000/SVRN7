@@ -320,7 +320,7 @@ keylog).
 | `TdaOptions` field | Key | Use | Source |
 |---|---|---|---|
 | `AgentSigningPrivateKey` | secp256k1, 32 bytes | outbound DIDComm JWS (`DIDCommMessageSwitchboard.PackOutboundAsync`), transaction signing | wallet payload |
-| `AgentKeyAgreementPrivateKey` | X25519, 32 bytes | inbound JWE decryption (`KestrelListenerService.UnpackAsync`) | wallet payload |
+| `AgentKeyAgreementPrivateKey` | X25519, 32 bytes | inbound JWE decryption (`DrawbridgeService.UnpackAsync`) | wallet payload |
 | `DatabaseMasterKey` | random, 32 bytes | LiteDB `Password=` (hex) for all five databases | wallet payload |
 
 - All three are decrypted from the wallet **before the host is built** and held

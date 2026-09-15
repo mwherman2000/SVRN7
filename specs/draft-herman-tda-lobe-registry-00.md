@@ -153,13 +153,13 @@ NOT RECOMMENDED, MAY, and OPTIONAL are to be interpreted as described in BCP 14 
   `FromDid` is required by all `society/1.0/*` protocol handlers to route reply messages
   back to the sender.
 
-- **FromDid threading**: `KestrelListenerService.HandleInboundAsync` extracts `unpacked.From`
+- **FromDid threading**: `DrawbridgeService.HandleInboundAsync` extracts `unpacked.From`
   from the `DIDCommUnpackedMessage` after `UnpackAsync` and passes it as the optional
   `fromDid` parameter to `IInboxStore.EnqueueAsync(messageType, packedPayload, fromDid?, wireId?, ct)`.
   The `LiteInboxStore` persists it in `InboxMessage.FromDid`. The Switchboard reads it
   back when constructing the `InboxMessageView` passed to LOBE cmdlets.
 
-- **WireId threading**: `KestrelListenerService.HandleInboundAsync` also extracts `unpacked.Id`
+- **WireId threading**: `DrawbridgeService.HandleInboundAsync` also extracts `unpacked.Id`
   from the `DIDCommUnpackedMessage` and passes it as the optional `wireId` parameter to
   `IInboxStore.EnqueueAsync`. The `LiteInboxStore` persists it in `InboxMessage.WireId`.
   `WireId` holds the sender's DIDComm wire `id` field (e.g. `did:drn:svrn7.net/didcomm/msg/{guid}`),

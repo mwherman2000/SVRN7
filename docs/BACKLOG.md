@@ -211,7 +211,7 @@ package-ID derivation), TDA-004 (per-instance lobes dir), LOBE registry design
 
 ## TDA-005 — TDA-to-TDA transport without HTTPS/TLS (FYI / Future Design)
 
-**Area:** `KestrelListenerService`, `TdaOptions`, deployment
+**Area:** `DrawbridgeService`, `TdaOptions`, deployment
 
 **Summary:** TDAs will normally communicate over cleartext HTTP/2 (h2c), not
 HTTPS/TLS.  TLS termination, if required, will be handled by the network
@@ -228,12 +228,12 @@ by the TDA process itself.
 - The outbound `HttpClient` ("didcomm") already uses `RequestVersionExact` for
   HTTP/2 and works over h2c today — no change needed there.
 
-**Current behaviour:** When no TLS certificate is configured, `KestrelListenerService`
+**Current behaviour:** When no TLS certificate is configured, `DrawbridgeService`
 logs a warning and runs in cleartext HTTP/2 mode:
 
 ```
-warn: Svrn7.TDA.KestrelListenerService[0]
-      KestrelListenerService: TLS certificate not configured.
+warn: Svrn7.TDA.DrawbridgeService[0]
+      DrawbridgeService: TLS certificate not configured.
       Running in cleartext HTTP/2 (development mode only).
 ```
 
@@ -477,7 +477,7 @@ multiple versions installed.
 
 ## TDA-009 — WebSocket /localcomm-ws channel encryption (PandoMail ↔ Citizen TDA) ✓ RESOLVED BY POLICY
 
-**Area:** `WebSocketNotifyHub`, `KestrelListenerService`, `TdaMailClient`, `DIDCommPackingService`
+**Area:** `WebSocketNotifyHub`, `DrawbridgeService`, `TdaMailClient`, `DIDCommPackingService`
 
 **Policy decision (2026-06-19):** All WebSocket messages, inbound or outbound, use
 plaintext DIDComm (`application/didcomm-plain+json`).  The `/localcomm-ws` channel
@@ -516,7 +516,7 @@ Changes made:
 
 ## ~~TDA-011~~ — WebSocketNotifyHub subscription routing for multiple local-UI clients ✓ *implemented (2026-07-01)*
 
-**Area:** `WebSocketNotifyHub`, `KestrelListenerService`, `TdaMailClient`
+**Area:** `WebSocketNotifyHub`, `DrawbridgeService`, `TdaMailClient`
 
 **Summary:** `WebSocketNotifyHub` currently broadcasts every push notification to all
 connected clients. This is correct when only one app is connected, but breaks with
@@ -581,7 +581,7 @@ step before returning, never left to a caller to remember.
 **Hello is intercepted below the Switchboard, not routed through it:** LOBE cmdlets only
 ever see `$SVRN7` and a message DID — they have no notion of *which socket* a message
 arrived on, so subscription bookkeeping cannot be a LOBE-registered protocol. `Hello` (and
-`Goodbye`) must be intercepted directly in `KestrelListenerService.ReceiveWebSocketLoopAsync`
+`Goodbye`) must be intercepted directly in `DrawbridgeService.ReceiveWebSocketLoopAsync`
 using the `clientId` already returned by `_hub.Attach(ws)`, and never forwarded to
 `_inbox.EnqueueAsync`/the Switchboard at all. This is the reusable part of the pattern:
 subscription bookkeeping lives entirely in shared TDA infrastructure, decoupled from any
@@ -592,7 +592,7 @@ sending one `Hello` frame, no per-app server code required.
 subscriptions solve *broadcast notifications* (`Email-Notify`, `Notify-FolderCounts`).
 *Request/reply* correctness (`List-Emails`→`Get-PandoMails`, `Query-TdaDid`→`Reply-TdaDid`,
 etc.) needed a separate mechanism — `WebSocketNotifyHub.TrackCorrelation(correlationId,
-socketId)`, called from `KestrelListenerService.ProcessWebSocketMessageAsync` whenever an
+socketId)`, called from `DrawbridgeService.ProcessWebSocketMessageAsync` whenever an
 inbound WS message's body carries a `correlationId`, before enqueueing. `PushAsync` checks
 for a tracked correlation first (unicast to that connection only, entry consumed on match)
 and falls back to subscription-based multicast otherwise. Entries older than 5 minutes are
@@ -639,7 +639,7 @@ WebSocket frame received
   `.lobe.json` (not literally `LobeManager`'s matcher — a small local reimplementation,
   since subscriptions are a per-connection list rather than a single registry and only need
   an any-match boolean, not longest-prefix-wins).
-- `KestrelListenerService`: `ReceiveWebSocketLoopAsync`/`ProcessWebSocketMessageAsync` now
+- `DrawbridgeService`: `ReceiveWebSocketLoopAsync`/`ProcessWebSocketMessageAsync` now
   thread `clientId` through; `TryHandleControlFrameAsync` is checked before
   `UnpackAsync`/`EnqueueAsync`; `TryTrackRequestCorrelation` extracts `body.correlationId`
   and calls `_hub.TrackCorrelation` before enqueueing.
@@ -659,7 +659,7 @@ WebSocket frame received
 
 ## ~~TDA-013~~ — /localcomm-ws WebSocket hardening (idle watchdog, message cap, per-connection send lock) ✓ *implemented (2026-07-01)*
 
-**Area:** `WebSocketNotifyHub`, `KestrelListenerService`
+**Area:** `WebSocketNotifyHub`, `DrawbridgeService`
 
 **Summary:** Surfaced by reading `src/WsExample2-Kestrel` (a reference WebSocket
 server/client pair) while designing TDA-011. That example treats three things as
@@ -674,7 +674,7 @@ none of them:
    (15s), sends a `{"type":"timeout"}` notice, then does a graceful `CloseOutputAsync`
    half-close before falling back to a hard cancel if the client doesn't respond within 5s.
 
-2. **No message size cap.** `KestrelListenerService`'s WS receive loop
+2. **No message size cap.** `DrawbridgeService`'s WS receive loop
    (`ReceiveWebSocketLoopAsync`) has no equivalent of the HTTP side's
    `kestrel.Limits.MaxRequestBodySize = 2 * 1024 * 1024` — an oversized or malformed
    frame accumulates in the `MemoryStream` reassembly buffer without bound. WsExample2
@@ -701,7 +701,7 @@ none of them:
   processes, not adversarial peers; a stuck connection is caught eventually by the
   Detach/pruning already done in `PushAsync`.
 - **Message size cap:** `WebSocketNotifyHub.MaxMessageBytes` (1 MB) checked inside
-  `KestrelListenerService.ReceiveWebSocketLoopAsync`'s reassembly loop; closes with
+  `DrawbridgeService.ReceiveWebSocketLoopAsync`'s reassembly loop; closes with
   `WebSocketCloseStatus.MessageTooBig` if exceeded.
 - **Per-connection send lock:** each `Connection.SendLock` guards sends to that socket only
   — replaces the old single global `_sendLock` that serialized broadcasts across every
@@ -793,7 +793,7 @@ catch.)
 **Area:** `Svrn7.DIDComm` (`DIDCommMessage`, `DIDCommUnpackedMessage`), `Svrn7.Core`
 (`InboundMessage`, `IInboxStore.EnqueueAsync`), `Svrn7RunspaceContext` (`InboundMessageView`),
 `PandoMail.0.8.0.psm1`, `Svrn7.Identity.0.8.0.psm1`, `TdaMailClient`, `WebSocketNotifyHub`,
-`KestrelListenerService`
+`DrawbridgeService`
 
 **Summary:** Surfaced while implementing TDA-011's correlation-based reply routing
 (2026-07-01). DIDComm Messaging V2 defines `thid` (thread ID) as a standard envelope-level
@@ -813,11 +813,11 @@ here is first-party code, no external DIDComm peers depend on the old shape), fu
   (`PlaintextResult`, `UnpackJwsAsync`).
 - `Thid` added to `InboundMessage` (`Svrn7.Core`) and `IInboxStore.EnqueueAsync`'s new `thid`
   parameter, persisted by `LiteInboxStore`, populated from `unpacked.Thid` at both
-  `KestrelListenerService` enqueue sites (HTTP and WS).
+  `DrawbridgeService` enqueue sites (HTTP and WS).
 - `InboundMessageView` gained two fields: `Thid` (the incoming message's own thid, used by
   `Invoke-Svrn7DidResolveResponse`) and **`WireId`** (the sender's wire envelope `id` — see
   the bug note below).
-- `KestrelListenerService.TryTrackRequestCorrelation` deleted entirely — replaced by a
+- `DrawbridgeService.TryTrackRequestCorrelation` deleted entirely — replaced by a
   one-line `_hub.TrackCorrelation(unpacked.Id, clientId)` in `ProcessWebSocketMessageAsync`,
   no more hand-parsing `body.correlationId` out of JSON.
 - `WebSocketNotifyHub.PushAsync` now reads top-level `thid` directly instead of digging into

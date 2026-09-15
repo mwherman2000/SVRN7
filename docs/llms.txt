@@ -355,7 +355,7 @@ The TDA Host is a .NET 8 console app (Generic Host + Kestrel HTTP/2 + mTLS).
 Single inbound surface: POST /didcomm. Closed TDA-to-TDA ecosystem. No gRPC.
 
 Key classes:
-  KestrelListenerService  — POST /didcomm, HTTP/2 + mTLS, UnpackAsync boundary;
+  DrawbridgeService  — POST /didcomm, HTTP/2 + mTLS, UnpackAsync boundary;
                             threads unpacked.From → IInboxStore.EnqueueAsync as fromDid;
                             threads unpacked.Id   → IInboxStore.EnqueueAsync as wireId (null for encrypted);
                             returns 503 + Retry-After:5 if EnqueueAsync throws; body size limit 2 MB;
@@ -402,7 +402,7 @@ InboxMessage fields (Svrn7.Core.Models):
   Id            — TDA resource DID URL (e.g. did:drn:societytest.svrn7.net/inbox/msg/5f43a2b1...)
   MessageType   — DIDComm @type URI
   PackedPayload — unpacked DIDComm body (plaintext JSON string)
-  FromDid       — sender DID from DIDComm envelope (nullable; threaded from KestrelListenerService via unpacked.From)
+  FromDid       — sender DID from DIDComm envelope (nullable; threaded from DrawbridgeService via unpacked.From)
   WireId        — sender's DIDComm wire 'id' field (nullable; threaded via unpacked.Id; null for encrypted messages)
   ReceivedAt    — timestamp
   Status        — Pending | Processing | Processed | Failed

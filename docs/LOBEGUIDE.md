@@ -14,7 +14,7 @@ just a "backend vs. plugin" boundary:
 
 | Layer | Owns | Never does |
 |---|---|---|
-| **C# host** — `KestrelListenerService`, storage (`LiteInboxStore`/DID/VC registries), `DIDCommMessageSwitchboard`, `LobeManager` | Decrypt/verify at the inbound boundary; durable persistence; routing by `@type`; SignThenEncrypt at the outbound boundary; runspace pool lifecycle | Run LOBE-author-supplied business logic |
+| **C# host** — `DrawbridgeService`, storage (`LiteInboxStore`/DID/VC registries), `DIDCommMessageSwitchboard`, `LobeManager` | Decrypt/verify at the inbound boundary; durable persistence; routing by `@type`; SignThenEncrypt at the outbound boundary; runspace pool lifecycle | Run LOBE-author-supplied business logic |
 | **LOBE** (`.psm1` protocol entrypoints) | Application/protocol logic on an already-decrypted message body; returns a plaintext `[Svrn7.TDA.OutboundMessage]` (or `$null`) — see Appendix D | Touch DIDComm envelope crypto (JWE/JWS) or the TDA's own transport signing/key-agreement key material — both stay C#-only |
 
 This split exists to bound the blast radius of a LOBE, which is by design hot-reloadable
@@ -603,7 +603,7 @@ $envelope = [ordered]@{
 | Parameter | Type | Description |
 |---|---|---|
 | `PeerEndpoint` (1st arg) | `string` | HTTP/2 (h2c) URL of the recipient's TDA endpoint (e.g. `http://peer.svrn7.net:8443`). Resolved via `Resolve-SocietySenderEndpoint -Did $msg.FromDid`. |
-| `PackedMessage` (2nd arg) | `string` | Full DIDComm plaintext envelope (`typ`/`id`/`type`/`from`/`to`/`body`). The Switchboard POSTs this verbatim; the recipient's `KestrelListenerService` routes on the `type` field. |
+| `PackedMessage` (2nd arg) | `string` | Full DIDComm plaintext envelope (`typ`/`id`/`type`/`from`/`to`/`body`). The Switchboard POSTs this verbatim; the recipient's `DrawbridgeService` routes on the `type` field. |
 
 ### No reply
 

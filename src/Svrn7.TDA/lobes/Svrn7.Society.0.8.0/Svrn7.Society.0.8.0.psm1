@@ -1188,7 +1188,7 @@ function Find-Svrn7VcsBySubject {
 # Inbound handlers for the society/1.0/* DIDComm protocol family.
 # Each cmdlet is the Switchboard entrypoint for one inbound protocol URI.
 # Pattern: resolve message → call driver → return OutboundMessage hashtable.
-# $msg.FromDid is available because KestrelListenerService now threads
+# $msg.FromDid is available because DrawbridgeService now threads
 # unpacked.From through EnqueueAsync → InboxMessage.FromDid → InboxMessageView.
 ###############################################################################
 

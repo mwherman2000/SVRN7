@@ -139,7 +139,7 @@ DID Documents (own, Citizen, Society) freely, at any time, without a prior relat
 Encryption is structurally impossible on this path: you cannot encrypt to a peer whose
 DID Document you have not yet resolved — which is exactly what the request is for.
 
-**Inbound (`KestrelListenerService`):** Admits `application/didcomm-plain+json` only for
+**Inbound (`DrawbridgeService`):** Admits `application/didcomm-plain+json` only for
 `did-resolve-request` and `did-resolve-response` (`Svrn7Constants.PlaintextDiscoveryProtocols`).
 Any other plaintext on `POST /didcomm` is rejected 403.
 

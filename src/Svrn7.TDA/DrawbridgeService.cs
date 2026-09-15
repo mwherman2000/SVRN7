@@ -16,7 +16,7 @@ using Svrn7.DIDComm;
 
 namespace Svrn7.TDA;
 
-// ── KestrelListenerService ────────────────────────────────────────────────────
+// ── DrawbridgeService ────────────────────────────────────────────────────
 //
 // Derived from: "HTTP Listener/Sender (HTTPClient)" + "DIDComm V2 Messaging"
 //               — DSA 0.24 Epoch 0 (PPML).
@@ -33,32 +33,32 @@ namespace Svrn7.TDA;
 //
 //   WRITE-AHEAD LOG GATE: After successful unpack, IInboxStore.EnqueueAsync writes
 //   the payload to svrn7-msg.db and returns 202 immediately. The Switchboard
-//   processes asynchronously. The Listener has no knowledge of routing or agent logic.
+//   processes asynchronously. The Drawbridge has no knowledge of routing or agent logic.
 //
 //   HTTP/2 + mTLS: Kestrel binds on the configured port with HTTP/2 and mutual TLS.
 //   Only peers presenting a valid TDA certificate can call POST /didcomm.
 
 /// <summary>
-/// Kestrel HTTP/2 + mTLS listener — the single inbound gate for all DIDComm traffic.
+/// The single inbound gate for all DIDComm traffic — HTTP/2 + mTLS, built on Kestrel.
 /// Derived from: HTTP Listener/Sender (HTTPClient) + DIDComm V2 Messaging — DSA 0.24 Epoch 0 (PPML).
 /// </summary>
-public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
+public sealed class DrawbridgeService : IHostedService, IAsyncDisposable
 {
     private readonly TdaOptions               _opts;
     private readonly IDIDCommService          _didComm;
     private readonly IInboxStore              _inbox;
     private readonly WebSocketNotifyHub       _hub;
-    private readonly ILogger<KestrelListenerService> _log;
+    private readonly ILogger<DrawbridgeService> _log;
     private readonly ListenPortClaim?         _portClaim;
 
     private WebApplication? _app;
 
-    public KestrelListenerService(
+    public DrawbridgeService(
         IOptions<TdaOptions>               opts,
         IDIDCommService                    didComm,
         IInboxStore                        inbox,
         WebSocketNotifyHub                 hub,
-        ILogger<KestrelListenerService>    log,
+        ILogger<DrawbridgeService>    log,
         ListenPortClaim?                   portClaim = null)
     {
         _opts      = opts.Value;
@@ -106,7 +106,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
                     // Development fallback: plain HTTP/2 (cleartext).
                     // Never use in production — mTLS is required for a conformant TDA.
                     _log.LogWarning(
-                        "KestrelListenerService: TLS certificate not configured. " +
+                        "DrawbridgeService: TLS certificate not configured. " +
                         "Running in cleartext HTTP/2 (development mode only).");
                 }
             }
@@ -163,10 +163,10 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
 
         await _app.StartAsync(ct);
         _log.LogInformation(
-            "KestrelListenerService: listening on port {Port} (mTLS={Mtls}).",
+            "DrawbridgeService: listening on port {Port} (mTLS={Mtls}).",
             _opts.ListenPort, _opts.RequireMutualTls);
         _log.LogDebug(
-            "KestrelListenerService: POST /didcomm (HTTP/2 inbound) and " +
+            "DrawbridgeService: POST /didcomm (HTTP/2 inbound) and " +
             "GET /localcomm-ws (WebSocket RFC 8441) active on port {Port}.",
             _opts.ListenPort);
     }
@@ -222,7 +222,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         if (!isEncrypted && !isPlaintext)
         {
             _log.LogWarning(
-                "KestrelListenerService: rejected message with unsupported Content-Type '{Ct}'.",
+                "DrawbridgeService: rejected message with unsupported Content-Type '{Ct}'.",
                 contentType);
             activity?.SetTag(Svrn7Telemetry.TagOutcome, "415_unsupported_media_type");
             http.Response.StatusCode = StatusCodes.Status415UnsupportedMediaType;
@@ -271,7 +271,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
                 !Svrn7.Core.Svrn7Constants.PlaintextDiscoveryProtocols.Contains(messageType))
             {
                 _log.LogWarning(
-                    "KestrelListenerService: rejected plaintext message — @type '{Type}' is not a DID discovery protocol.",
+                    "DrawbridgeService: rejected plaintext message — @type '{Type}' is not a DID discovery protocol.",
                     messageType ?? "(null)");
                 activity?.SetTag(Svrn7Telemetry.TagMessageType, messageType)
                          .SetTag(Svrn7Telemetry.TagOutcome, "403_forbidden_plaintext");
@@ -297,7 +297,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "KestrelListenerService: UnpackAsync failed — rejecting message.");
+            _log.LogWarning(ex, "DrawbridgeService: UnpackAsync failed — rejecting message.");
             activity?.SetTag(Svrn7Telemetry.TagOutcome, "400_unpack_failed");
             http.Response.StatusCode = StatusCodes.Status400BadRequest;
             await http.Response.WriteAsync(
@@ -331,7 +331,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "KestrelListenerService: inbox store unavailable — returning 503.");
+            _log.LogError(ex, "DrawbridgeService: inbox store unavailable — returning 503.");
             activity?.SetTag(Svrn7Telemetry.TagOutcome, "503_inbox_unavailable");
             http.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
             http.Response.Headers["Retry-After"] = "5";
@@ -342,8 +342,8 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         }
 
         _log.LogInformation(
-            "KestrelListenerService: enqueued message type='{Type}'.", unpacked.Type);
-        _log.LogDebug("KestrelListenerService: accepted message:\n{Json}", unpacked.ToFormattedJson());
+            "DrawbridgeService: enqueued message type='{Type}'.", unpacked.Type);
+        _log.LogDebug("DrawbridgeService: accepted message:\n{Json}", unpacked.ToFormattedJson());
 
         activity?.SetTag(Svrn7Telemetry.TagOutcome, "202_accepted");
         http.Response.StatusCode = StatusCodes.Status202Accepted;
@@ -371,7 +371,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         using var ws = await http.WebSockets.AcceptWebSocketAsync();
         var clientId = _hub.Attach(ws);
         _log.LogInformation(
-            "KestrelListenerService: local-UI WebSocket attached on /localcomm-ws (id={Id}).", clientId);
+            "DrawbridgeService: local-UI WebSocket attached on /localcomm-ws (id={Id}).", clientId);
 
         try
         {
@@ -381,7 +381,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         {
             _hub.Detach(clientId);
             _log.LogInformation(
-                "KestrelListenerService: local-UI WebSocket detached (id={Id}).", clientId);
+                "DrawbridgeService: local-UI WebSocket detached (id={Id}).", clientId);
         }
     }
 
@@ -399,11 +399,11 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
             {
                 result = await ws.ReceiveAsync(buffer, ct);
                 _log.LogDebug(
-                    "KestrelListenerService: WebSocket frame received — {Bytes} bytes, endOfMessage={Eom}.",
+                    "DrawbridgeService: WebSocket frame received — {Bytes} bytes, endOfMessage={Eom}.",
                     result.Count, result.EndOfMessage);
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
-                    _log.LogDebug("KestrelListenerService: WebSocket close frame received — closing.");
+                    _log.LogDebug("DrawbridgeService: WebSocket close frame received — closing.");
                     if (ws.State == WebSocketState.Open || ws.State == WebSocketState.CloseReceived)
                         await ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, null, ct);
                     return;
@@ -421,7 +421,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
             if (tooLarge)
             {
                 _log.LogWarning(
-                    "KestrelListenerService: WebSocket message too large ({Bytes} bytes, id={Id}) — closing.",
+                    "DrawbridgeService: WebSocket message too large ({Bytes} bytes, id={Id}) — closing.",
                     ms.Length, clientId);
                 using var closeCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
                 try { await ws.CloseAsync(WebSocketCloseStatus.MessageTooBig, "message too large", closeCts.Token); }
@@ -443,13 +443,13 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
             if (ws.State != WebSocketState.Open)
             {
                 _log.LogWarning(
-                    "KestrelListenerService: message received after local close began (state={State}, id={Id}) — dropping, reply would be undeliverable.",
+                    "DrawbridgeService: message received after local close began (state={State}, id={Id}) — dropping, reply would be undeliverable.",
                     ws.State, clientId);
                 break;
             }
 
             _log.LogDebug(
-                "KestrelListenerService: WebSocket complete message assembled — {TotalBytes} bytes.",
+                "DrawbridgeService: WebSocket complete message assembled — {TotalBytes} bytes.",
                 ms.Length);
             var json = System.Text.Encoding.UTF8.GetString(ms.ToArray());
             _ = Task.Run(() => ProcessWebSocketMessageAsync(json, clientId, ct), ct);
@@ -476,7 +476,7 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         activity?.SetTag(Svrn7Telemetry.TagTransport, "ws");
 
         _log.LogDebug(
-            "KestrelListenerService: WebSocket processing message — length={Length}, preview='{Preview}'.",
+            "DrawbridgeService: WebSocket processing message — length={Length}, preview='{Preview}'.",
             json.Length, json.Length > 120 ? json[..120] : json);
 
         // Svrn7.LocalUI.0.1.0 control frames (Hello/Goodbye) are connection-lifecycle
@@ -497,13 +497,13 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "KestrelListenerService: WebSocket UnpackAsync failed — ignoring message.");
+            _log.LogWarning(ex, "DrawbridgeService: WebSocket UnpackAsync failed — ignoring message.");
             activity?.SetTag(Svrn7Telemetry.TagOutcome, "unpack_failed");
             return;
         }
 
         _log.LogDebug(
-            "KestrelListenerService: WebSocket UnpackAsync OK — type='{Type}', from='{From}'.",
+            "DrawbridgeService: WebSocket UnpackAsync OK — type='{Type}', from='{From}'.",
             unpacked.Type, unpacked.From);
 
         activity?.SetTag(Svrn7Telemetry.TagMessageId, unpacked.Id)
@@ -530,12 +530,12 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
                 activity?.Id,  // W3C traceparent of this didcomm.receive span — see the
                                // HTTP path's EnqueueAsync call for why.
                 ct);
-            _log.LogDebug("KestrelListenerService: WebSocket message enqueued (type='{Type}').", unpacked.Type);
+            _log.LogDebug("DrawbridgeService: WebSocket message enqueued (type='{Type}').", unpacked.Type);
             activity?.SetTag(Svrn7Telemetry.TagOutcome, "enqueued");
         }
         catch (Exception ex)
         {
-            _log.LogError(ex, "KestrelListenerService: WebSocket inbox enqueue failed.");
+            _log.LogError(ex, "DrawbridgeService: WebSocket inbox enqueue failed.");
             activity?.SetTag(Svrn7Telemetry.TagOutcome, "enqueue_failed");
         }
     }
@@ -560,13 +560,13 @@ public sealed class KestrelListenerService : IHostedService, IAsyncDisposable
             sslPolicyErrors == SslPolicyErrors.RemoteCertificateChainErrors)
         {
             _log.LogWarning(
-                "KestrelListenerService: accepting self-signed peer certificate " +
+                "DrawbridgeService: accepting self-signed peer certificate " +
                 "(AcceptSelfSignedPeerCertificates=true — development mode only).");
             return true;
         }
 
         _log.LogWarning(
-            "KestrelListenerService: peer certificate validation failed ({Errors}). Rejecting.",
+            "DrawbridgeService: peer certificate validation failed ({Errors}). Rejecting.",
             sslPolicyErrors);
         return false;
     }

@@ -20,7 +20,7 @@ using Svrn7.Trust.AgentWallet;
 // ── Web 7.0 Trusted Digital Assistant (TDA) — Console App Entry Point ────────
 //
 // Runtime: .NET 8 console app using Generic Host + Kestrel HTTP/2 + mTLS.
-// Single inbound surface: POST /didcomm (KestrelListenerService).
+// Single inbound surface: POST /didcomm (DrawbridgeService).
 //
 // Per-identity runtime storage (docs/AGENTWALLET.md):
 //   • Data root:  --data-root  ›  $PANDO_HOME  ›  ~/.web7-pando
@@ -387,7 +387,7 @@ var host = Host.CreateDefaultBuilder(args)
     })
     .ConfigureServices((ctx, services) =>
     {
-        // The atomically-claimed listen socket, handed to KestrelListenerService.
+        // The atomically-claimed listen socket, handed to DrawbridgeService.
         services.AddSingleton(portClaim!);
 
         // ── 0. OpenTelemetry tracing + metrics ───────────────────────────────

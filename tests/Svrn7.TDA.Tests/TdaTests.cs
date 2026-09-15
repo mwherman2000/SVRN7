@@ -1048,19 +1048,19 @@ internal sealed class NullSocietyDriver : Svrn7.Society.ISvrn7SocietyDriver
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }
 
-// ── KestrelListenerService Integration Tests ──────────────────────────────────
+// ── DrawbridgeService Integration Tests ──────────────────────────────────
 //
 // Starts a real Kestrel server in cleartext HTTP/2 dev mode (no TLS cert).
 // Uses stub IDIDCommService and a recording IInboxStore to verify the
 // POST /didcomm inbound pipeline end-to-end.
 
-public sealed class KestrelListenerServiceIntegrationTests : IAsyncLifetime
+public sealed class DrawbridgeServiceIntegrationTests : IAsyncLifetime
 {
-    private readonly KestrelListenerService _listener;
+    private readonly DrawbridgeService _listener;
     private readonly RecordingInboxStore   _inbox;
     private readonly int                   _port;
 
-    public KestrelListenerServiceIntegrationTests()
+    public DrawbridgeServiceIntegrationTests()
     {
         _port  = FindFreePort();
         _inbox = new RecordingInboxStore();
@@ -1074,12 +1074,12 @@ public sealed class KestrelListenerServiceIntegrationTests : IAsyncLifetime
             RequireMutualTls                  = false,
         });
 
-        _listener = new KestrelListenerService(
+        _listener = new DrawbridgeService(
             opts,
             new StubDIDCommService("test/1.0/msg", """{"amount":500}"""),
             _inbox,
             new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance),
-            NullLogger<KestrelListenerService>.Instance);
+            NullLogger<DrawbridgeService>.Instance);
     }
 
     public Task InitializeAsync() => _listener.StartAsync(CancellationToken.None);
@@ -1171,7 +1171,7 @@ public sealed class KestrelListenerServiceIntegrationTests : IAsyncLifetime
 
         var port        = FindFreePort();
         var inbox       = new RecordingInboxStore();
-        var badListener = new KestrelListenerService(
+        var badListener = new DrawbridgeService(
             Options.Create(new TdaOptions
             {
                 SocietyDid                        = "did:drn:test.svrn7.net",
@@ -1183,7 +1183,7 @@ public sealed class KestrelListenerServiceIntegrationTests : IAsyncLifetime
             new ThrowingDIDCommService(),
             inbox,
             new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance),
-            NullLogger<KestrelListenerService>.Instance);
+            NullLogger<DrawbridgeService>.Instance);
 
         await badListener.StartAsync(CancellationToken.None);
         try
@@ -1221,7 +1221,7 @@ public sealed class KestrelListenerServiceIntegrationTests : IAsyncLifetime
     }
 }
 
-// ── Stubs for KestrelListenerService integration tests ────────────────────────
+// ── Stubs for DrawbridgeService integration tests ────────────────────────
 
 internal sealed class RecordingInboxStore : IInboxStore
 {
@@ -1601,18 +1601,18 @@ public class SwitchboardStartupTests : IDisposable
     }
 }
 
-// ── KestrelListenerService Rate Limit Tests ───────────────────────────────────
+// ── DrawbridgeService Rate Limit Tests ───────────────────────────────────
 
 public sealed class KestrelListenerRateLimitTests : IAsyncLifetime
 {
-    private readonly KestrelListenerService _listener;
+    private readonly DrawbridgeService _listener;
     private readonly int                   _port;
 
     public KestrelListenerRateLimitTests()
     {
         _port = FindFreePort();
 
-        _listener = new KestrelListenerService(
+        _listener = new DrawbridgeService(
             Options.Create(new TdaOptions
             {
                 SocietyDid                        = "did:drn:test.svrn7.net",
@@ -1625,7 +1625,7 @@ public sealed class KestrelListenerRateLimitTests : IAsyncLifetime
             new StubDIDCommService("test/1.0/msg", "{}"),
             new RecordingInboxStore(),
             new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance),
-            NullLogger<KestrelListenerService>.Instance);
+            NullLogger<DrawbridgeService>.Instance);
     }
 
     public Task InitializeAsync() => _listener.StartAsync(CancellationToken.None);
@@ -1666,7 +1666,7 @@ public sealed class KestrelListenerRateLimitTests : IAsyncLifetime
     {
         // Spin up a separate listener with rate limiting disabled.
         var port      = FindFreePort();
-        var noLimit   = new KestrelListenerService(
+        var noLimit   = new DrawbridgeService(
             Options.Create(new TdaOptions
             {
                 SocietyDid                        = "did:drn:test.svrn7.net",
@@ -1679,7 +1679,7 @@ public sealed class KestrelListenerRateLimitTests : IAsyncLifetime
             new StubDIDCommService("test/1.0/msg", "{}"),
             new RecordingInboxStore(),
             new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance),
-            NullLogger<KestrelListenerService>.Instance);
+            NullLogger<DrawbridgeService>.Instance);
 
         await noLimit.StartAsync(CancellationToken.None);
         try
@@ -1812,13 +1812,13 @@ public sealed class WebSocketNotifyHubTests : IAsyncLifetime
 {
     private readonly int _port;
     private readonly WebSocketNotifyHub _hub;
-    private readonly KestrelListenerService _listener;
+    private readonly DrawbridgeService _listener;
 
     public WebSocketNotifyHubTests()
     {
         _port = FindFreePort();
         _hub  = new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance);
-        _listener = new KestrelListenerService(
+        _listener = new DrawbridgeService(
             Options.Create(new TdaOptions
             {
                 SocietyDid                        = "did:drn:test.svrn7.net",
@@ -1833,7 +1833,7 @@ public sealed class WebSocketNotifyHubTests : IAsyncLifetime
                 id: "corr-1"),
             new RecordingInboxStore(),
             _hub,
-            NullLogger<KestrelListenerService>.Instance);
+            NullLogger<DrawbridgeService>.Instance);
     }
 
     public Task InitializeAsync() => _listener.StartAsync(CancellationToken.None);

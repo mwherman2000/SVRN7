@@ -349,6 +349,6 @@ Get-ChildItem $pando -Directory -Filter 'w5-*' | Select-Object -First 1 |
 # | `TDA failed to start: … PANDO_WALLET_PASSWORD is not set` | env var missing and no interactive console       | `$env:PANDO_WALLET_PASSWORD = '…'` before launching                     |
 # | `TDA failed to start: LOBE package 'Svrn7.Common' … is not in the LOBE library` | lobe-library/ empty            | Copy `dist\*.nupkg` to `~/.web7-pando/lobe-library/` (Prerequisites)    |
 # | `wrong wallet password.`                             | password differs from the one the wallet was created with | Use the original, or `--reset` to re-bootstrap                     |
-# | `Status: ConnectionRefused` posting to 8446          | W6 not running or still starting                     | Wait for W6's `KestrelListenerService: listening on port 8446` line     |
+# | `Status: ConnectionRefused` posting to 8446          | W6 not running or still starting                     | Wait for W6's `DrawbridgeService: listening on port 8446` line     |
 # | No `Issue-TOD` delivered                             | recipient DID Document not in the sender's registry  | Ensure the recipient bootstrapped before sending                        |
 # | instance folder not found under `~/.web7-pando`      | TDA not started yet, or a different `--data-root`    | Start the TDA once; check for `<name>-<hash8>/`                          |

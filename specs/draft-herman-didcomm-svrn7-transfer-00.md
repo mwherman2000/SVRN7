@@ -460,7 +460,7 @@ running Society TDA. These protocols are request-response pairs; the TDA process
 request asynchronously and sends the result message to the sender's TDA endpoint.
 
 All `society/1.0/*` requests require `InboxMessage.FromDid` to be set (the sender DID
-from the DIDComm envelope, threaded from `KestrelListenerService.HandleInboundAsync`
+from the DIDComm envelope, threaded from `DrawbridgeService.HandleInboundAsync`
 through `IInboxStore.EnqueueAsync(messageType, packedPayload, fromDid?, wireId?, ct)`).
 If `FromDid` is null the handler returns an error. `InboxMessage.WireId` carries the
 sender's DIDComm wire `id` field (populated for plaintext messages; null for encrypted).

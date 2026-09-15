@@ -4,13 +4,13 @@
 #
 # - Single inbound endpoint: POST http://localhost:{port}/didcomm
 # - Protocol: HTTP/2 cleartext (h2c) — the server only speaks HTTP/2; HTTP/1.1 requests are rejected
-# - No TLS cert configured → cleartext development mode (see Program.cs and KestrelListenerService.cs)
+# - No TLS cert configured → cleartext development mode (see Program.cs and DrawbridgeService.cs)
 # - Content-Type gate (P-008): Content-Type must be application/didcomm-encrypted+json or
 #   application/didcomm-plain+json — anything else is rejected 415 before the body is even read
 # - Plaintext (application/didcomm-plain+json) on POST /didcomm is admitted ONLY when @type is a
 #   DID discovery protocol (did-resolve-request / did-resolve-response) — any other plaintext
 #   @type is rejected 403. UnpackAsync itself does have a plaintext branch (a root "type"
-#   property bypasses JWE decryption, no keys needed), but KestrelListenerService's Content-Type
+#   property bypasses JWE decryption, no keys needed), but DrawbridgeService's Content-Type
 #   + whitelist gate runs first and decides whether a plaintext body ever reaches it.
 # - For unrestricted plaintext dev testing (any @type, no whitelist), use Send-LocalDIDCommMessage
 #   against ws://localhost:{port}/localcomm-ws instead — that path has no content-type gate.
