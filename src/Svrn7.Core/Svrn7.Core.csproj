@@ -6,7 +6,6 @@
     <LangVersion>12</LangVersion>
     <RootNamespace>Svrn7.Core</RootNamespace>
     <AssemblyName>Svrn7.Core</AssemblyName>
-    <Version>0.8.0</Version>
     <Authors>Michael Herman</Authors>
     <Company>Web 7.0 Foundation</Company>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

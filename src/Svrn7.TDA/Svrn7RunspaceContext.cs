@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Caching.Memory;
+using Svrn7.Core;
 using Svrn7.Core.Interfaces;
 using Svrn7.Core.Models;
 using Svrn7.Society;
@@ -172,29 +174,51 @@ public sealed class Svrn7RunspaceContext
     // ── Parent TDA wiring ─────────────────────────────────────────────────────
 
     /// <summary>
-    /// Updates the in-memory parent TDA DID and endpoint and persists both to
-    /// <c>agent-identity.json</c>. Called by receipt/result LOBE handlers after
-    /// successful registration with a Society or Federation.
-    /// Thread-safe: volatile writes for the in-memory fields; file write is fire-and-forget.
+    /// Updates the in-memory parent TDA DID and endpoint, and persists <b>only the
+    /// DID</b> (a routing pointer) to <c>identity.meta.json</c>. Called by
+    /// receipt/result LOBE handlers after successful registration with a Society or
+    /// Federation. The endpoint is held in memory only — it is re-resolved from the
+    /// parent's DID Document on every startup, never written to a cleartext file
+    /// (SECURITY.md §11.3). Thread-safe: volatile writes for the in-memory fields;
+    /// file write is fire-and-forget.
     /// </summary>
     public void SetParentTda(string did, string endpointUrl)
     {
+        using var activity = Svrn7Telemetry.Source.StartActivity("tda.parent_tda.set");
+        activity?.SetTag("svrn7.has_endpoint", !string.IsNullOrEmpty(endpointUrl));
+
         _parentTdaDid         = did         ?? string.Empty;
         _parentTdaEndpointUrl = endpointUrl ?? string.Empty;
 
-        if (string.IsNullOrEmpty(_agentIdentityPath)) return;
+        if (string.IsNullOrEmpty(_agentIdentityPath))
+        {
+            activity?.SetTag("svrn7.persisted", false);
+            activity?.SetTag(Svrn7Telemetry.TagOutcome, "in_memory_only");
+            return;
+        }
         try
         {
             var json = File.Exists(_agentIdentityPath)
                 ? File.ReadAllText(_agentIdentityPath)
                 : "{}";
             var node = JsonNode.Parse(json)!.AsObject();
-            node["parentTdaDid"]         = _parentTdaDid;
-            node["parentTdaEndpointUrl"] = _parentTdaEndpointUrl;
+            // Persist only the parent DID (a routing pointer) into identity.meta.json.
+            // The parent's endpoint is re-derived from its DID Document on every
+            // startup — never stored in a cleartext file (SECURITY.md §11.3).
+            node["parentTdaDid"] = _parentTdaDid;
+            node.Remove("parentTdaEndpointUrl"); // scrub any value written by an older build
             File.WriteAllText(_agentIdentityPath,
                 node.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            activity?.SetTag("svrn7.persisted", true);
+            activity?.SetTag(Svrn7Telemetry.TagOutcome, "persisted");
         }
-        catch { /* non-critical — in-memory update already succeeded */ }
+        catch (Exception ex)
+        {
+            // non-critical — the in-memory update already succeeded
+            activity?.SetTag("svrn7.persisted", false);
+            activity?.SetTag(Svrn7Telemetry.TagOutcome, "persist_failed");
+            activity?.SetTag(Svrn7Telemetry.TagErrorType, ex.GetType().Name);
+        }
     }
 
     // ── DID Document exchange helpers ─────────────────────────────────────────
@@ -242,10 +266,10 @@ public sealed class Svrn7RunspaceContext
         // Filter to the inbound email message type only — not protocol control messages
         // (List-Emails, Enqueue-PandoMail, etc.) which share the same LOBE prefix but
         // carry no rfc5322Body and must not appear in the inbox listing.
-        const string emailTypePrefix = "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Signal-PandoMail";
+        const string emailTypePrefix = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail";
         var messages = await _inbox.ListByTypeAsync(emailTypePrefix, limit, ct);
         return messages
-            .Select(m => new InboundMessageView(m.Id, m.MessageType, m.PackedPayload, m.FromDid, m.AttemptCount, m.ReceivedAt))
+            .Select(m => new InboundMessageView(m.Id, m.MessageType, m.PackedPayload, m.FromDid, m.AttemptCount, m.ReceivedAt, m.Thid, m.WireId))
             .ToList();
     }
 
@@ -257,10 +281,10 @@ public sealed class Svrn7RunspaceContext
     public async Task<IReadOnlyList<InboundMessageView>> ListSentEmailsAsync(
         int limit = 50, CancellationToken ct = default)
     {
-        const string sentTypePrefix = "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Enqueue-PandoMail";
+        const string sentTypePrefix = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Enqueue-PandoMail";
         var messages = await _inbox.ListByTypeAsync(sentTypePrefix, limit, ct);
         return messages
-            .Select(m => new InboundMessageView(m.Id, m.MessageType, m.PackedPayload, m.FromDid, m.AttemptCount, m.ReceivedAt))
+            .Select(m => new InboundMessageView(m.Id, m.MessageType, m.PackedPayload, m.FromDid, m.AttemptCount, m.ReceivedAt, m.Thid, m.WireId))
             .ToList();
     }
 
@@ -302,12 +326,12 @@ public sealed class Svrn7RunspaceContext
     /// </summary>
     public async Task<FolderCounts> CountEmailFoldersAsync(CancellationToken ct = default)
     {
-        const string inboxType = "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Signal-PandoMail";
-        const string sentType  = "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/Enqueue-PandoMail";
-        var inbox = await _inbox.ListByTypeAsync(inboxType, 5000, ct);
-        var sent  = await _inbox.ListByTypeAsync(sentType,  5000, ct);
-        var dead  = await _deadLetter.GetPendingAsync(ct);
-        return new FolderCounts(inbox.Count, sent.Count, dead.Count);
+        const string inboxType = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Signal-PandoMail";
+        const string sentType  = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Enqueue-PandoMail";
+        var inbox = await _inbox.CountByTypeAsync(inboxType, ct);
+        var sent  = await _inbox.CountByTypeAsync(sentType,  ct);
+        var dead  = await _deadLetter.CountPendingAsync(ct);
+        return new FolderCounts(inbox, sent, dead);
     }
 
     // ── Pass-by-reference message resolution ─────────────────────────────────
@@ -335,7 +359,7 @@ public sealed class Svrn7RunspaceContext
         var msg = await _inbox.GetByIdAsync(messageDid, ct);
         if (msg is null) return null;
 
-        var view = new InboundMessageView(msg.Id, msg.MessageType, msg.PackedPayload, msg.FromDid, msg.AttemptCount, msg.ReceivedAt);
+        var view = new InboundMessageView(msg.Id, msg.MessageType, msg.PackedPayload, msg.FromDid, msg.AttemptCount, msg.ReceivedAt, msg.Thid, msg.WireId);
         _cache.Set(messageDid, view, TimeSpan.FromHours(24));
         return view;
     }
@@ -357,7 +381,10 @@ public sealed record FolderCounts(int Inbox, int Sent, int DeadLetters);
 /// <summary>
 /// Read-only projection of an <see cref="InboundMessage"/> for LOBE cmdlet consumption.
 /// Cmdlets receive this via <see cref="Svrn7RunspaceContext.GetMessageAsync"/>.
-/// The <see cref="Id"/> is the pass-by-reference handle passed through pipelines.
+/// The <see cref="Id"/> is the pass-by-reference handle passed through pipelines — it is the
+/// TDA's own internal resource DID URL (e.g. did:drn:/inbox/msg/...), NOT the sender's wire
+/// envelope id. A reply's thid must echo the sender's wire id — use <see cref="WireId"/> for
+/// that, never <see cref="Id"/> (see docs/BACKLOG.md TDA-014).
 /// </summary>
 public sealed record InboundMessageView(
     string         Id,
@@ -365,4 +392,6 @@ public sealed record InboundMessageView(
     string         PackedPayload,
     string?        FromDid,
     int            AttemptCount,
-    DateTimeOffset ReceivedAt);
+    DateTimeOffset ReceivedAt,
+    string?        Thid = null,
+    string?        WireId = null);

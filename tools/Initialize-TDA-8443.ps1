@@ -1,70 +1,57 @@
 #Requires -Version 7.2
 <#
 .SYNOPSIS
-    Starts a local SVRN7 testnet with four Wanderer TDA instances.
+    Starts a single Wanderer TDA (Wanderer3) on port 8443.
 
 .DESCRIPTION
-    Launches four TDA processes in separate windows. Every TDA starts as a
-    Wanderer — role is additive and established after startup via cmdlets.
+    Per-identity runtime storage (docs/AGENTWALLET.md): the node unlocks (or, on
+    first run, creates) an encrypted wallet with $env:PANDO_WALLET_PASSWORD and
+    stores everything under ~/.web7-pando/wanderer3-<genesisHash8>/. Eager LOBEs
+    install from ~/.web7-pando/lobe-library/, which this script fills from dist/.
 
-        Wanderer1   --port 8441
-        Wanderer2   --port 8442
-        Wanderer3   --port 8443
-        Wanderer4   --port 8444
-
-    On first run each TDA auto-generates a Wanderer identity (secp256k1 key pair,
-    DID, DIDDocument) and persists it to <BinDir>/{port}/mem/agent-identity.json.
-
-    Each TDA stores its databases under:
-        <BinDir>/{port}/mem/
-
-    Press Ctrl+C in this window to stop all four processes.
-
-.PARAMETER BinDir
-    Path to the TDA output directory containing Svrn7.TDA.dll.
-    Default: src\Svrn7.TDA\bin\Debug\net8.0 relative to the repo root.
+.PARAMETER RepoRoot   Repo root. Default: parent of tools/.
+.PARAMETER Password   Wallet password. Default: "svrn7-testnet".
+.PARAMETER Reset      Pass --reset (wipe + re-bootstrap this identity).
+.PARAMETER FederationDomain
+    Passed as --federationdomain for drn.directory endpoint discovery. Default: "svrn7.net".
+.PARAMETER SkipBuild  Skip `dotnet build`.
 #>
 param(
-    [string] $BinDir = (Join-Path $PSScriptRoot '..\src\Svrn7.TDA\bin\Debug\net8.0')
+    [string] $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
+    [string] $Password = 'svrn7-testnet',
+    [switch] $Reset,
+    [string] $FederationDomain = 'svrn7.net',
+    [switch] $SkipBuild
 )
 
-$dll = Join-Path $BinDir 'Svrn7.TDA.dll'
-if (-not (Test-Path $dll)) {
-    Write-Error "Svrn7.TDA.dll not found at '$dll'. Build the solution first."
-    exit 1
+$ErrorActionPreference = 'Stop'
+
+$proj    = Join-Path $RepoRoot 'src/Svrn7.TDA/Svrn7.TDA.csproj'
+$binDir  = Join-Path $RepoRoot 'src/Svrn7.TDA/bin/Debug/net8.0'
+$dll     = Join-Path $binDir 'Svrn7.TDA.dll'
+$distDir = Join-Path $RepoRoot 'dist'
+$lobeLib = Join-Path (Join-Path $HOME '.web7-pando') 'lobe-library'
+
+if (-not $SkipBuild) {
+    Write-Host "Building Svrn7.TDA ..." -ForegroundColor Cyan
+    dotnet build $proj -c Debug --nologo -v q
 }
+if (-not (Test-Path $dll)) { throw "Svrn7.TDA.dll not found at '$dll'." }
 
-$nodes = @(
-    @{ Name = 'Wanderer3'; Port = 8443 }
-)
-# Each node's Name is passed as --name to the TDA so it becomes the Svrn7Name in
-# the Wanderer DIDDocument on first run.
+New-Item -ItemType Directory -Force -Path $lobeLib | Out-Null
+Copy-Item (Join-Path $distDir '*.nupkg') -Destination $lobeLib -Force
+Write-Host "LOBE library: $((Get-ChildItem $lobeLib -Filter *.nupkg).Count) package(s)" -ForegroundColor Cyan
 
-$processes = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
+$env:PANDO_WALLET_PASSWORD = $Password
 
-foreach ($node in $nodes) {
-    $dbDir = Join-Path $BinDir "$($node.Port)\mem"
-    [System.IO.Directory]::CreateDirectory($dbDir) | Out-Null
+$reset = if ($Reset) { ' --reset' } else { '' }
+$fed   = if ($FederationDomain) { " --federationdomain $FederationDomain" } else { '' }
+$inner = "dotnet `"$dll`" --name Wanderer3 --port 8443$reset$fed"
 
-    $psi = [System.Diagnostics.ProcessStartInfo]@{
-        FileName               = 'dotnet'
-        Arguments              = "`"$dll`" --port $($node.Port) --name $($node.Name)"
-        WorkingDirectory       = $BinDir
-        UseShellExecute        = $true
-        CreateNoWindow         = $false
-    }
-
-    # On Windows, open each TDA in its own titled console window
-    if ($IsWindows) {
-        $psi.FileName        = 'cmd.exe'
-        $psi.Arguments       = "/k title $($node.Name) [Wanderer] :$($node.Port) && dotnet `"$dll`" --port $($node.Port) --name $($node.Name) --federationdomain svrn7.net" #" --reset"
-        $psi.UseShellExecute = $true
-    }
-
-    $cmd = "dotnet `"$dll`" --port $($node.Port) --name $($node.Name)"
-    Write-Host "Launching: $cmd"
-    $proc = [System.Diagnostics.Process]::Start($psi)
-    $processes.Add($proc)
-    Write-Host "Started   $($node.Name)  role=Wanderer  port=$($node.Port)  pid=$($proc.Id)"
+Write-Host "Launching: $inner   (password '$Password')"
+if ($IsWindows) {
+    Start-Process cmd.exe -ArgumentList "/k title Wanderer3 [Wanderer] :8443 && $inner" -WorkingDirectory $binDir
 }
-
+else {
+    Start-Process dotnet -ArgumentList "`"$dll`" --name Wanderer3 --port 8443$reset$fed" -WorkingDirectory $binDir
+}

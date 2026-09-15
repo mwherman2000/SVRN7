@@ -33,23 +33,25 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<Svrn7LiteContext>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<Svrn7Options>>().Value;
-            return new Svrn7LiteContext(opts.Svrn7DbPath);
+            return new Svrn7LiteContext(opts.DbConnectionString(opts.Svrn7DbPath));
         });
         services.AddSingleton<DidRegistryLiteContext>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<Svrn7Options>>().Value;
-            return new DidRegistryLiteContext(opts.DidsDbPath);
+            return new DidRegistryLiteContext(opts.DbConnectionString(opts.DidsDbPath));
         });
         services.AddSingleton<VcRegistryLiteContext>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<Svrn7Options>>().Value;
-            return new VcRegistryLiteContext(opts.VcsDbPath);
+            return new VcRegistryLiteContext(opts.DbConnectionString(opts.VcsDbPath));
         });
+        // Shares Svrn7LiteContext's already-open LiteDatabase handle rather than opening a
+        // second exclusive connection to the same Svrn7DbPath file — LiteDB's default
+        // (non-shared) connection mode does not allow two separate LiteDatabase instances
+        // to hold the same file open at once. Mirrors Svrn7.Society's SocietyExtensions.cs,
+        // which already does this correctly.
         services.AddSingleton<FederationLiteContext>(sp =>
-        {
-            var opts = sp.GetRequiredService<IOptions<Svrn7Options>>().Value;
-            return new FederationLiteContext(opts.Svrn7DbPath);
-        });
+            new FederationLiteContext(sp.GetRequiredService<Svrn7LiteContext>().Database));
 
         services.AddSingleton<ICryptoService, CryptoService>();
         services.AddSingleton<IWalletStore>(sp => new LiteWalletStore(sp.GetRequiredService<Svrn7LiteContext>()));
@@ -58,9 +60,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IMerkleLog>(sp => new MerkleLog(
             sp.GetRequiredService<Svrn7LiteContext>(),
             sp.GetRequiredService<ICryptoService>()));
-        services.AddSingleton<IDidDocumentRegistry>(sp => new LiteDidDocumentRegistry(
+        services.AddSingleton<IDidDocumentRegistry>(sp => new DIDDocumentService(new LiteDidDocumentRegistry(
             sp.GetRequiredService<DidRegistryLiteContext>(),
-            sp.GetRequiredService<ILogger<LiteDidDocumentRegistry>>()));
+            sp.GetRequiredService<ILogger<LiteDidDocumentRegistry>>())));
         services.AddSingleton<IVcRegistry>(sp => new LiteVcRegistry(sp.GetRequiredService<VcRegistryLiteContext>()));
         services.AddSingleton<IFederationStore>(sp => new LiteFederationStore(sp.GetRequiredService<FederationLiteContext>()));
         services.AddSingleton<IDidDocumentResolver>(sp =>
@@ -169,8 +171,15 @@ public sealed class Svrn7BackgroundService : BackgroundService
                 if (expired > 0)
                     _log.LogInformation("VC expiry sweep: {Count} credentials expired", expired);
 
-                await driver.SignMerkleTreeHeadAsync(stoppingToken);
-                _log.LogDebug("Merkle tree head signed");
+                if (driver.HasFoundationSigningKey)
+                {
+                    await driver.SignMerkleTreeHeadAsync(stoppingToken);
+                    _log.LogDebug("Merkle tree head signed");
+                }
+                else
+                {
+                    _log.LogDebug("Merkle auto-sign skipped — no foundation signing key configured (not a Federation authority).");
+                }
             }
             catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
             {

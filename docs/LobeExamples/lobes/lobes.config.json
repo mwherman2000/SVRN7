@@ -6,7 +6,7 @@
     "Svrn7.UX.0.8.0/Svrn7.UX.0.8.0.psm1"
   ],
   "jit": [
-    "Svrn7.Email/Svrn7.Email.0.8.0.psm1",
+    "Svrn7.Email/PandoMail.0.8.0.psm1",
     "Svrn7.Calendar/Svrn7.Calendar.0.8.0.psm1",
     "Svrn7.Presence/Svrn7.Presence.0.8.0.psm1",
     "Svrn7.Notifications/Svrn7.Notifications.0.8.0.psm1",

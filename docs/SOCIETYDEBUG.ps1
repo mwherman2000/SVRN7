@@ -3,7 +3,7 @@
 # Covers launching a Society TDA, completing the Society registration handshake with the
 # Federation TDA, registering Citizens, and querying Society state.
 #
-# Prerequisite: Complete FEDERATIONDEBUG.md first — the Federation TDA must be
+# Prerequisite: Complete FEDERATIONDEBUG.ps1 first — the Federation TDA must be
 # initialised (E.0) and the Society registered with the Federation (E.2) before starting
 # this guide.
 #
@@ -20,7 +20,7 @@
 # | Protocol URI                                                              | Handler                          |
 # |---------------------------------------------------------------------------|----------------------------------|
 # | did:drn:svrn7.net/protocols/Svrn7.Federation.0.8.0/register-society-result | Invoke-Web7RegisterSocietyResult |
-# | did:drn:svrn7.net/protocols/Svrn7.Onboarding.0.8.0/register-citizen      | ConvertFrom-Web7OnboardRequest   |
+# | did:drn:svrn7.net/protocols/Svrn7.Onboarding.0.8.0/register-citizen      | Invoke-Web7RegisterCitizen       |
 # | did:drn:svrn7.net/protocols/Svrn7.Society.0.8.0/society-query            | Invoke-Web7SocietyQuery          |
 # | did:drn:svrn7.net/protocols/Svrn7.Society.0.8.0/member-query             | Invoke-Web7MemberQuery           |
 # | did:drn:svrn7.net/protocols/Svrn7.Society.0.8.0/overdraft-query          | Invoke-Web7OverdraftQuery        |
@@ -41,7 +41,7 @@ $PSVersionTable.PSVersion   # Major must be 7
 Set-Location C:/SVRN7/repos/SVRN7
 dotnet build src/Svrn7.TDA/Svrn7.TDA.csproj
 
-# - Federation TDA running on port 8441 and initialised (FEDERATIONDEBUG.md complete).
+# - Federation TDA running on port 8441 and initialised (FEDERATIONDEBUG.ps1 complete).
 #
 # ---
 #
@@ -69,7 +69,7 @@ dotnet .\Svrn7.TDA.dll --port 8442 --name Bindloss
 #   TDA Name    : Bindloss
 #   First run   : yes — Wanderer identity created
 #   Role        : Wanderer
-#   Agent DID   : did:drn:wanderer.svrn7.net/agent/1.0/<base58-pubkey>
+#   Agent DID   : did:drn:wanderer.svrn7.net/agent/1.0/<genesis-hash>
 #   Listen port : 8442
 # ────────────────────────────────────────────────────────────────────────────────
 #   Federation  : (not yet initialised)
@@ -88,7 +88,7 @@ Import-Module .\lobes\Svrn7.Federation.0.8.0\Svrn7.Federation.0.8.0.psm1
 #
 # E.2r — Society Registration Result
 #
-# After FEDERATIONDEBUG.md §E.2 sends register-society to the Federation TDA,
+# After FEDERATIONDEBUG.ps1 §E.2 sends register-society to the Federation TDA,
 # the Federation delivers register-society-result to this TDA on port 8442.
 #
 # Invoke-Web7RegisterSocietyResult runs automatically.  Expected log on this TDA:
@@ -122,9 +122,9 @@ Get-Content 8442/mem/agent-identity.json | ConvertFrom-Json |
 # Scenario B — Register a Citizen via DIDComm
 #
 # Citizen registration is driven by Svrn7.Onboarding.0.8.0/register-citizen.
-# The Society TDA routes the message to ConvertFrom-Web7OnboardRequest, which calls
-# Register-Svrn7CitizenInSociety and delivers Svrn7.Onboarding.0.8.0/receipt to
-# the Citizen TDA.
+# The Society TDA routes the message to Invoke-Web7RegisterCitizen, which parses the
+# request, calls Register-Svrn7CitizenInSociety, and delivers Svrn7.Onboarding.0.8.0/receipt
+# to the Citizen TDA.
 #
 # B.1 — Generate Citizen key material (client-side)
 #
@@ -133,7 +133,7 @@ Get-Content 8442/mem/agent-identity.json | ConvertFrom-Json |
 
 Write-Host "--- B.1 — Generate Citizen key material ---"
 $kp  = New-Svrn7KeyPair
-$did = New-Svrn7Did -KeyPair $kp -MethodName "bindloss"
+$did = New-Svrn7Did -KeyPair $kp -Role Citizen -SocietyName "bindloss"
 
 Write-Host "Citizen DID : $($did.Did)"
 Write-Host "Public key  : $($kp.PublicKeyHex)"
@@ -141,7 +141,7 @@ Write-Host "Private key : $($kp.PrivateKeyHex)   <-- store this securely, never 
 
 # Example output (values will differ):
 #
-# Citizen DID : did:bindloss:3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy
+# Citizen DID : did:drn:bindloss.svrn7.net/citizen/1.0/<64-char genesis-hash>
 # Public key  : 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
 # Private key : <32-byte hex — keep secret>
 #
@@ -174,17 +174,18 @@ Send-LocalDIDCommMessage -Port 8442 -Body $msg
 
 # Expected: Status: Accepted
 #
-# B.4 — Verify registration in the TDA log (with LogLevel.Debug or finer)
+# B.4 — Verify registration in the TDA log
 #
 # info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
 #       Switchboard: routing ... (type=.../Svrn7.Onboarding.0.8.0/register-citizen)
-#           → ConvertFrom-Web7OnboardRequest [Svrn7.Onboarding]
-# info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
-#       [PS Info] Citizen did:bindloss:3J98... registered. Endowment: 1000000000 grana.
+#           → Invoke-Web7RegisterCitizen [Svrn7.Onboarding]
 # info: Svrn7.TDA.DIDCommMessageSwitchboard[0]
 #       Switchboard: outbound delivered to http://localhost:8443/didcomm (202).
 #
 # The last line confirms the receipt was delivered to the Citizen TDA.
+# Register-Svrn7CitizenInSociety only logs via Write-Verbose ("Citizen registered: <did>"),
+# which the Switchboard forwards as "[PS Verbose]" at LogTrace level — it will not appear
+# unless the .NET logger is configured for Trace (Debug is not sufficient).
 #
 # B.5 — Verify via module query
 
@@ -202,7 +203,7 @@ $msg = @{
 Send-LocalDIDCommMessage -Port 8442 -Body $msg
 
 # Expected reply body:
-# { "societyDid": "did:drn:bindloss.svrn7.net", "did": "did:bindloss:3J98...", "isMember": true }
+# { "societyDid": "did:drn:bindloss.svrn7.net", "did": "did:drn:bindloss.svrn7.net/citizen/1.0/<hash>...", "isMember": true }
 #
 # B.6 — Duplicate registration (expected error)
 #
@@ -221,15 +222,19 @@ Send-LocalDIDCommMessage -Port 8442 -Body $msg
 #
 # {
 #   "success":            true,
-#   "citizenDid":         "did:bindloss:3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy",
-#   "citizenDidDocument": { "Did": "did:bindloss:3J98...", "ServiceEndpoints": [...] },
+#   "citizenDid":         "did:drn:bindloss.svrn7.net/citizen/1.0/<64-char genesis-hash>",
+#   "citizenDidDocument": { "Did": "did:drn:bindloss.svrn7.net/citizen/1.0/<hash>", "ServiceEndpoints": [...] },
 #   "societyDid":         "did:drn:bindloss.svrn7.net",
 #   "societyDidDocument": { "Did": "did:drn:bindloss.svrn7.net", ... },
 #   "societyEndpointUrl": "http://localhost:8442/didcomm",
-#   "endowmentGrana":     1000000000,
+#   "endowmentGrana":     1000,
 #   "endowmentVcId":      "...",
 #   "registeredAt":       "2026-..."
 # }
+#
+# endowmentGrana is Svrn7Constants.CitizenEndowmentGrana (src/Svrn7.Core/Svrn7Constants.cs) —
+# currently 1,000 grana (0.001 SVRN7), not the 1,000 SVRN7 the endowment mechanism
+# was originally designed to grant.
 #
 # ---
 #
@@ -270,7 +275,7 @@ $msg = @{
 } | ConvertTo-Json
 Send-LocalDIDCommMessage -Port 8442 -Body $msg
 
-# Reply: { "societyDid": "did:drn:bindloss.svrn7.net", "did": "did:bindloss:3J98...", "isMember": true }
+# Reply: { "societyDid": "did:drn:bindloss.svrn7.net", "did": "did:drn:bindloss.svrn7.net/citizen/1.0/<hash>...", "isMember": true }
 #
 # ---
 #
@@ -289,7 +294,7 @@ $msg = @{
 } | ConvertTo-Json
 Send-LocalDIDCommMessage -Port 8442 -Body $msg
 
-# Reply: { "societyDid": "did:drn:bindloss.svrn7.net", "memberCount": 1, "memberDids": ["did:bindloss:3J98..."] }
+# Reply: { "societyDid": "did:drn:bindloss.svrn7.net", "memberCount": 1, "memberDids": ["did:drn:bindloss.svrn7.net/citizen/1.0/<hash>..."] }
 #
 # ---
 #
@@ -379,7 +384,12 @@ $msg = @{
 } | ConvertTo-Json
 Send-LocalDIDCommMessage -Port 8442 -Body $msg
 
-# Reply: { "citizenPrimaryDid": "did:bindloss:3J98...", "secondaryDid": "did:bindlossgov:3J98...", "methodName": "bindlossgov", "success": true }
+# Reply: { "citizenPrimaryDid": "did:drn:bindloss.svrn7.net/citizen/1.0/<hash>...", "secondaryDid": "did:bindlossgov:bindloss.svrn7.net/citizen/1.0/<hash>...", "methodName": "bindlossgov", "success": true }
+#
+# Note: Add-Svrn7CitizenDid derives the secondary DID by splitting CitizenPrimaryDid on ':'
+# and taking the last segment as the identifier (Svrn7.Society.0.8.0.psm1) — under the
+# current did:drn:{society}.svrn7.net/citizen/1.0/{hash} format that segment is the full
+# "{society}.svrn7.net/citizen/1.0/{hash}" path, not a bare base58 key.
 #
 # ---
 #
@@ -424,7 +434,7 @@ Get-Svrn7OverdraftStatus
 
 Write-Host "--- D.3 — Generate citizen key material ---"
 $kp  = New-Svrn7KeyPair
-$did = New-Svrn7Did -KeyPair $kp -MethodName "bindloss"
+$did = New-Svrn7Did -KeyPair $kp -Role Citizen -SocietyName "bindloss"
 "Citizen DID : $($did.Did)"
 "Public key  : $($kp.PublicKeyHex)"
 
@@ -436,11 +446,15 @@ $reg | Format-List
 
 # Expected:
 #
-# CitizenDid     : did:bindloss:3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy
+# CitizenDid     : did:drn:bindloss.svrn7.net/citizen/1.0/<64-char genesis-hash>
 # SocietyDid     : did:drn:bindloss.svrn7.net
-# EndowmentSvrn7 : 1000.000000
-# EndowmentGrana : 1000000000
+# EndowmentSvrn7 : 0.001
+# EndowmentGrana : 1000
+# MethodName     :
 # Success        : True
+#
+# EndowmentGrana is a literal constant in Register-Svrn7CitizenInSociety
+# (Svrn7.Society.0.8.0.psm1) matching Svrn7Constants.CitizenEndowmentGrana = 1_000L.
 
 # D.5 — Verify membership and overdraft
 
@@ -466,14 +480,23 @@ Remove-Item -Recurse -Force 8442\mem -ErrorAction SilentlyContinue
 # Or use --reset at startup:
 dotnet .\Svrn7.TDA.dll --port 8442 --name Bindloss --reset
 
-# After a reset, repeat FEDERATIONDEBUG.md §E.2 to re-register the Society with the
+# After a reset, repeat FEDERATIONDEBUG.ps1 §E.2 to re-register the Society with the
 # Federation before starting this guide from §E.2r.
 #
-# Full teardown (remove Society LiteDB files only)
+# Full teardown of the Scenario D pure-PowerShell data (./data-ps from D.1)
 
-Remove-Svrn7Databases -Confirm:$false
+Remove-Svrn7Databases `
+    -Svrn7DbPath    "./data-ps/svrn7.db" `
+    -DidsDbPath     "./data-ps/svrn7-dids.db" `
+    -VcsDbPath      "./data-ps/svrn7-vcs.db" `
+    -MsgDbPath      "./data-ps/svrn7-msg.db" `
+    -SchemasDbPath  "./data-ps/svrn7-schemas.db" `
+    -Confirm:$false
 
-# Uses default paths (svrn7.db, svrn7-dids.db, etc.) relative to the working directory.
+# Default paths (no -DbPath override) are data/svrn7.db, data/svrn7-dids.db, etc. —
+# a data/ subdirectory of the working directory, not the working directory itself.
+# Pass matching -*DbPath values whenever a custom -DbPath was used with
+# Connect-Svrn7Society / Initialize-Svrn7FederationDriver, as in D.1 above.
 # See Remove-Svrn7Databases -WhatIf to preview which files will be deleted.
 #
 # ---
@@ -484,7 +507,7 @@ Remove-Svrn7Databases -Confirm:$false
 # |------------------------------------------------------|----------------------------------|-----------|
 # | .../Svrn7.Federation.0.8.0/register-society-result  | Invoke-Web7RegisterSocietyResult | inbound   |
 # | .../Svrn7.Federation.0.8.0/society-list-result      | Invoke-Web7SocietyListResult     | inbound   |
-# | .../Svrn7.Onboarding.0.8.0/register-citizen         | ConvertFrom-Web7OnboardRequest   | inbound   |
+# | .../Svrn7.Onboarding.0.8.0/register-citizen         | Invoke-Web7RegisterCitizen       | inbound   |
 # | .../Svrn7.Society.0.8.0/society-query               | Invoke-Web7SocietyQuery          | inbound   |
 # | .../Svrn7.Society.0.8.0/member-query                | Invoke-Web7MemberQuery           | inbound   |
 # | .../Svrn7.Society.0.8.0/overdraft-query             | Invoke-Web7OverdraftQuery        | inbound   |

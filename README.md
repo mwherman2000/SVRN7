@@ -7,7 +7,7 @@
 
 The Web 7.0 Decentralized System Architecture (DSA) is a sovereign, DID-native, DIDComm-native runtime for digital participation. Every participant in the Web 7.0 ecosystem operates a **Trusted Digital Assistant (TDA)** — a personal or institutional software agent that holds identity, manages value, communicates exclusively over end-to-end encrypted DIDComm channels, and participates in **Verifiable Trust Circles (VTC7)** — federated peer meshes in which identity and trust are cryptographic properties, not institutional ones.
 
-This repository is the Epoch 0 (Endowment Phase) reference implementation of the Web 7.0 DSA, specified by the DSA 0.24 diagram using the Parchment Programming Modeling Language (PPML). It includes the TDA Host runtime, all eleven standard LOBE modules, the SOVRON (SVRN7) Shared Reserve Currency (SRC) library, and fifteen IETF draft specifications.
+This repository is the Epoch 0 (Endowment Phase) reference implementation of the Web 7.0 DSA, specified by the DSA 0.24 diagram using the Parchment Programming Modeling Language (PPML). It includes the TDA Host runtime, all eleven standard LOBE modules, the SOVRON (SVRN7) Shared Reserve Currency (SRC) library, and seventeen IETF draft specifications.
 
 ![Web 7.0 Societal Architecture](./docs/images/Web%207.0%20DSA-SocietyArch%200.26.png)
 
@@ -120,7 +120,7 @@ Internally, the TDA is structured around the PPML Legend 0.25 element types:
 | LOBE              | PowerShell modules (.psm1)              | .psm1 + .psd1 + .lobe.json          |
 | Data Storage      | LiteDB databases                        | LiteDB context class + IXxxStore    |
 | Data Access       | Resolvers / caches                      | IXxxResolver + IMemoryCache         |
-| Protocol          | Kestrel listener + HttpClient           | KestrelListenerService.cs           |
+| Protocol          | Kestrel listener + HttpClient           | DrawbridgeService.cs           |
 | Network           | Internet/LAN/P2P                        | Transport configuration             |
 
 Every component is traceable to a diagram element in DSA 0.24 via a derivation trace comment.
@@ -175,12 +175,15 @@ scalability with AI capability — see:
 ```
 
 Each participant — Federation, Society, and Citizen — operates a TDA. Every TDA
-starts as a **Wanderer**: on first run it auto-generates a secp256k1 key pair, creates
-a `did:drn:wanderer.svrn7.net/agent/1.0/{genesis-hash}` DID and DIDDocument with
-`Svrn7Role=Wanderer`, and persists the identity to `{port}/mem/agent-identity.json`.
-Role is **additive** — promoting a Wanderer to Federation, Society, or Citizen creates
-an additional DID alongside the primary Wanderer DID. The only required startup
-parameter is `--port`.
+starts as a **Wanderer**: on first run it derives a secp256k1 identity key (+ an
+X25519 key-agreement key) from a fresh 12-word BIP39 phrase, creates a
+`did:drn:wanderer.svrn7.net/agent/1.0/{genesis-hash}` DID and DIDDocument with
+`Svrn7Role=Wanderer`, and persists the identity to an **encrypted wallet**
+(`~/.web7-pando/<name>-<genesisHash8>/agent-identity.wallet`) — see
+`docs/AGENTWALLET.md`. Role is **additive** — promoting a Wanderer to Federation,
+Society, or Citizen creates an additional DID alongside the primary Wanderer DID.
+The only required startup parameter is `--name`; the wallet password comes from
+`$PANDO_WALLET_PASSWORD` or an interactive prompt.
 
 To start a local four-node dev network (all start as Wanderers):
 
@@ -191,7 +194,7 @@ To start a local four-node dev network (all start as Wanderers):
 ### Solution Structure
 
 ```
-Web7-DSA.sln
+Web7-SVRN7.sln
 +-- src/
 |   +-- Svrn7.Core/        Models, interfaces, exceptions, TdaResourceId
 |   +-- Svrn7.Crypto/      secp256k1, Ed25519, AES-256-GCM, Blake3
@@ -202,13 +205,13 @@ Web7-DSA.sln
 |   +-- Svrn7.Federation/  ISvrn7Driver (44+ members), DI extensions
 |   +-- Svrn7.Society/     ISvrn7SocietyDriver, InboxStore, SchemaRegistry
 |   +-- Svrn7.TDA/         TDA Host: Kestrel, Switchboard, LobeManager, IsolatedPipeline
-+-- lobes/                 11 LOBE modules in per-LOBE subfolders (.psm1 + .psd1 + .lobe.json) + 3 agent scripts
-+-- specs/                 15 IETF Internet-Drafts
++-- src/Svrn7.TDA/lobes/   11 LOBE modules in per-LOBE subfolders (.psm1 + .psd1 + .lobe.json) + 3 agent scripts
++-- specs/                 17 IETF Internet-Drafts
 +-- docs/                  Design documents, whitepaper, principles of operations
 +-- tests/
-    +-- Svrn7.Tests/            94 federation tests
-    +-- Svrn7.Society.Tests/    11 society tests
-    +-- Svrn7.TDA.Tests/        62 TDA + LOBE registry tests
+    +-- Svrn7.Tests/            63 federation tests
+    +-- Svrn7.Society.Tests/    17 society tests
+    +-- Svrn7.TDA.Tests/        103 TDA + LOBE registry tests
 ```
 
 ### NuGet Package Hierarchy
@@ -232,9 +235,9 @@ Svrn7.Society
 Derived from: "Citizen/Society TDA (Host)" — element type Host — DSA 0.24 Epoch 0 (PPML).
 
 **Inbound**: `POST /didcomm` (Kestrel HTTP/2 + mTLS; body size limit 2 MB; rate-limited: 100 req/s default)
-→ `KestrelListenerService.UnpackAsync()` — extracts `Id`, `Type`, `From`, `Body` from plaintext; encrypted messages pass through undecrypted;
+→ `DrawbridgeService.UnpackAsync()` — security boundary: full JWE decrypt + JWS verify for `application/didcomm-encrypted+json`; parse-only for whitelisted plaintext DID-discovery messages; extracts `Id`, `Type`, `From`, `Body` from the resulting plaintext in both cases;
   returns 503 + `Retry-After: 5` if EnqueueAsync throws; returns 429 when rate limit exceeded
-→ `LiteInboxStore.EnqueueAsync(type, body, fromDid?, wireId?)` — persists to `svrn7-msg.db`; `wireId = unpacked.Id` (null for encrypted)
+→ `LiteInboxStore.EnqueueAsync(type, body, fromDid?, wireId?)` — persists to `svrn7-msg.db`; `wireId = unpacked.Id`
 → `DIDCommMessageSwitchboard` — on startup: calls `ResetStuckMessagesAsync()` (recovery) and re-enqueues dead-lettered outbound messages;
   TTL check: messages older than `MaxMessageAgeSeconds` (default 3600s) are dead-lettered before processing;
   routes by `@type` Locator DID URL; **sequential dispatch** (one message at a time — financial correctness;
@@ -247,10 +250,24 @@ Derived from: "Citizen/Society TDA (Host)" — element type Host — DSA 0.24 Ep
 
 ### C# ↔ PowerShell Layer Model
 
+The split follows a security/trust boundary, not just a "backend vs. plugin" line —
+LOBEs are hot-reloadable and may be authored by anyone, so they're trusted far less
+than the host loading them:
+
+| Layer | Owns | Never does |
+|---|---|---|
+| **C# host** — `DrawbridgeService`, storage (`LiteInboxStore`/DID/VC registries), `DIDCommMessageSwitchboard`, `LobeManager` | Decrypt/verify at the inbound boundary; durable persistence; routing by `@type`; SignThenEncrypt at the outbound boundary; runspace pool lifecycle | Run LOBE-author-supplied business logic |
+| **LOBE** (`.psm1` protocol entrypoints) | Application/protocol logic on an already-decrypted message body; returns a plaintext `[Svrn7.TDA.OutboundMessage]` (or `$null`) | Touch DIDComm envelope crypto (JWE/JWS) or the TDA's own transport signing/key-agreement key material — both stay C#-only |
+
+See `docs/LOBEGUIDE.md`'s "Division of Responsibility" section for the full detail,
+including where this boundary has needed active correction (moving citizen/payer
+key-handling cmdlets out of the eager LOBE modules and into `admin-tools/`, which
+were reachable from any dispatch runspace despite never being a registered entrypoint).
+
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  NETWORK                                                       │
-│  HTTP/2 + mTLS  POST /didcomm  (KestrelListenerService.cs)   │
+│  HTTP/2 + mTLS  POST /didcomm  (DrawbridgeService.cs)   │
 └──────────────────────────┬───────────────────────────────────┘
                            │ writes packed DIDComm payload
                            ▼
@@ -349,6 +366,14 @@ A crash, infinite loop, or `Set-StrictMode` violation in one cmdlet cannot corru
 concurrent dispatch. The ISS is built once; the per-invocation runspace is opened and
 closed around a single `ps.Invoke()`.
 
+### Execution Policy Scoping
+
+LOBE `.psm1` files are unsigned PowerShell modules. `LobeManager.BuildInitialSessionState()`
+sets `iss.ExecutionPolicy = ExecutionPolicy.Bypass` on the shared `InitialSessionState` so
+`Import-Module` succeeds regardless of the host machine's `Set-ExecutionPolicy` setting —
+scoped only to the TDA's isolated LOBE runspaces, not the whole machine. See
+[ARCHITECTURE.md](./ARCHITECTURE.md) for the full rationale.
+
 ### Message Identity — Pass-by-Reference
 
 Every inbound message is assigned a TDA resource DID URL at ingestion:
@@ -357,7 +382,7 @@ Every inbound message is assigned a TDA resource DID URL at ingestion:
 did:drn:{networkId}/inbox/msg/{objectId}
 ```
 
-Example: `did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678`
+Example: `did:drn:societytest.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678`
 
 The Switchboard passes this DID URL — not the payload — to the LOBE cmdlet pipeline.
 LOBEs call `$SVRN7.GetMessageAsync($MessageDid)` to resolve the payload on demand.
@@ -387,16 +412,16 @@ layer of the TDA. Every LOBE ships three files:
 | #  | Module                    | Loading | Protocol families        | Role                        |
 |----|---------------------------|---------|--------------------------|-----------------------------|
 |  1 | `Svrn7.Common`            | Eager   | —                        | Shared helpers              |
-|  2 | `Svrn7.Federation`        | Eager   | transfer/1.0/*, did/1.0/*| DID management, key pairs   |
-|  3 | `Svrn7.Society`           | Eager   | transfer/1.0/*, onboard/*| Monetary + identity ops     |
-|  4 | `Svrn7.UX`                | Eager   | ux/1.0/*                 | UX adapter, balance updates |
-|  5 | `Svrn7.Email`             | JIT     | email/1.0/*              | RFC 5322 over DIDComm       |
-|  6 | `Svrn7.Calendar`          | JIT     | calendar/1.0/*           | iCalendar over DIDComm      |
-|  7 | `Svrn7.Presence`          | JIT     | presence/1.0/*           | TDA availability status     |
-|  8 | `Svrn7.Notifications`     | JIT     | Svrn7.Notifications/0.8.0/*       | Typed alert dispatch        |
-|  9 | `Svrn7.Onboarding`        | JIT     | Svrn7.Onboarding/0.8.0/*            | Citizen registration        |
-| 10 | `Svrn7.Invoicing`         | JIT     | Svrn7.Invoicing/0.8.0/*            | Invoice-to-payment          |
-| 11 | `Svrn7.Identity`          | JIT     | did/1.0/*, Svrn7.Identity/0.8.0/vc-*      | DID Document + VC resolution|
+|  2 | `Svrn7.Federation`        | Eager   | Svrn7.Federation.0.8.0/* | DID management, key pairs   |
+|  3 | `Svrn7.Society`           | Eager   | Svrn7.Society.0.8.0/*    | Monetary + identity ops     |
+|  4 | `Svrn7.UX`                | Eager   | Svrn7.UX.0.8.0/*         | UX adapter, balance updates |
+|  5 | `Svrn7.Email`             | JIT     | PandoMail.0.8.0/*        | RFC 5322 over DIDComm       |
+|  6 | `Svrn7.Calendar`          | JIT     | Svrn7.Calendar.0.8.0/*   | iCalendar over DIDComm      |
+|  7 | `Svrn7.Presence`          | JIT     | Svrn7.Presence.0.8.0/*   | TDA availability status     |
+|  8 | `Svrn7.Notifications`     | JIT     | Svrn7.Notifications.0.8.0/*       | Typed alert dispatch        |
+|  9 | `Svrn7.Onboarding`        | JIT     | Svrn7.Onboarding.0.8.0/*            | Citizen registration        |
+| 10 | `Svrn7.Invoicing`         | JIT     | Svrn7.Invoicing.0.8.0/*            | Invoice-to-payment          |
+| 11 | `Svrn7.Identity`          | JIT     | Svrn7.Identity.0.8.0/did-*, Svrn7.Identity.0.8.0/vc-*      | DID Document + VC resolution|
 
 **Eager**: pre-loaded into `InitialSessionState` at TDA startup.
 **JIT**: imported on first inbound message of a matching `@type` via `LobeManager.EnsureLoadedAsync()`.
@@ -510,14 +535,15 @@ are ever created.
 | 7    | ValidateBalance         | Dry-run UTXO sum                             |
 | 8    | ValidateSocietyMembership | Cross-Society Epoch 1: payee citizenship   |
 
-### Four-Database Design
+### Five-Database Design
 
-| Database        | Default file          | Contents                               |
-|-----------------|-----------------------|----------------------------------------|
-| `svrn7.db`      | `data/svrn7.db`       | Wallets, UTXOs, citizens, Merkle log   |
-| `svrn7-dids.db` | `data/svrn7-dids.db`  | DID Documents, version history         |
-| `svrn7-vcs.db`  | `data/svrn7-vcs.db`   | Verifiable Credentials, revocations    |
-| `svrn7-msg.db`  | `data/svrn7-msg.db`   | Inbound messages, dead-letter, processed orders |
+| Database          | Default file            | Contents                               |
+|--------------------|-------------------------|----------------------------------------|
+| `svrn7.db`        | `data/svrn7.db`         | Wallets, UTXOs, citizens, Merkle log   |
+| `svrn7-dids.db`   | `data/svrn7-dids.db`    | DID Documents, version history         |
+| `svrn7-vcs.db`    | `data/svrn7-vcs.db`     | Verifiable Credentials, revocations    |
+| `svrn7-msg.db`    | `data/svrn7-msg.db`     | Inbound messages, dead-letter, processed orders |
+| `svrn7-schemas.db`| `data/svrn7-schemas.db` | Schema Registry (Society TDA only)     |
 
 All paths accept `:memory:` for zero-disk testing.
 
@@ -541,8 +567,8 @@ Formalised in `draft-herman-did-w3c-drn-00` Section 5a (W3C DID Core Section 3.2
 
 | Form               | Delimiter | Example                                              | DID Document? |
 |--------------------|-----------|------------------------------------------------------|---------------|
-| Identity DID       | `:`       | `did:drn:alpha.svrn7.net` (society/federation only)  | Yes           |
-| Locator DID URL    | `/`       | `did:drn:alpha.svrn7.net/citizen/alice`         | No            |
+| Identity DID       | `:`       | `did:drn:societytest.svrn7.net` (society/federation only)  | Yes           |
+| Locator DID URL    | `/`       | `did:drn:societytest.svrn7.net/citizen/alice`         | No            |
 
 Identity DIDs identify subjects. Locator DID URLs address resources. The `:` vs `/` choice
 reflects W3C DID Core structural semantics, made explicit as a design principle.
@@ -615,24 +641,35 @@ GDPR erasure. UTXO records and tree heads are retained permanently — deletion 
 ## 13. Getting Started — TDA Host
 
 The TDA Host (`Svrn7.TDA`) is a deployable .NET 8 console app, not a NuGet package.
+`--name` is the only required argument; `--port` is auto-selected on first run and
+reused thereafter (see `docs/AGENTWALLET.md`). The wallet password comes from
+`$PANDO_WALLET_PASSWORD` (or a prompt), and eager LOBEs install from
+`~/.web7-pando/lobe-library/` (filled by the `web7-pando` publish profile or
+`tools/Initialize-Testnet.ps1`).
 
 ```bash
 cd src/Svrn7.TDA
-dotnet run
+$env:PANDO_WALLET_PASSWORD = '...'
+dotnet run -- --name MyTDA --port 8443
 ```
 
-`appsettings.json`:
+Per-identity storage, the encrypted wallet, and encrypted databases are designed
+in [`docs/AGENTWALLET.md`](docs/AGENTWALLET.md); the at-rest / local security
+model (password, pin, wallet, LiteDB encryption, instance naming & port design,
+threat model) is in [`SECURITY.md`](SECURITY.md).
+
+`appsettings.json` configures logging and the functional `Role` (`Federation` | `Society` | `Citizen`); network identity (port, name, URL) is supplied on the command line, not in this file:
 
 ```json
 {
+  "Logging": {
+    "LogLevel": {
+      "Default": "Warning"
+    }
+  },
   "Tda": {
-    "SocietyDid":      "did:drn:alpha.svrn7.net",
-    "NetworkId":       "alpha.svrn7.net",
-    "LobesConfigPath": "lobes/lobes.config.json",
-    "LobeDirectory":   "lobes/",
-    "InboxDbPath":     "data/svrn7-msg.db",
-    "HttpPort":        8080,
-    "CertificatePath": "certs/tda.pfx"
+    "Role": "Federation",
+    "FederationDomain": ""
   }
 }
 ```
@@ -652,7 +689,7 @@ builder.Services.AddSvrn7Federation(opts =>
     opts.Svrn7DbPath  = "data/svrn7.db";
     opts.DidsDbPath   = "data/svrn7-dids.db";
     opts.VcsDbPath    = "data/svrn7-vcs.db";
-    opts.DidMethodName           = "web7";
+    opts.DidMethodName           = "drn";
     opts.DidMethodDormancyPeriod = TimeSpan.FromDays(30);
 });
 
@@ -663,10 +700,10 @@ var keyPair = driver.GenerateSecp256k1KeyPair();
 
 await driver.InitialiseFederationAsync(new InitialiseFederationRequest
 {
-    Did                      = "did:web7:foundation",
+    Did                      = "did:drn:federation.svrn7.net",
     PublicKeyHex             = keyPair.PublicKeyHex,
     FederationName           = "Web 7.0 Foundation",
-    PrimaryDidMethodName     = "web7",
+    PrimaryDidMethodName     = "drn",
     TotalSupplyGrana         = Svrn7Constants.FederationInitialSupplyGrana,
     EndowmentPerSocietyGrana = 1_000_000 * Svrn7Constants.GranaPerSvrn7,
 });
@@ -684,7 +721,7 @@ await driver.InitialiseFederationAsync(new InitialiseFederationRequest
 builder.Services.AddSvrn7Society(opts =>
 {
     opts.SocietyDid    = "did:drn:sovronia";
-    opts.FederationDid = "did:drn:foundation";
+    opts.FederationDid = "did:drn:federation.svrn7.net";
     opts.DidMethodName  = "sovronia";
     opts.DrawAmountGrana         = 100_000 * Svrn7Constants.GranaPerSvrn7;
     opts.OverdraftCeilingGrana   = 1_000_000 * Svrn7Constants.GranaPerSvrn7;
@@ -715,12 +752,10 @@ await driver.RegisterCitizenInSocietyAsync(new RegisterCitizenInSocietyRequest
 
 | Property                        | Default                     | Description                                              |
 |---------------------------------|-----------------------------|----------------------------------------------------------|
-| `SocietyDid`                    | *(required)*                | This TDA's Society DID                                   |
-| `NetworkId`                     | *(required)*                | Network identifier                                       |
-| `LobesConfigPath`               | `lobes/lobes.config.json`   | LOBE loading manifest path                               |
-| `LobeDirectory`                 | `lobes/`                    | Watched for new .lobe.json files (all subdirectories)    |
-| `MsgDbPath`                     | `data/svrn7-msg.db`         | LiteDB message database (inbound, dead-letter, processed orders) |
-| `HttpPort`                      | `8080`                      | Kestrel listen port                                      |
+| `SocietyDid`                    | *(empty)*                   | This TDA's Society DID; empty until Society role is initialized |
+| `LobesConfigPath`               | `./lobes/lobes.config.json` | LOBE loading manifest path                               |
+| `MsgDbPath`                     | `svrn7-msg.db`               | LiteDB message database (inbound, dead-letter, processed orders) |
+| `ListenPort`                    | `8443`                      | Kestrel HTTP/2 + mTLS listen port                        |
 | `LobeInvocationTimeoutSeconds`  | `30`                        | Max seconds for a LOBE cmdlet; exceeded → `ps.Stop()`   |
 | `MaxMessageAgeSeconds`          | `3600`                      | Message TTL before dead-letter (0 = disabled)            |
 | `RateLimitRequestsPerSecond`    | `100`                       | POST /didcomm rate limit (0 = disabled); 429 on breach   |
@@ -766,7 +801,7 @@ All SVRN7 `@type` URIs follow: `did:drn:svrn7.net/protocols/{family}/{version}/{
 
 | Family          | URI prefix                                      | LOBE                   |
 |-----------------|-------------------------------------------------|------------------------|
-| Email           | `did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/`        | `Svrn7.Email`          |
+| Email           | `did:drn:svrn7.net/protocols/PandoMail.0.8.0/`        | `Svrn7.Email`          |
 | Calendar        | `did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/`     | `Svrn7.Calendar`       |
 | Presence        | `did:drn:svrn7.net/protocols/Svrn7.Presence.0.8.0/`     | `Svrn7.Presence`       |
 | Notification    | `did:drn:svrn7.net/protocols/Svrn7.Notifications.0.8.0/` | `Svrn7.Notifications`  |
@@ -788,6 +823,7 @@ All SVRN7 `@type` URIs follow: `did:drn:svrn7.net/protocols/{family}/{version}/{
 | `SanctionedPartyException`         | Payer or payee on sanctions list                      |
 | `SignatureVerificationException`   | secp256k1 or Ed25519 signature invalid                |
 | `NotFoundException`                | Entity not found                                      |
+| `EndowmentException`               | Citizen endowment operation is invalid                |
 | `DoubleSpendException`             | UTXO already spent                                    |
 | `InvalidCredentialException`       | VC invalid, expired, or revoked                       |
 | `ConfigurationException`           | Options missing or invalid                            |
@@ -814,7 +850,7 @@ src/Svrn7.Core/
 src/Svrn7.TDA/
     Program.cs                    Entry point -- Generic Host startup
     TdaHost.cs                    DI container configuration
-    KestrelListenerService.cs     POST /didcomm -- unpack -> persist -> enqueue
+    DrawbridgeService.cs     POST /didcomm -- unpack -> persist -> enqueue
     DIDCommMessageSwitchboard.cs  Descriptor-driven routing + Option A transfer idempotency
     LobeManager.cs                RegisterFromDescriptor, EnsureLoadedAsync, FileSystemWatcher
     LobeRegistration.cs           C# model for .lobe.json (MCP-aligned)
@@ -831,10 +867,10 @@ src/Svrn7.TDA/
 All tests use LiteDB `:memory:` — no disk I/O, no test isolation issues.
 
 ```bash
-dotnet test                                    # all 3 projects (167 tests total)
-dotnet test tests/Svrn7.Tests/                 # federation (94 tests)
-dotnet test tests/Svrn7.Society.Tests/         # society (11 tests)
-dotnet test tests/Svrn7.TDA.Tests/             # TDA + LOBE registry (62 tests)
+dotnet test                                    # all 3 projects (183 tests total)
+dotnet test tests/Svrn7.Tests/                 # federation (63 tests)
+dotnet test tests/Svrn7.Society.Tests/         # society (17 tests)
+dotnet test tests/Svrn7.TDA.Tests/             # TDA + LOBE registry (103 tests)
 dotnet test --collect:"XPlat Code Coverage"
 ```
 
@@ -866,11 +902,12 @@ dotnet test --collect:"XPlat Code Coverage"
 |--------------------------------------------|---------|------------------------------|
 | `LiteDB`                                   | 5.0.21  | Svrn7.Store                  |
 | `NBitcoin`                                 | 7.0.37  | Svrn7.Crypto, Svrn7.DIDComm  |
-| `NSec.Cryptography`                        | 23.9.0  | Svrn7.Crypto, Svrn7.DIDComm  |
-| `Blake3`                                   | 1.3.0   | Svrn7.Crypto                 |
+| `NSec.Cryptography`                        | 24.4.0  | Svrn7.Crypto, Svrn7.DIDComm  |
+| `Blake3`                                   | 2.0.0   | Svrn7.Crypto                 |
 | `Konscious.Security.Cryptography.Argon2`   | 1.3.1   | Svrn7.Crypto                 |
 | `Microsoft.Extensions.*`                   | 8.0.x   | Svrn7.Federation, Society, TDA|
-| `Microsoft.AspNetCore.Server.Kestrel`      | 2.2.0   | Svrn7.TDA                    |
+| Kestrel (`Microsoft.NET.Sdk.Web`)          | ASP.NET Core 8.0 shared framework | Svrn7.TDA (not a discrete NuGet package) |
+| `DnsClient`                                | 1.7.0   | Svrn7.TDA                    |
 | `System.Management.Automation`             | 7.4.6   | Svrn7.TDA                    |
 | `xunit`                                    | 2.7.0   | Tests                        |
 | `FluentAssertions`                         | 6.12.0  | Tests                        |
@@ -896,7 +933,7 @@ dotnet test --collect:"XPlat Code Coverage"
 - DIDComm protocol URIs: `did:drn:svrn7.net/protocols/...` (Locator DID URLs)
 - PPML Legend 0.25 + PP-9 Consistent Code Generation formalised
 - 11 standard LOBEs with MCP-aligned descriptors
-- 15 IETF Internet-Drafts
+- 17 IETF Internet-Drafts
 
 ### v0.9.0 — Epoch 2 Market Issuance
 - Open-market transfer rules
@@ -919,6 +956,8 @@ dotnet test --collect:"XPlat Code Coverage"
 | Draft                                       | Subject                                        |
 |---------------------------------------------|------------------------------------------------|
 | `draft-herman-did-w3c-drn-00`               | `did:drn` DID method + Web 7.0 profile         |
+| `draft-herman-did-resolution-protocol-00`   | Web 7.0 Pando DID Document Resolution Protocol |
+| `draft-herman-did-pnl-00`                   | Digital Agent Post-Nominal Letters (PNL) DID method |
 | `draft-herman-drn-resource-addressing-00`   | TDA Data Storage record addressing             |
 | `draft-herman-vtc-proof-sets-01`            | Verifiable Trust Circle VC Proof Sets          |
 | `draft-herman-didcomm-svrn7-transfer-00`    | SVRN7 DIDComm transfer protocol               |

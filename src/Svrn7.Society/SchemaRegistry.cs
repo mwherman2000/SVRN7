@@ -14,7 +14,7 @@ namespace Svrn7.Society;
 // AddSvrn7Federation()).
 //
 // DID URL addressing (draft-herman-drn-resource-addressing-00):
-//   did:drn:alpha.svrn7.net/schemas/schema/{schemaName}
+//   did:drn:societytest.svrn7.net/schemas/schema/{schemaName}
 //   Key type: Named (common name) — e.g., "CitizenEndowmentCredential"
 //   Schema names: alphanumeric, hyphens, dots only. PascalCase or kebab-case.
 
@@ -92,7 +92,7 @@ public interface ISchemaResolver
 
     /// <summary>
     /// Resolves a schema by its DID URL
-    /// (e.g., "did:drn:alpha.svrn7.net/schemas/schema/CitizenEndowmentCredential").
+    /// (e.g., "did:drn:societytest.svrn7.net/schemas/schema/CitizenEndowmentCredential").
     /// Parses the name segment and delegates to <see cref="ResolveByNameAsync"/>.
     /// </summary>
     Task<string?> ResolveByDidUrlAsync(string didUrl, CancellationToken ct = default);

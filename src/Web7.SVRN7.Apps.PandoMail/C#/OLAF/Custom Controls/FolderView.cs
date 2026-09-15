@@ -406,7 +406,33 @@ namespace Web7.SVRN7.Apps
 
 		private void folderTreeView_AfterSelect(object sender, TreeViewEventArgs e)
 		{
+			if (_suppressSelectionEvent) return;
 			FolderSelected?.Invoke(e.Node?.Text ?? string.Empty);
+		}
+
+		bool _suppressSelectionEvent;
+
+		/// <summary>
+		/// Programmatically highlights the given folder node without re-raising
+		/// <see cref="FolderSelected"/> — used to keep the tree in sync when a
+		/// folder is loaded by something other than the user clicking its node
+		/// (e.g. Send/Receive always reloads Inbox regardless of what's selected).
+		/// </summary>
+		public void SelectFolder(string folderName)
+		{
+			foreach (TreeNode node in this.folderTreeView.Nodes[0].Nodes)
+			{
+				if (node.Text.Equals(folderName, StringComparison.OrdinalIgnoreCase))
+				{
+					if (this.folderTreeView.SelectedNode != node)
+					{
+						_suppressSelectionEvent = true;
+						this.folderTreeView.SelectedNode = node;
+						_suppressSelectionEvent = false;
+					}
+					break;
+				}
+			}
 		}
 
 		void MessageStore_PropertyChanged(object sender, PropertyChangedEventArgs e)

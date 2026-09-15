@@ -4,7 +4,7 @@
 
 | Outlook/SMTP concept | DIDComm / Web 7.0 DSA equivalent |
 |---|---|
-| Email address (`alice@example.com`) | DID (`did:drn:alpha.svrn7.net:citizen:alice`) |
+| Email address (`alice@example.com`) | DID (`did:drn:societytest.svrn7.net:citizen:alice`) |
 | Mail server | DIDComm service endpoint in DID Document |
 | IMAP inbox | DSA Mediator agent (routed DIDComm messages) |
 | Message body (HTML) | DIDComm `basicmessage` or custom `dsa/email` plaintext |
@@ -189,8 +189,8 @@ public class DIDResolver
     private readonly Dictionary<string, DIDDocument> _cache
         = new Dictionary<string, DIDDocument>();
 
-    // did:drn:alpha.svrn7.net:citizen:alice
-    // → https://alpha.svrn7.net/citizen/alice/did.json
+    // did:drn:societytest.svrn7.net:citizen:alice
+    // → https://societytest.svrn7.net/citizen/alice/did.json
     public DIDDocument Resolve(string did)
     {
         if (_cache.ContainsKey(did)) return _cache[did];
@@ -204,7 +204,7 @@ public class DIDResolver
 
     private string DIDDrnToUrl(string did)
     {
-        // did:drn:alpha.svrn7.net:citizen:alice → https://alpha.svrn7.net/citizen/alice/did.json
+        // did:drn:societytest.svrn7.net:citizen:alice → https://societytest.svrn7.net/citizen/alice/did.json
         var parts = did.Split(':');
         // parts[0]="did", parts[1]="drn", parts[2]=host, parts[3..]=path
         string host = Uri.UnescapeDataString(parts[2]);
@@ -390,7 +390,7 @@ public class DIDCommMailAdapter
 
     private string ExtractDisplayName(string did)
     {
-        // did:drn:alpha.svrn7.net:citizen:alice → alice@alpha.svrn7.net
+        // did:drn:societytest.svrn7.net:citizen:alice → alice@societytest.svrn7.net
         var parts = did.Split(':');
         if (parts.Length >= 3 && parts[1] == "drn")
         {
@@ -497,7 +497,7 @@ MessageStore adds to Sent folder
 
 ```json
 {
-  "id": "did:drn:alpha.svrn7.net:citizen:mwherman",
+  "id": "did:drn:societytest.svrn7.net:citizen:mwherman",
   "verificationMethod": [
     {
       "id": "#key-1",
@@ -518,7 +518,7 @@ MessageStore adds to Sent folder
       "type": "DIDCommMessaging",
       "serviceEndpoint": "https://mediator.web7.dsa/receive",
       "accept": ["didcomm/v2"],
-      "routingKeys": ["did:drn:alpha.svrn7.net:mediator#key-1"]
+      "routingKeys": ["did:drn:societytest.svrn7.net:mediator#key-1"]
     }
   ]
 }

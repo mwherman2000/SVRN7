@@ -10,7 +10,7 @@ namespace Svrn7.TDA;
 //
 // Key type conventions (Epoch 0):
 //   Citizen records          : citizen local id (e.g., alice) — NOT the full DID suffix
-//   Society/federation records: DID suffix (e.g., alpha.svrn7.net)
+//   Society/federation records: DID suffix (e.g., societytest.svrn7.net)
 //   Content-addressed records: Blake3 hex hash (64 chars) — utxo, logentry, treehead
 //   Named records            : human-meaningful common name — schema
 //   VC UUID records          : VC UUID string — vc
@@ -77,7 +77,7 @@ public sealed class TdaResourceAddress
 
     // ── Parsed components ─────────────────────────────────────────────────────
 
-    /// <summary>Owning TDA network identifier (e.g., "alpha.svrn7.net").</summary>
+    /// <summary>Owning TDA network identifier (e.g., "societytest.svrn7.net").</summary>
     public string NetworkId { get; }
 
     /// <summary>Database segment (e.g., "inbox", "main", "dids", "vcs", "schemas").</summary>
@@ -221,7 +221,7 @@ public sealed class TdaResourceAddress
 
     /// <summary>
     /// Returns the key as a full did:drn Identity DID string. Use only for society and
-    /// federation records where Key IS the DID suffix (e.g., "alpha.svrn7.net").
+    /// federation records where Key IS the DID suffix (e.g., "societytest.svrn7.net").
     /// For citizen records, Key is a local id (e.g., "alice") — use ToString() to obtain
     /// the citizen's Locator DID URL instead.
     /// </summary>

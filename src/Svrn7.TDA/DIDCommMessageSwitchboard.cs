@@ -128,7 +128,18 @@ public sealed class DIDCommMessageSwitchboard
                     "Switchboard: re-enqueuing {Count} dead-lettered outbound message(s) from prior session.",
                     pending.Count);
                 foreach (var record in pending)
+                {
                     _outboundQueue.Enqueue(new OutboundMessage(record.PeerEndpoint, record.PackedMessage));
+
+                    // Mark retried immediately, not after the outcome is known — matches
+                    // IDeadLetterStore.MarkRetriedAsync's documented contract ("whether retry
+                    // succeeded or not"). GetPendingAsync filters on IsRetried, so without this
+                    // the same record is re-enqueued on every future startup forever, and if the
+                    // retry fails again the normal outbound-failure path (below) inserts a brand
+                    // new record for it — the two together silently duplicate every persistently
+                    // undeliverable message once per restart.
+                    await _deadLetter.MarkRetriedAsync(record.Id, ct);
+                }
             }
         }
         catch (Exception ex)
@@ -194,9 +205,22 @@ public sealed class DIDCommMessageSwitchboard
 
     private async Task DispatchAsync(InboundMessage msg, CancellationToken ct)
     {
+        // This drain loop runs on its own background async context — Activity.Current
+        // is always null here, so didcomm.dispatch always starts a fresh trace regardless
+        // of parentContext. An ActivityLink to the didcomm.receive span that enqueued this
+        // message (captured in msg.TraceContext) lets Jaeger show the two traces as
+        // related without artificially forcing them into one parent-child trace, which
+        // would misrepresent how long the message actually sat queued.
+        ActivityLink[] links = [];
+        if (!string.IsNullOrEmpty(msg.TraceContext) &&
+            ActivityContext.TryParse(msg.TraceContext, null, out var receiveContext))
+            links = [new ActivityLink(receiveContext)];
+
         using var activity = Svrn7Telemetry.Source.StartActivity(
             Svrn7Telemetry.ActivityDispatch,
-            ActivityKind.Consumer);
+            ActivityKind.Consumer,
+            parentContext: default,
+            links: links);
 
         activity?.SetTag(Svrn7Telemetry.TagMessageId,    msg.Id)
                  .SetTag(Svrn7Telemetry.TagMessageType,  msg.MessageType)
@@ -259,17 +283,20 @@ public sealed class DIDCommMessageSwitchboard
 
             // ── Route by @type → LOBE cmdlet pipeline ─────────────────────────
             // Pass-by-reference: pass the ObjectId string, not the payload.
-            // Dynamic registry lookup — LobeManager resolves @type to a registration.
-            // Exact match is preferred over prefix match (longest-prefix tiebreak).
-            var reg = _lobes.TryResolveProtocol(msg.MessageType);
+            // Dynamic registry lookup — LobeManager resolves @type to a registration,
+            // JIT-installing the LOBE package from the machine-level lobe-library on
+            // first reference (docs/AGENTWALLET.md §D6; TDA-006). Exact match is
+            // preferred over prefix match (longest-prefix tiebreak).
+            var reg = _lobes.TryResolveOrInstallProtocol(msg.MessageType);
             if (reg is null)
             {
                 _log.LogWarning(
-                    "Switchboard: no LOBE registered for @type '{Type}' — failing message.",
+                    "Switchboard: no LOBE for @type '{Type}' (not registered and not installable " +
+                    "from the LOBE library) — failing message.",
                     msg.MessageType);
                 await _inbox.MarkFailedAsync(
                     msg.Id,
-                    $"No LOBE registered for @type: {msg.MessageType}",
+                    $"No LOBE for @type: {msg.MessageType}",
                     retry: false, maxAttempts: TransactionalMaxAttempts, ct);
                 activity?.SetTag(Svrn7Telemetry.TagOutcome, "no_lobe")
                          .SetStatus(ActivityStatusCode.Error, $"No LOBE registered for @type: {msg.MessageType}");
@@ -341,97 +368,119 @@ public sealed class DIDCommMessageSwitchboard
     private async Task InvokeCmdletPipelineAsync(
         string cmdletOrScript, string modulePath, string didUrl, CancellationToken ct)
     {
-        using var isolated = _pool.CreateIsolatedPipeline();
-        var ps = isolated.Ps;
-
-        // For LOBE cmdlets (not agent .ps1 scripts), ensure the module is present
-        // in this runspace. Eager LOBEs are skipped (already in the ISS).
-        // JIT LOBEs are imported now into this dedicated runspace.
-        if (!cmdletOrScript.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
-            await _lobes.EnsureLoadedAsync(ps, modulePath, ct);
-
-        ps.Commands.Clear();
-        if (cmdletOrScript.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
-        {
-            // Agent script: executed with MessageDid parameter.
-            ps.AddCommand(cmdletOrScript)
-              .AddParameter("MessageDid", didUrl);
-        }
-        else
-        {
-            // LOBE cmdlet pipeline: Dequeue-Svrn7Message | cmdlet (pass-by-reference).
-            ps.AddCommand("Dequeue-Svrn7Message")
-              .AddParameter("Did", didUrl)
-              .AddStatement()
-              .AddCommand(cmdletOrScript)
-              .AddParameter("MessageDid", didUrl);
-        }
-
+        // Started before CreateIsolatedPipeline() (not after) so that pipeline's own
+        // runspace.lifetime span — and, in turn, EnsureLoadedAsync's lobe.import — both
+        // nest under the dispatch that triggered them, instead of surfacing as unlinked
+        // sibling spans with no correlation back to this message. `using` disposes in
+        // reverse declaration order, so `isolated` (the child) still ends before
+        // `invokeActivity` (the parent), exactly as proper nesting requires.
         using var invokeActivity = Svrn7Telemetry.Source.StartActivity(
             Svrn7Telemetry.ActivityInvoke,
             ActivityKind.Internal);
         invokeActivity?.SetTag(Svrn7Telemetry.TagMessageId,      didUrl)
-                       .SetTag(Svrn7Telemetry.TagLobeEntrypoint, cmdletOrScript);
+                       .SetTag(Svrn7Telemetry.TagLobeEntrypoint, cmdletOrScript)
+                       .SetTag(Svrn7Telemetry.TagLobeModulePath, modulePath);
 
-        _log.LogTrace("PS invoke: {Cmdlet} -MessageDid {Did}", cmdletOrScript, didUrl);
+        using var isolated = _pool.CreateIsolatedPipeline();
+        var ps = isolated.Ps;
 
-        // ps.Invoke() is synchronous. Wrap in Task.Run so it doesn't block the thread pool.
-        // PowerShell does not honour CancellationToken internally — interruption is via
-        // ps.Stop(). Apply an external timeout using WaitAsync + a linked CTS.
-        var invokeTask = Task.Run(() => ps.Invoke());
-
-        if (_opts.LobeInvocationTimeoutSeconds > 0)
+        try
         {
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(_opts.LobeInvocationTimeoutSeconds));
-            try
+            // For LOBE cmdlets (not agent .ps1 scripts), ensure the module is present
+            // in this runspace. Eager LOBEs are skipped (already in the ISS).
+            // JIT LOBEs are imported now into this dedicated runspace.
+            if (!cmdletOrScript.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
+                await _lobes.EnsureLoadedAsync(ps, modulePath, ct);
+
+            ps.Commands.Clear();
+            if (cmdletOrScript.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
             {
-                await invokeTask.WaitAsync(timeoutCts.Token);
+                // Agent script: executed with MessageDid parameter.
+                ps.AddCommand(cmdletOrScript)
+                  .AddParameter("MessageDid", didUrl);
             }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            else
             {
-                // Timeout fired (not shutdown) — stop the runspace and fail the message.
-                ps.Stop();
-                try { await invokeTask.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None); }
-                catch { /* best-effort wind-down; runspace disposed by IsolatedPipeline */ }
-                throw new TimeoutException(
-                    $"LOBE cmdlet '{cmdletOrScript}' timed out after {_opts.LobeInvocationTimeoutSeconds}s for message {didUrl}.");
+                // LOBE cmdlet pipeline: Dequeue-Svrn7Message | cmdlet (pass-by-reference).
+                ps.AddCommand("Dequeue-Svrn7Message")
+                  .AddParameter("Did", didUrl)
+                  .AddStatement()
+                  .AddCommand(cmdletOrScript)
+                  .AddParameter("MessageDid", didUrl);
+            }
+
+            _log.LogTrace("PS invoke: {Cmdlet} -MessageDid {Did}", cmdletOrScript, didUrl);
+
+            // ps.Invoke() is synchronous. Wrap in Task.Run so it doesn't block the thread pool.
+            // PowerShell does not honour CancellationToken internally — interruption is via
+            // ps.Stop(). Apply an external timeout using WaitAsync + a linked CTS.
+            var invokeTask = Task.Run(() => ps.Invoke());
+
+            if (_opts.LobeInvocationTimeoutSeconds > 0)
+            {
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(TimeSpan.FromSeconds(_opts.LobeInvocationTimeoutSeconds));
+                try
+                {
+                    await invokeTask.WaitAsync(timeoutCts.Token);
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    // Timeout fired (not shutdown) — stop the runspace and fail the message.
+                    ps.Stop();
+                    try { await invokeTask.WaitAsync(TimeSpan.FromSeconds(5), CancellationToken.None); }
+                    catch { /* best-effort wind-down; runspace disposed by IsolatedPipeline */ }
+                    throw new TimeoutException(
+                        $"LOBE cmdlet '{cmdletOrScript}' timed out after {_opts.LobeInvocationTimeoutSeconds}s for message {didUrl}.");
+                }
+            }
+            else
+            {
+                await invokeTask.WaitAsync(ct);
+            }
+
+            var results = invokeTask.Result; // task is completed at this point
+
+            _log.LogTrace("PS complete: {Cmdlet} → {Count} result(s).", cmdletOrScript, results.Count);
+            invokeActivity?.SetTag(Svrn7Telemetry.TagResultCount,  results.Count)
+                           .SetTag(Svrn7Telemetry.TagWarningCount, ps.Streams.Warning.Count);
+
+            // Forward PowerShell streams to the .NET logger.
+            foreach (var v in ps.Streams.Verbose)
+                _log.LogTrace("  [PS Verbose] {Message}", v.Message);
+            foreach (var d in ps.Streams.Debug)
+                _log.LogDebug("  [PS Debug] {Message}", d.Message);
+            foreach (var i in ps.Streams.Information)
+                _log.LogInformation("  [PS Info] {Message}", i.MessageData);
+            foreach (var w in ps.Streams.Warning)
+                _log.LogWarning("  [PS Warning] {Message}", w.Message);
+
+            if (ps.HadErrors)
+            {
+                var errors = string.Join("; ", ps.Streams.Error.Select(e => e.ToString()));
+                throw new InvalidOperationException(
+                    $"'{cmdletOrScript}' reported errors for message {didUrl}: {errors}");
+            }
+
+            invokeActivity?.SetStatus(ActivityStatusCode.Ok);
+
+            // Enqueue any outbound messages returned by the pipeline.
+            foreach (var result in results)
+            {
+                if (result?.BaseObject is OutboundMessage outbound)
+                    _outboundQueue.Enqueue(outbound);
             }
         }
-        else
+        catch (Exception ex)
         {
-            await invokeTask.WaitAsync(ct);
-        }
-
-        var results = invokeTask.Result; // task is completed at this point
-
-        _log.LogTrace("PS complete: {Cmdlet} → {Count} result(s).", cmdletOrScript, results.Count);
-
-        // Forward PowerShell streams to the .NET logger.
-        foreach (var v in ps.Streams.Verbose)
-            _log.LogTrace("  [PS Verbose] {Message}", v.Message);
-        foreach (var d in ps.Streams.Debug)
-            _log.LogDebug("  [PS Debug] {Message}", d.Message);
-        foreach (var i in ps.Streams.Information)
-            _log.LogInformation("  [PS Info] {Message}", i.MessageData);
-        foreach (var w in ps.Streams.Warning)
-            _log.LogWarning("  [PS Warning] {Message}", w.Message);
-
-        if (ps.HadErrors)
-        {
-            var errors = string.Join("; ", ps.Streams.Error.Select(e => e.ToString()));
-            invokeActivity?.SetStatus(ActivityStatusCode.Error, errors);
-            throw new InvalidOperationException(
-                $"'{cmdletOrScript}' reported errors for message {didUrl}: {errors}");
-        }
-
-        invokeActivity?.SetStatus(ActivityStatusCode.Ok);
-
-        // Enqueue any outbound messages returned by the pipeline.
-        foreach (var result in results)
-        {
-            if (result?.BaseObject is OutboundMessage outbound)
-                _outboundQueue.Enqueue(outbound);
+            // Single, uniform error-tagging point for every failure path above — JIT LOBE
+            // import failures, a PowerShell-timeout TimeoutException, ps.HadErrors's
+            // InvalidOperationException (whose own Message already carries the full PS
+            // error text), or anything unanticipated. error.type lets a trace backend
+            // group/filter by failure kind without parsing the status description string.
+            invokeActivity?.SetTag(Svrn7Telemetry.TagErrorType, ex.GetType().Name)
+                           .SetStatus(ActivityStatusCode.Error, ex.Message);
+            throw;
         }
     }
 
@@ -543,11 +592,8 @@ public sealed class DIDCommMessageSwitchboard
         var msgId   = root.TryGetProperty("id",   out var idEl)   ? idEl.GetString()    : null;
         var msgType = root.TryGetProperty("type", out var typeEl) ? typeEl.GetString() ?? "" : "";
         var msgFrom = root.TryGetProperty("from", out var fromEl) ? fromEl.GetString()   : _opts.LocalDid;
-        string msgBody;
-        if (root.TryGetProperty("body", out var bodyEl))
-            msgBody = bodyEl.ValueKind == JsonValueKind.String ? bodyEl.GetString() ?? "{}" : bodyEl.GetRawText();
-        else
-            msgBody = "{}";
+        // DIDComm v2: body, if present, MUST be a JSON object — no string fallback.
+        var msgBody = root.TryGetProperty("body", out var bodyEl) ? bodyEl.GetRawText() : "{}";
 
         var message = new DIDCommMessage
         {
@@ -593,7 +639,23 @@ public sealed class DIDCommMessageSwitchboard
         // Derived from: "HTTP Listener/Sender (HTTPClient)" — DSA 0.24 Epoch 0.
         while (_outboundQueue.TryDequeue(out var msg))
         {
-            await DeliverOutboundAsync(msg, ct);
+            try
+            {
+                await DeliverOutboundAsync(msg, ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                // DeliverOutboundAsync already handles expected failure modes (HTTP errors,
+                // timeouts) internally via retry + dead-letter. Reaching here means something
+                // unexpected escaped that handling (e.g. a WebSocket push race, malformed
+                // envelope JSON in PackOutboundAsync) — this message is one dequeued item,
+                // not the whole queue, so log and move on to the next rather than letting it
+                // propagate out of RunAsync's while loop and kill the entire drain loop (the
+                // TDA's single dispatcher for both inbound and outbound processing).
+                _log.LogError(ex,
+                    "Switchboard: unexpected error delivering outbound message to {Endpoint} — message lost, continuing drain.",
+                    msg.PeerEndpoint);
+            }
         }
     }
 
@@ -698,6 +760,36 @@ public sealed class DIDCommMessageSwitchboard
             AttemptCount  = OutboundMaxAttempts,
             LastError     = lastException?.Message
         }, ct);
+
+        await PushFolderCountsNotificationAsync(ct);
+    }
+
+    /// <summary>
+    /// Pushes a Notify-FolderCounts envelope to PandoMail over the local WebSocket hub.
+    /// LOBE cmdlets do this themselves via New-FolderCountsNotification after operations
+    /// they control directly, but retry-exhaustion dead-lettering happens here in
+    /// <see cref="DeliverOutboundAsync"/> — after the LOBE has already returned — so the
+    /// Switchboard must push the refreshed counts itself or PandoMail's folder tree goes
+    /// stale until some unrelated notification happens to fire.
+    /// </summary>
+    private async Task PushFolderCountsNotificationAsync(CancellationToken ct)
+    {
+        var counts = await _ctx.CountEmailFoldersAsync(ct);
+        var envelope = new
+        {
+            typ  = "application/didcomm-plain+json",
+            id   = Svrn7.Core.TdaResourceId.DIDCommMessage(Guid.NewGuid().ToString("N")),
+            type = "did:drn:svrn7.net/protocols/PandoMail.0.8.0/Notify-FolderCounts",
+            from = _ctx.LocalDid,
+            to   = new[] { _ctx.LocalDid },
+            body = new
+            {
+                inboxCount      = counts.Inbox,
+                sentCount       = counts.Sent,
+                deadLetterCount = counts.DeadLetters
+            }
+        };
+        await _hub.PushAsync(JsonSerializer.Serialize(envelope), ct);
     }
 }
 

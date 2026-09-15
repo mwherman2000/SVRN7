@@ -1,3 +1,4 @@
+using System.Reflection;
 using Pando.Board.Controls;
 using Pando.Board.Models;
 using Pando.Board.Services;
@@ -31,11 +32,13 @@ public class BoardForm : Form
 
     private void InitializeForm()
     {
-        Text = "Pando Board — Personal Intelligence Surface";
+        Text = "Pando Board — Your Personal Intelligence Surface";
+        Icon = LoadEmbeddedIcon("Images.Web7Pinwheel.ico");
         BackColor = Color.FromArgb(8, 12, 22);
         ForeColor = Color.FromArgb(232, 234, 240);
         Size = new Size(1400, 900);
-        MinimumSize = new Size(800, 600);
+        int minSpan = (int)(BoardColumn.ActiveWidth + 4 * BoardColumn.SpineWidth + 4 * 2f);
+        MinimumSize = new Size(minSpan, minSpan);
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Segoe UI", 9f);
 
@@ -49,22 +52,14 @@ public class BoardForm : Form
         };
 
         // Logo
-        var logoBorder = new Panel
+        var logoBox = new PictureBox
         {
             Size = new Size(32, 32),
             Location = new Point(12, 8),
-            BackColor = Color.FromArgb(79, 142, 247)
+            Image = LoadEmbeddedImage("Images.Web7Pinwheel32.png"),
+            SizeMode = PictureBoxSizeMode.Zoom
         };
-        var logoLabel = new Label
-        {
-            Text = "PB",
-            ForeColor = Color.White,
-            Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-            Dock = DockStyle.Fill,
-            TextAlign = ContentAlignment.MiddleCenter
-        };
-        logoBorder.Controls.Add(logoLabel);
-        _topBar.Controls.Add(logoBorder);
+        _topBar.Controls.Add(logoBox);
 
         // Title
         _titleLabel = new Label
@@ -129,6 +124,20 @@ public class BoardForm : Form
 
         Resize += (_, _) => PositionTopBarControls();
         PositionTopBarControls();
+    }
+
+    private static Icon LoadEmbeddedIcon(string resourceSuffix)
+    {
+        using var stream = typeof(BoardForm).Assembly
+            .GetManifestResourceStream($"Pando.Board.{resourceSuffix}")!;
+        return new Icon(stream);
+    }
+
+    private static Image LoadEmbeddedImage(string resourceSuffix)
+    {
+        using var stream = typeof(BoardForm).Assembly
+            .GetManifestResourceStream($"Pando.Board.{resourceSuffix}")!;
+        return Image.FromStream(stream);
     }
 
     private void PositionTopBarControls()

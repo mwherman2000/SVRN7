@@ -31,7 +31,7 @@ SVRN7/
 
 ```
 POST /didcomm (HTTP/2, Kestrel)
-  └── KestrelListenerService
+  └── DrawbridgeService
         └── IDIDCommService.UnpackAsync       ← JWE decrypt + JWS verify at inbound boundary
               └── LiteInboxStore.EnqueueAsync
                     └── DIDCommMessageSwitchboard (drain loop)
@@ -48,7 +48,7 @@ POST /didcomm (HTTP/2, Kestrel)
 
 | Class | Role |
 |---|---|
-| `KestrelListenerService` | Single inbound gate: `POST /didcomm` only |
+| `DrawbridgeService` | Single inbound gate: `POST /didcomm` only |
 | `DIDCommMessageSwitchboard` | Inbox drain loop; routes by `@type`; outbound delivery |
 | `LobeManager` | Protocol registry; eager/JIT import; `EnsureLoadedAsync` |
 | `IsolatedRunspaceFactory` | Runspace pool (min 2, max ProcessorCount×2) |
@@ -75,7 +75,7 @@ The TDA's public inbound surface is HTTP/2-only (no HTTP/1.1 fallback). Reasons:
 
 **Why not gRPC directly?** gRPC framing (Protobuf + length-prefixed binary) adds schema complexity for third-party LOBE authors and clients that only need to POST a JSON envelope. Raw HTTP/2 POST keeps the wire format simple.
 
-**Local UI clients (PandoMail):** PandoMail is on .NET 8. `TdaMailClient.Send()` uses `HttpClient` with HTTP/2 + mTLS directly for `POST /didcomm`. The `/didcomm-notify` push channel uses RFC 8441 (WebSocket over HTTP/2 extended CONNECT) — a deliberate design choice for server-push, not a .NET limitation.
+**Local UI clients (PandoMail):** PandoMail is on .NET 8. `TdaMailClient.Send()` uses `HttpClient` with HTTP/2 + mTLS directly for `POST /didcomm`. The `/localcomm-ws` push channel uses RFC 8441 (WebSocket over HTTP/2 extended CONNECT) — a deliberate design choice for server-push, not a .NET limitation.
 
 ---
 
@@ -89,10 +89,10 @@ The TDA's public inbound surface is HTTP/2-only (no HTTP/1.1 fallback). Reasons:
 |---|---|---|---|---|
 | HTTP (`POST /didcomm`) — TDA-to-TDA | outbound | General | SignThenEncrypt (secp256k1 ES256K JWS inside X25519 JWE) | Switchboard `PackOutboundAsync` |
 | HTTP (`POST /didcomm`) — TDA-to-TDA | outbound | DID discovery | Plaintext (`application/didcomm-plain+json`) | Switchboard `IsPlaintextDiscoveryMessage` → skip `PackOutboundAsync` |
-| HTTP (`POST /didcomm`) — TDA-to-TDA | inbound | General | SignThenEncrypt required | `KestrelListenerService` rejects non-encrypted with 415 |
-| HTTP (`POST /didcomm`) — TDA-to-TDA | inbound | DID discovery | Plaintext accepted | `KestrelListenerService` admits `application/didcomm-plain+json` only for `PlaintextDiscoveryProtocols`; rejects other plaintext with 403 |
-| WebSocket (`/didcomm-notify`) — TDA-to-local-UI | outbound | All | Plaintext (`application/didcomm-plain+json`) | Switchboard (PeerEndpoint starts with `ws://`) |
-| WebSocket (`/didcomm-notify`) — local-UI/tool-to-TDA | inbound | All | Plaintext accepted | localhost-only; no content-type gate |
+| HTTP (`POST /didcomm`) — TDA-to-TDA | inbound | General | SignThenEncrypt required | `DrawbridgeService` rejects non-encrypted with 415 |
+| HTTP (`POST /didcomm`) — TDA-to-TDA | inbound | DID discovery | Plaintext accepted | `DrawbridgeService` admits `application/didcomm-plain+json` only for `PlaintextDiscoveryProtocols`; rejects other plaintext with 403 |
+| WebSocket (`/localcomm-ws`) — TDA-to-local-UI | outbound | All | Plaintext (`application/didcomm-plain+json`) | Switchboard (PeerEndpoint starts with `ws://`) |
+| WebSocket (`/localcomm-ws`) — local-UI/tool-to-TDA | inbound | All | Plaintext accepted | localhost-only; no content-type gate |
 
 **DID discovery plaintext whitelist** (`Svrn7Constants.PlaintextDiscoveryProtocols`):
 - `did:drn:svrn7.net/protocols/Svrn7.Identity.0.8.0/did-resolve-request`
@@ -100,9 +100,9 @@ The TDA's public inbound surface is HTTP/2-only (no HTTP/1.1 fallback). Reasons:
 
 **Why plaintext for DID resolution?** DID resolution is an open discovery service — any TDA may query any other TDA's DID Documents (own, Citizens, Societies) freely, without a prior relationship. Encryption is structurally impossible on this path: you cannot encrypt to a peer whose DID Document you have not yet resolved, which is exactly what the query is for. The plaintext permission is scoped strictly to `PlaintextDiscoveryProtocols`; any other plaintext on `POST /didcomm` is rejected 403.
 
-**Why plaintext for WebSocket?** The `/didcomm-notify` channel is localhost-only. PandoMail holds no key material and shares the Citizen TDA's DID. Encryption would require giving PandoMail long-lived private keys — that contradicts the shared-identity design and would expand the attack surface unnecessarily.
+**Why plaintext for WebSocket?** The `/localcomm-ws` channel is localhost-only. PandoMail holds no key material and shares the Citizen TDA's DID. Encryption would require giving PandoMail long-lived private keys — that contradicts the shared-identity design and would expand the attack surface unnecessarily.
 
-**Symmetric design:** This is the outbound counterpart of the decrypt-at-boundary pattern on the inbound side. `KestrelListenerService` unpacks every inbound message at the HTTP boundary before anything enters the inbox; `DIDCommMessageSwitchboard.PackOutboundAsync` packs every outbound HTTP message at the delivery boundary before anything leaves the process (DID discovery protocols excepted).
+**Symmetric design:** This is the outbound counterpart of the decrypt-at-boundary pattern on the inbound side. `DrawbridgeService` unpacks every inbound message at the HTTP boundary before anything enters the inbox; `DIDCommMessageSwitchboard.PackOutboundAsync` packs every outbound HTTP message at the delivery boundary before anything leaves the process (DID discovery protocols excepted).
 
 **Fallback behaviour:** If the recipient's DID Document does not contain an `X25519KeyAgreementKey2020` entry — for example, a TDA bootstrapped before X25519 keys were added — `PackOutboundAsync` logs a warning and sends plaintext. This is a degraded mode. All TDAs bootstrapped with the current codebase include an X25519 key by default.
 
@@ -110,16 +110,16 @@ The TDA's public inbound surface is HTTP/2-only (no HTTP/1.1 fallback). Reasons:
 
 | Field | Key type | Use |
 |---|---|---|
-| `AgentKeyAgreementPrivateKey` | X25519 (32 bytes) | Inbound JWE decryption (`KestrelListenerService.UnpackAsync`) |
+| `AgentKeyAgreementPrivateKey` | X25519 (32 bytes) | Inbound JWE decryption (`DrawbridgeService.UnpackAsync`) |
 | `AgentSigningPrivateKey` | secp256k1 (32 bytes) | Outbound JWS signing (`DIDCommMessageSwitchboard.PackOutboundAsync`) |
 
-Both are loaded from `agent-identity.json` at startup and held for the process lifetime. Neither is passed into LOBE runspaces.
+Both are decrypted from `agent-identity.wallet` at startup (pre-host) and held for the process lifetime. Neither is passed into LOBE runspaces.
 
 ---
 
-## Design Rationale: Decrypt-at-Boundary (KestrelListenerService)
+## Design Rationale: Decrypt-at-Boundary (DrawbridgeService)
 
-`KestrelListenerService` fully unpacks every inbound DIDComm message — JWE decryption and JWS signature verification — **before** anything is written to the inbox. The decrypted plaintext body is what gets stored in `InboxMessage.PackedPayload`. The original wire envelope is preserved separately in `InboxMessage.JweEnvelope` for audit. This is a deliberate architectural constraint, not an implementation convenience.
+`DrawbridgeService` fully unpacks every inbound DIDComm message — JWE decryption and JWS signature verification — **before** anything is written to the inbox. The decrypted plaintext body is what gets stored in `InboxMessage.PackedPayload`. The original wire envelope is preserved separately in `InboxMessage.JweEnvelope` for audit. This is a deliberate architectural constraint, not an implementation convenience.
 
 Storing the raw JWE and decrypting later (in the Switchboard or in a LOBE) would break the system in five distinct ways:
 
@@ -131,7 +131,7 @@ Storing the raw JWE and decrypting later (in the Switchboard or in a LOBE) would
    ```
    If `PackedPayload` is a JWE envelope, `ConvertFrom-Json` returns the JWE structure, not the application payload. All existing LOBEs would require a decrypt-first step, making LOBE authoring significantly more complex and error-prone.
 
-3. **Key material must enter the LOBE runspace** — Decrypting in a LOBE requires the X25519 private key (`AgentKeyAgreementPrivateKey`) to be available there. Currently it is held only by `KestrelListenerService` and never enters a runspace. Injecting it into `$SVRN7` expands the attack surface: a buggy or malicious LOBE would have access to the TDA's decryption key.
+3. **Key material must enter the LOBE runspace** — Decrypting in a LOBE requires the X25519 private key (`AgentKeyAgreementPrivateKey`) to be available there. Currently it is held only by `DrawbridgeService` and never enters a runspace. Injecting it into `$SVRN7` expands the attack surface: a buggy or malicious LOBE would have access to the TDA's decryption key.
 
 4. **`FromDid` is unavailable for reply routing** — The sender DID is extracted from the JWS inner layer during `UnpackJwsAsync`. Without unpacking at the boundary, `InboxMessage.FromDid` is null. LOBE handlers that need to send a reply have no sender identity without repeating the full unpack.
 
@@ -212,7 +212,7 @@ did:drn:svrn7.net/protocols/{LOBE}.{version}/{Verb-Noun}
 Examples:
 - `did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/Query-TOD`
 - `did:drn:svrn7.net/protocols/Svrn7.Federation.0.8.0/initialize-federation`
-- `did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/message`
+- `did:drn:svrn7.net/protocols/PandoMail.0.8.0/message`
 
 `svrn7.net` always (never `svrn7.io`). Verb-Noun uses PascalCase or kebab-case consistently within a LOBE.
 
@@ -225,34 +225,56 @@ http://localhost:8443/didcomm
 
 ## TDA Launch and Data Layout
 
+See **`docs/AGENTWALLET.md`** for the full design (per-identity storage, encrypted
+wallet, encrypted databases, per-instance LOBEs, publish workflow) and
+**`SECURITY.md`** for the at-rest/local security model (password, pin, wallet,
+LiteDB encryption, instance naming/port design, threat model).
+
 ```powershell
-dotnet .\Svrn7.TDA.dll --port 8443 --name MyTDA [--url http://localhost] [--reset]
+$env:PANDO_WALLET_PASSWORD = '...'      # or you are prompted (double-entry on first run)
+dotnet .\Svrn7.TDA.dll --name MyTDA [--port 8443] [--url http://localhost] [--reset]
 ```
 
 | Parameter | Default | Notes |
 |---|---|---|
-| `--port` | (required) | Listen port; also scopes all data |
-| `--name` | (required) | Stored as `Svrn7Name` in Wanderer DID Document |
-| `--url` | `http://localhost` | Base URL for DID Document service endpoint; full endpoint = `{url}:{port}/didcomm` |
-| `--reset` | off | Deletes `{port}/mem/` before start; forces fresh Wanderer bootstrap |
+| `--name` | (required) | Selects the runtime directory; stored as `Svrn7Name` in the Wanderer DID Document on first run |
+| `--port` | auto | First run: used verbatim if given, else auto-selected from `--port-base` (8440). Later runs: rebinds the published port; a conflicting `--port` is rejected unless `--republish-endpoint` |
+| `--port-base` / `--port-span` | `8440` / `64` | First-run auto-select range |
+| `--url` | `http://localhost` | Base URL for the DID Document service endpoint; full endpoint = `{url}:{port}/didcomm` |
+| `--data-root` / `$PANDO_HOME` | `~/.web7-pando` | Root for all per-identity data |
+| `--recovery-phrase "<12 words>"` | — | First run only: restore from an existing BIP39 phrase |
+| `--republish-endpoint` | off | Move the published endpoint to this run's `--port`/`--url` (rewrites the DID Document in the encrypted `svrn7-dids.db`, `Version` + 1) |
+| `--reset` | off | Deletes the whole `<name>-<genesisHash8>/` directory and re-bootstraps (confirm prompt on a terminal) |
+| `--lobe-feed` / `Tda:LobeRemoteFeed` | — | Fallback source (dir/UNC or HTTP base URL) for a LOBE package not in `lobe-library/` |
+| `db-shell` (subcommand) | — | `Svrn7.TDA.dll db-shell --name X [--db dids\|msg\|vcs\|schemas\|main] [--collection C] [--sql "…"]` — read the encrypted databases after unlocking the wallet |
 
-**Data layout** (relative to `Svrn7.TDA.dll`):
+**Data layout** (`~/.web7-pando/` by default):
 
 ```
-{BaseDir}/
-├── lobes/                    shared LOBE catalog (all TDA instances on this machine)
-│   └── lobes.config.json
-└── {port}/
-      └── mem/
-            ├── svrn7.db
-            ├── svrn7-dids.db
-            ├── svrn7-msg.db
-            ├── svrn7-vcs.db
-            ├── svrn7-schemas.db
-            └── agent-identity.json
+~/.web7-pando/
+├── bin/Debug/net8.0/              published TDA binaries (web7-pando publish profile)
+├── lobe-library/                  {id}.{version}.nupkg — LOBE package source (filled by Publish or --lobe-feed)
+└── <name>-<genesisHash8>/         one directory per identity  (slug = Blake3(secp256k1 pub)[..8])
+      ├── agent-identity.wallet    encrypted: secp256k1 + X25519 keys, did, role, recovery phrase, DB master key
+      ├── agent-identity.wallet.bak / .lockout
+      ├── identity.meta.json       cleartext locator — did, name, role, createdUtc, parentTdaDid (pointer only).
+      │                            NO endpoint URLs: every endpoint comes from the encrypted svrn7-dids.db
+      │                            (own port via DidRegistryPeek pre-host; parent via its DID Document).
+      │                            Rewritten unconditionally each startup (scrubs stale keys from old builds).
+      ├── lobes/                   per-instance; lobes.config.json materialized from the embedded default,
+      │                            LOBE modules installed on first reference from lobe-library/
+      └── mem/                     svrn7.db, svrn7-dids.db, svrn7-msg.db, svrn7-vcs.db, svrn7-schemas.db
+                                   (+ LiteDB *-log.db) — ALL AES-encrypted; key derived from the wallet
 ```
 
-Testnet script: `tools/Initialize-Testnet.ps1` launches Wanderer1–4 on ports 8441–8444 in separate titled console windows.
+Wallet: `Svrn7.Trust.AgentWallet` — Argon2id (64 MiB/3/4) + AES-256-GCM. Password
+from `$PANDO_WALLET_PASSWORD` else an interactive prompt (fails fast if neither).
+The DB master key is a stable random 32 bytes inside the wallet payload, so a
+password change never re-keys the databases.
+
+Testnet script: `tools/Initialize-Testnet.ps1` builds, copies `dist/*.nupkg` into
+`~/.web7-pando/lobe-library/`, sets `$env:PANDO_WALLET_PASSWORD`, and launches
+Wanderer1–4 on 8441–8444 in separate titled console windows.
 
 ---
 
@@ -279,22 +301,34 @@ All DIDs use the `did:drn:` method. `<genesis-hash>` = `Blake3(genesis_secp256k1
 
 ### First-run Wanderer bootstrap
 
-On startup with an empty DID registry the TDA auto-generates a Wanderer identity and writes it to `{port}/mem/agent-identity.json`:
+On a first run (no `<name>-<hash8>/` directory for this `--name`) the TDA, before
+the host is built:
 
-```json
-{
-  "did":                "did:drn:wanderer.svrn7.net/agent/1.0/<genesis-hash>",
-  "publicKeyHex":       "<secp256k1 compressed public key, 66 hex chars>",
-  "privateKeyHex":      "<secp256k1 private key, 64 hex chars>",
-  "x25519PublicKeyHex": "<X25519 public key, 64 hex chars>",
-  "x25519PrivateKeyHex":"<X25519 private key, 64 hex chars>",
-  "role":               "Wanderer",
-  "createdAt":          "2026-01-01T00:00:00.000+00:00"
-}
-```
+1. generates a 12-word BIP39 phrase (or takes `--recovery-phrase`), derives the
+   **secp256k1** identity key (BIP32 `m/7'/0'/0'/0/0`) and the **X25519**
+   key-agreement key (HKDF from the same seed);
+2. `genesisHash = Blake3(secp256k1 compressed pubkey)` → instance dir
+   `~/.web7-pando/<name>-<genesisHash8>/`;
+3. generates a random 32-byte database master key;
+4. writes `agent-identity.wallet` — one AES-256-GCM blob (Argon2id password key)
+   holding both private keys, `did`, `role`, the recovery phrase, and the DB
+   master key. **No plaintext key file.**
 
-- `publicKeyHex` / `privateKeyHex` — secp256k1 identity key. Used for DID genesis hash derivation, DIDComm JWS signing (`AgentSigningPrivateKey`), and transaction signing.
-- `x25519PublicKeyHex` / `x25519PrivateKeyHex` — X25519 key agreement key. Used for JWE encryption/decryption (`AgentKeyAgreementPrivateKey`). Published in the DID Document as `X25519KeyAgreementKey2020`; required for receiving SignThenEncrypt messages.
+After the host builds it creates the DID Document (secp256k1 + X25519 public keys,
+`X25519KeyAgreementKey2020`, service endpoint on the bound port) inside the
+encrypted `svrn7-dids.db` — the single source for every endpoint URL — and writes
+the cleartext `identity.meta.json` locator (did / name / role / createdUtc /
+parentTdaDid only; no endpoint). Later runs read their own bound port from that
+DB via `DidRegistryPeek` in the pre-host block. Bootstrap telemetry:
+`Svrn7.TDA.Bootstrap` ActivitySource + Meter (`AddSource`/`AddMeter` in
+`Program.cs`), counters `tda.bootstrap.{endpoint_peek,port_resolved,meta_write,
+parent_endpoint_resolve}`.
+
+Key roles (unchanged): the secp256k1 key does genesis-hash derivation, DIDComm
+JWS signing (`AgentSigningPrivateKey`), and transaction signing; the X25519 key
+does JWE encrypt/decrypt (`AgentKeyAgreementPrivateKey`). Neither ever enters a
+LOBE runspace. `agent-identity.json` (plaintext) is superseded — migrate with
+`--reset`.
 
 ---
 
@@ -311,7 +345,7 @@ On startup with an empty DID registry the TDA auto-generates a Wanderer identity
 - `Set-StrictMode -Version Latest` is active in all LOBEs — never access `PSCustomObject` properties without guards (`Assert-BodyFields` / `Get-BodyField`).
 - Dot-sourcing `.psm1` files in PS 7 applies module-context scoping. Use `[scriptblock]::Create([System.IO.File]::ReadAllText($path)).Invoke()` for dynamic loading outside the LOBE runtime.
 - `Initialize-Svrn7Assemblies -ModuleRoot $PSScriptRoot` must be called before accessing any `Svrn7.*` .NET types in a standalone PS session (outside a TDA runspace). It is called automatically by `New-Svrn7KeyPair`, `New-Svrn7Did`, etc. if the driver is not already initialised.
-- `Send-LocalDIDCommMessage` (in `Svrn7.Common`) connects to a local TDA's `/didcomm-notify` WebSocket and sends a plaintext DIDComm message. `POST /didcomm` enforces `application/didcomm-encrypted+json` (SignThenEncrypt) and rejects plaintext. A running TDA is required to receive DIDComm replies.
+- `Send-LocalDIDCommMessage` (in `Svrn7.Common`) connects to a local TDA's `/localcomm-ws` WebSocket and sends a plaintext DIDComm message. `POST /didcomm` enforces `application/didcomm-encrypted+json` (SignThenEncrypt) and rejects plaintext. A running TDA is required to receive DIDComm replies.
 
 ---
 
@@ -355,7 +389,7 @@ The notification channel is a **localhost-only WebSocket endpoint** on the TDA,
 on the **same port** as `POST /didcomm`:
 
 ```
-ws://localhost:{port}/didcomm-notify
+ws://localhost:{port}/localcomm-ws
 ```
 
 Single port serves both surfaces:
@@ -363,10 +397,10 @@ Single port serves both surfaces:
 | Path | Protocol | Direction |
 |---|---|---|
 | `/didcomm` | HTTP/2 (`POST`) | Inbound DIDComm from remote TDAs |
-| `/didcomm-notify` | WebSocket (RFC 8441 — HTTP/2 extended CONNECT) | Outbound push to local UI clients |
+| `/localcomm-ws` | WebSocket (RFC 8441 — HTTP/2 extended CONNECT) | Outbound push to local UI clients |
 
 **Kestrel uses `HttpProtocols.Http2` only.** RFC 8441 enables WebSocket over HTTP/2
-on `/didcomm-notify` without enabling HTTP/1.1 on the listener. PandoMail is on .NET 8
+on `/localcomm-ws` without enabling HTTP/1.1 on the listener. PandoMail is on .NET 8
 and `HttpClient` supports RFC 8441, so no `HttpProtocols.Http1AndHttp2` workaround
 is needed and no HTTP/1.1 attack surface is introduced.
 
@@ -386,12 +420,12 @@ determines dispatch on the PandoMail side. See `Principles.md` P-008.
 Sender TDA (remote)
   └── DIDComm V2 SignThenEncrypt (secp256k1 JWS + X25519 JWE)
         └── POST /didcomm → Local Citizen TDA (Kestrel, HTTP/2, mTLS)
-              └── KestrelListenerService.UnpackAsync  ← decrypt + verify at inbound boundary
+              └── DrawbridgeService.UnpackAsync  ← decrypt + verify at inbound boundary
                     └── Switchboard (routes by @type)
                           └── Svrn7.Email LOBE (.psm1)
                                 ├── Persist to LiteDB (Long-Term Message Memory)
                                 ├── Decode SMTP-over-DIDComm payload
-                                └── OutboundMessage (plaintext) → ws://localhost:{port}/didcomm-notify
+                                └── OutboundMessage (plaintext) → ws://localhost:{port}/localcomm-ws
                                       └── TdaMailClient (PandoMail background thread)
                                             ├── DIDComm unpack (plaintext — no decrypt/verify)
                                             ├── Dispatch on @type
@@ -420,7 +454,7 @@ PandoMail Compose UI
 Inbound email notification `@type`:
 
 ```
-did:drn:svrn7.net/protocols/Email-Notify/1.0/new-message
+did:drn:svrn7.net/protocols/Email-Notify.0.1.0/new-message
 ```
 
 Follows the Locator DID URL convention (`draft-herman-drn-resource-addressing-00`).
@@ -464,10 +498,10 @@ Protocol URIs use `svrn7.net` (not `svrn7.io`).
 ### Architecture Constraints
 
 - PandoMail targets **.NET 8** (Windows only). `TdaMailClient.Send()` uses `HttpClient`
-  with HTTP/2 + mTLS directly for `POST /didcomm`. The `/didcomm-notify` push channel
+  with HTTP/2 + mTLS directly for `POST /didcomm`. The `/localcomm-ws` push channel
   uses RFC 8441 (WebSocket over HTTP/2 extended CONNECT) — both Kestrel and `HttpClient`
   support it at .NET 8.
-- Both `/didcomm` and `/didcomm-notify` are on the **same port** for a given TDA.
+- Both `/didcomm` and `/localcomm-ws` are on the **same port** for a given TDA.
   Kestrel uses `HttpProtocols.Http2` only — RFC 8441 carries the WebSocket upgrade
   over HTTP/2 streams, so no HTTP/1.1 is needed and no second port is opened.
 - The TDA's public inbound surface remains **`POST /didcomm` only** (Kestrel,
@@ -478,6 +512,6 @@ Protocol URIs use `svrn7.net` (not `svrn7.io`).
   same WebSocket endpoint and dispatch on `@type`. Future notification types:
 
   ```
-  did:drn:svrn7.net/protocols/Calendar-Notify/1.0/new-event
-  did:drn:svrn7.net/protocols/Presence-Notify/1.0/status-change
+  did:drn:svrn7.net/protocols/Calendar-Notify.0.1.0/new-event
+  did:drn:svrn7.net/protocols/Presence-Notify.0.1.0/status-change
   ```

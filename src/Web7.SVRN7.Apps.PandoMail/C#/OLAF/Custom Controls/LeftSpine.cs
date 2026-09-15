@@ -22,6 +22,9 @@ namespace Web7.SVRN7.Apps
 		/// <summary>Fired when the user selects a folder in the tree. Argument is the folder name (e.g. "Inbox", "Outbox").</summary>
 		public event Action<string> FolderSelected;
 
+		/// <summary>Highlights the given folder in the tree without re-raising <see cref="FolderSelected"/>.</summary>
+		public void SelectFolder(string folderName) => this.folderView1.SelectFolder(folderName);
+
 		#region Setup
 		public LeftSpine()
 		{

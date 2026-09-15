@@ -52,7 +52,7 @@ cd src\Svrn7.TDA\bin\Debug\net8.0
 # Accepted input forms:
 # | Input                                         | Example                                                     |
 # |-----------------------------------------------|-------------------------------------------------------------|
-# | Full Federation DID                           | did:drn:federation.svrn7.net/agent/1.0/abc123               |
+# | Full Federation DID                           | did:drn:federation.svrn7.net/federation/1.0/abc123          |
 # | Method-specific id                            | federation.svrn7.net                                        |
 # | Bare domain                                   | svrn7.net                                                   |
 #
@@ -73,7 +73,7 @@ Import-Module .\lobes\Svrn7.Common.0.8.0\Svrn7.Common.0.8.0.psm1
 Initialize-Svrn7Assemblies
 
 $endpoint = Resolve-FederationEndpoint `
-    -FederationDid "did:drn:federation.svrn7.net/agent/1.0/abc123"
+    -FederationDid "did:drn:federation.svrn7.net/federation/1.0/abc123"
 
 Write-Host "Federation endpoint: $endpoint"
 # http://localhost:8441/didcomm  (local dev)
@@ -104,7 +104,10 @@ $msg = [ordered]@{
     body = @{}
 } | ConvertTo-Json -Depth 5
 
-Send-LocalDIDCommMessage -Uri $endpoint -Body $msg
+# Send-LocalDIDCommMessage has no -Uri parameter — it always targets a local TDA's
+# /localcomm-ws by -Port (default 8443). Extract the port from the resolved endpoint:
+$fedPort = ([Uri]$endpoint).Port
+Send-LocalDIDCommMessage -Port $fedPort -Body $msg
 
 # ---
 #
@@ -112,10 +115,17 @@ Send-LocalDIDCommMessage -Uri $endpoint -Body $msg
 
 Write-Host "--- D.4 — C# API in a TDA runspace ---"
 $endpoint = [Svrn7.TDA.DrnDirectory]::GetFederationEndpointAsync(
-    "did:drn:federation.svrn7.net/agent/1.0/abc123"
+    "did:drn:federation.svrn7.net/federation/1.0/abc123"
 ).GetAwaiter().GetResult()
 
 Write-Host "Endpoint: $endpoint"
+
+# ---
+#
+# D.5 — Verify DnsClient.dll is present
+
+Write-Host "--- D.5 — Verify DnsClient.dll is present ---"
+if (Test-Path .\DnsClient.dll) { Write-Host "OK: DnsClient.dll" } else { Write-Host "MISSING — run: dotnet build src/Svrn7.TDA/Svrn7.TDA.csproj" }
 
 # ---
 #
@@ -144,17 +154,10 @@ dotnet .\Svrn7.TDA.dll --port 8445 --name W5 --federationdomain svrn7.net
 # When no drn.directory record exists, the banner shows:
 #
 #   Fed Domain  : svrn7.net
-#   Fed Endpoint: (no drn.directory record found)
+#   Fed Endpoint: (not resolved — no drn.directory record found)
 #
 # and $SVRN7.FederationEndpointUrl is an empty string.
 #
-# ---
-#
-# D.5 — Verify DnsClient.dll is present
-
-Write-Host "--- D.5 — Verify DnsClient.dll is present ---"
-if (Test-Path .\DnsClient.dll) { Write-Host "OK: DnsClient.dll" } else { Write-Host "MISSING — run: dotnet build src/Svrn7.TDA/Svrn7.TDA.csproj" }
-
 # ---
 #
 # C# API

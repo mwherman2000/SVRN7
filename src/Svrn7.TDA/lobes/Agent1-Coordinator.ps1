@@ -24,7 +24,7 @@
             Svrn7.UX.0.8.0.psm1           → ux/1.0/* (balance updates, notifications, registration)
 
         JIT (imported on first message of each type):
-            Svrn7.Email.0.8.0.psm1        → did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/*
+            PandoMail.0.8.0.psm1        → did:drn:svrn7.net/protocols/PandoMail.0.8.0/*
             Svrn7.Calendar.0.8.0.psm1     → did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/*
             Svrn7.Presence.0.8.0.psm1     → did:drn:svrn7.net/protocols/Svrn7.Presence.0.8.0/*
             Svrn7.Notifications.0.8.0.psm1→ did:drn:svrn7.net/protocols/Svrn7.Notifications.0.8.0/*

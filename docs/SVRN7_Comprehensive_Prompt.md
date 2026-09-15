@@ -116,7 +116,7 @@ Web7-DSA.sln
     ├── LobeManager.cs           — eager/JIT LOBE loader, lobes.config.json
     ├── IsolatedRunspaceFactory.cs   — PowerShell RunspacePool lifecycle
     ├── DIDCommMessageSwitchboard.cs — sole inbox reader, pass-by-reference routing
-    ├── KestrelListenerService.cs    — POST /didcomm, HTTP/2 + mTLS
+    ├── DrawbridgeService.cs    — POST /didcomm, HTTP/2 + mTLS
     ├── TdaHost.cs               — TdaOptions, SwitchboardHostedService, DI extensions
     └── Program.cs               — console app entry point     — ISvrn7SocietyDriver, Society operations, cross-Society protocol
 └── tests/
@@ -132,7 +132,7 @@ Web7-DSA.sln
 | 2 | Svrn7.Federation.0.8.0.psm1 | Eager | federation/1.0/*, transfer/1.0/*, did/1.0/* |
 | 3 | Svrn7.Society.0.8.0.psm1 | Eager | transfer/1.0/*, Svrn7.Onboarding/0.8.0/*, society/1.0/* |
 | 4 | Svrn7.UX.0.8.0.psm1 | Eager | ux/1.0/* (balance-update, notification, registration-complete) |
-| 5 | Svrn7.Email.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/* |
+| 5 | PandoMail.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/PandoMail.0.8.0/* |
 | 6 | Svrn7.Calendar.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/* |
 | 7 | Svrn7.Presence.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/Svrn7.Presence.0.8.0/* |
 | 8 | Svrn7.Notifications.0.8.0.psm1 | JIT | did:drn:svrn7.net/protocols/Svrn7.Notifications.0.8.0/* |
@@ -209,7 +209,7 @@ specs/
 - **Initial Federation supply: 1,000,000,000 SVRN7 = 10¹⁵ grana**
 - **Citizen endowment: 1,000 grana = 0.001 SVRN7 (changed from 1,000 SVRN7 in v0.8.0, DSA 0.24)**
 - **Step 3 nonce replay: `ConcurrentDictionary` → `ITransferNonceStore` / `LiteTransferNonceStore` (LiteDB TTL collection in `Svrn7LiteContext.ColNonces`). `NonceRecord { Nonce, SeenAt, ExpiresAt }` in `Models.cs`. Sweep-on-access + duplicate-key insert = replay detection. Survives process restarts.**
-- **Durable inbox: `ConcurrentQueue` → `IInboxStore` / `LiteInboxStore` (svrn7-msg.db via `MsgLiteContext`). `InboxMessage { Id, MessageType, PackedPayload, FromDid, WireId, ReceivedAt, Status, ProcessedAt, LastError, AttemptCount }`. `FromDid` is the sender DID from the DIDComm envelope; `WireId` is the sender's DIDComm wire `id` field — both threaded from `KestrelListenerService` via `unpacked.From` / `unpacked.Id` → `IInboxStore.EnqueueAsync(messageType, packedPayload, fromDid?, wireId?, ct)`. `WireId` is null for encrypted messages (the wire `id` is inside the ciphertext; populated only for plaintext messages). Exposed to LOBE cmdlets as `InboxMessageView.FromDid` via `$SVRN7.GetMessageAsync()`. Lifecycle: `Pending → Processing → Processed | Failed`. `ResetStuckMessagesAsync` on startup. Max 3 retries then dead-letter. `MsgDbPath` option on `Svrn7SocietyOptions`.**
+- **Durable inbox: `ConcurrentQueue` → `IInboxStore` / `LiteInboxStore` (svrn7-msg.db via `MsgLiteContext`). `InboxMessage { Id, MessageType, PackedPayload, FromDid, WireId, ReceivedAt, Status, ProcessedAt, LastError, AttemptCount }`. `FromDid` is the sender DID from the DIDComm envelope; `WireId` is the sender's DIDComm wire `id` field — both threaded from `DrawbridgeService` via `unpacked.From` / `unpacked.Id` → `IInboxStore.EnqueueAsync(messageType, packedPayload, fromDid?, wireId?, ct)`. `WireId` is null for encrypted messages (the wire `id` is inside the ciphertext; populated only for plaintext messages). Exposed to LOBE cmdlets as `InboxMessageView.FromDid` via `$SVRN7.GetMessageAsync()`. Lifecycle: `Pending → Processing → Processed | Failed`. `ResetStuckMessagesAsync` on startup. Max 3 retries then dead-letter. `MsgDbPath` option on `Svrn7SocietyOptions`.**
 - **DIDCommTransferHandler idempotency: `ConcurrentDictionary._processedOrders` → `IProcessedOrderStore` / `LiteProcessedOrderStore` (also in svrn7-msg.db). `ProcessedOrderRecord { TransferId, PackedReceipt, ProcessedAt }`. Ensures duplicate `TransferOrder` DIDComm messages return the cached receipt without re-crediting.**
 
 ### Supply Rules
@@ -580,7 +580,7 @@ zip -r svrn7-society-v0.7.0-final.zip svrn7-society/ \
 src/Svrn7.TDA/
 ├── Program.cs                   — .NET 8 console app entry point
 ├── TdaHost.cs                   — TdaOptions, SwitchboardHostedService, AddSvrn7Tda() DI
-├── KestrelListenerService.cs    — POST /didcomm, HTTP/2 + mTLS, UnpackAsync boundary
+├── DrawbridgeService.cs    — POST /didcomm, HTTP/2 + mTLS, UnpackAsync boundary
 ├── DIDCommMessageSwitchboard.cs — sole inbox reader, epoch gate, DID URL pass-by-reference
 ├── IsolatedRunspaceFactory.cs       — PowerShell RunspacePool (min=2, max=N), epoch refresh
 ├── LobeManager.cs               — eager/JIT LOBE loading from lobes.config.json
@@ -590,14 +590,14 @@ src/Svrn7.TDA/
 
 ### InboxMessage.Id — TDA Resource DID URL
 InboxMessage.Id is generated as a full TDA resource DID URL (not a UUID):
-  `did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678`
+  `did:drn:societytest.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678`
 Generated in LiteInboxStore.EnqueueAsync() via TdaResourceId.InboxMessage().
 The Switchboard passes this DID URL by reference to LOBE cmdlet pipelines.
 GetMessageAsync() accepts the DID URL, uses it as IMemoryCache key directly.
 
 ### InboxMessage.WireId — DIDComm Wire Identity
 InboxMessage.WireId stores the sender's DIDComm wire `id` field (e.g. `did:drn:svrn7.net/didcomm/msg/{guid}`).
-Threaded from KestrelListenerService via DIDCommUnpackedMessage.Id → IInboxStore.EnqueueAsync(wireId?).
+Threaded from DrawbridgeService via DIDCommUnpackedMessage.Id → IInboxStore.EnqueueAsync(wireId?).
 Null for encrypted messages — the wire id is inside the JWE ciphertext and not recoverable without decryption.
 Populated only for plaintext messages (dev/internal traffic). Enables correlation between a stored InboxMessage
 and the original DIDComm message identity on the wire without re-parsing PackedPayload.
@@ -619,13 +619,13 @@ New in DSA 0.24. Conditional: only instantiated by AddSvrn7Society().
 - ISchemaRegistry   → LiteSchemaRegistry  (register, getByName, deactivate)
 - ISchemaResolver   → LiteSchemaResolver  (resolveByName, resolveByDidUrl)
 - DID URL key type: Named (common name) — e.g., CitizenEndowmentCredential
-- Example: `did:drn:alpha.svrn7.net/schemas/schema/CitizenEndowmentCredential`
+- Example: `did:drn:societytest.svrn7.net/schemas/schema/CitizenEndowmentCredential`
 
 ### LOBE Modules (lobes/)
 All new LOBEs have both .psm1 and .psd1 manifests.
 Eager (InitialSessionState): Svrn7.Common, Svrn7.Federation, Svrn7.Society
 JIT (Import-Module on first use):
-  Svrn7.Email.0.8.0.psm1         — email/1.0/* (RFC 5322 tunneling over DIDComm)
+  PandoMail.0.8.0.psm1         — email/1.0/* (RFC 5322 tunneling over DIDComm)
   Svrn7.Calendar.0.8.0.psm1      — calendar/1.0/* (iCalendar tunneling over DIDComm)
   Svrn7.Presence.0.8.0.psm1      — presence/1.0/* (net-new DIDComm protocol)
   Svrn7.Notifications.0.8.0.psm1 — Svrn7.Notifications/0.8.0/* (net-new DIDComm protocol)
@@ -634,7 +634,9 @@ JIT (Import-Module on first use):
 
 ### Agent Scripts (lobes/)
   Agent1-Coordinator.ps1  — dispatch via Dequeue-Svrn7Message / Enqueue-Svrn7Message
-  Agent2-Onboarding.ps1   — Svrn7.Onboarding/0.8.0/register-citizen → ConvertFrom-Web7OnboardRequest
+  Agent2-Onboarding.ps1   — present on disk but not registered as any protocol's entrypoint;
+                            the real Svrn7.Onboarding/0.8.0/register-citizen handler is
+                            Invoke-Web7RegisterCitizen in Svrn7.Onboarding.0.8.0.psm1
   AgentN-Invoicing.ps1    — Svrn7.Invoicing/0.8.0/request → ConvertFrom-Web7InvoiceRequest
 
 ### LOBE Cmdlet Naming Convention (v0.8.0)
@@ -722,7 +724,7 @@ Formally defined in draft-herman-parchment-programming-00 Section 5.2.1.
 |11 | Conditional Components  | Blue dashed    | Very light blue   | Conditional deployment group | No              |
 
 ### Derivation rules (each element type → software artefact):
-- Protocol (1)  → KestrelListenerService.cs + HttpClient named "didcomm"
+- Protocol (1)  → DrawbridgeService.cs + HttpClient named "didcomm"
 - LOBE (3)      → {Name}.psm1 + {Name}.psd1 + {Name}.lobe.json + exported cmdlets
 - Data Storage (5) → LiteDB context class + IXxxStore interface + implementation
 - Data Access (6)  → IXxxResolver interface + implementation(s)

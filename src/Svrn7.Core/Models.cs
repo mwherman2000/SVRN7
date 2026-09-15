@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Svrn7.Core.Models;
 
@@ -42,7 +43,7 @@ public enum InboundMessageStatus { Pending, Processing, Processed, Failed }
 /// <summary>
 /// A durable DIDComm inbox message stored in svrn7-msg.db.
 /// Messages survive process restarts and are processed exactly once by
-/// DIDCommMessageProcessorService.
+/// DIDCommMessageSwitchboard — the sole inbox reader.
 ///
 /// Lifecycle: Pending → Processing → Processed | Failed
 /// Failed messages retain LastError for operational diagnostics.
@@ -50,17 +51,25 @@ public enum InboundMessageStatus { Pending, Processing, Processed, Failed }
 public record InboundMessage
 {
     public required string             Id            { get; set; }  // TDA resource DID URL
-                                                                      // e.g. did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678
-    public required string             MessageType   { get; set; }  // Protocol URI
+                                                                      // e.g. did:drn:societytest.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678
+    [JsonPropertyName("type")]
+    public required string             MessageType   { get; set; }  // Protocol URI — DIDComm wire name is "type"
     public required string             PackedPayload { get; set; }  // Unpacked DIDComm body (plaintext)
     public string?                     JweEnvelope   { get; set; }  // Original JWE wire payload — preserved for auditability and non-repudiation
     public string?                     FromDid       { get; set; }  // Sender DID from DIDComm envelope
     public string?                     WireId        { get; set; }  // DIDComm wire 'id' from the sender's envelope (null for encrypted/opaque messages)
+    public string?                     Thid          { get; set; }  // DIDComm wire 'thid' — set on a reply, correlating it back to the request's 'id' (see docs/BACKLOG.md TDA-014)
     public required DateTimeOffset     ReceivedAt    { get; set; }
     public InboundMessageStatus          Status        { get; set; } = InboundMessageStatus.Pending;
     public DateTimeOffset?             ProcessedAt   { get; set; }
     public string?                     LastError     { get; set; }
     public int                         AttemptCount  { get; set; }
+    // W3C traceparent ("00-{traceId}-{spanId}-{flags}") of the didcomm.receive span that
+    // enqueued this message. The Switchboard's drain loop runs on its own async context
+    // with no ambient Activity.Current, so didcomm.dispatch always starts a fresh trace —
+    // this field lets it attach an ActivityLink back to the receive trace instead of the
+    // two staying permanently disconnected in the trace backend (Svrn7Telemetry, Svrn7.Core).
+    public string?                     TraceContext  { get; set; }
 
     static readonly JsonSerializerOptions _prettyOpts = new() { WriteIndented = true };
 
@@ -73,9 +82,10 @@ public record InboundMessage
         return JsonSerializer.Serialize(new
         {
             id            = Id,
-            messageType   = MessageType,
+            type          = MessageType,
             fromDid       = FromDid,
             wireId        = WireId,
+            thid          = Thid,
             receivedAt    = ReceivedAt,
             status        = Status.ToString(),
             attemptCount  = AttemptCount,
@@ -162,6 +172,7 @@ public record SocietyRecord
     public required string Did          { get; set; }
     public required string PublicKeyHex { get; set; }
     public required string SocietyName  { get; set; }
+    public string          DidMethodName{ get; set; } = string.Empty;
     public bool            IsActive     { get; set; } = true;
     public DateTimeOffset  RegisteredAt { get; set; } = DateTimeOffset.UtcNow;
 }
@@ -175,6 +186,7 @@ public record FederationRecord
     public required string Did                       { get; set; }
     public required string PublicKeyHex              { get; set; }
     public required string FederationName            { get; set; }
+    public string          DidMethodName             { get; set; } = string.Empty;
     public long            TotalSupplyGrana          { get; set;  }
     public long            EndowmentPerSocietyGrana  { get; set; }
     public bool            IsActive                  { get; set; } = true;

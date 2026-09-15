@@ -1,0 +1,27 @@
+<Project>
+
+  <!--
+    Automatic build versioning (Nerdbank.GitVersioning).
+
+    The version base is version.json ("0.8"); nbgv appends the git height so every
+    build produces a monotonically increasing 0.8.<N>. On main (a publicReleaseRefs
+    match) that is a clean release version; on any other branch or a dirty working
+    tree it gains a -<branch>/-alpha pre-release tag and a +<commit> suffix.
+
+      InformationalVersion : 0.8.<height>[+<commit8>]            (shown in the TDA banner)
+      FileVersion / Version: 0.8.<height>.0
+      AssemblyVersion      : 0.8.0.0   (minor precision — stays stable within 0.8.x
+                                        so referencing assemblies don't need rebinds)
+
+    No manual <Version> in any .csproj. Requires the .git directory at build time;
+    a git-less source tree falls back to the version.json base.
+
+    Scoped to the Svrn7.* projects (the versioned library/stack + their tests).
+    The peripheral apps (PandoMail, PandoBoard) and WsExample keep their own
+    hand-rolled AssemblyInfo and are left alone.
+  -->
+  <ItemGroup Condition="$(MSBuildProjectName.StartsWith('Svrn7.'))">
+    <PackageReference Include="Nerdbank.GitVersioning" Version="3.10.94" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

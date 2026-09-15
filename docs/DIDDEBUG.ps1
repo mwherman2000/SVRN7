@@ -56,6 +56,31 @@ $PSVersionTable.PSVersion   # Major must be 7
 
 Set-Location C:/SVRN7/repos/SVRN7/src/Svrn7.TDA/bin/Debug/net8.0
 
+# Native Blake3 dependency — standalone PS sessions only:
+#
+# New-Svrn7Did (and anything else touching Blake3Hex) P/Invokes into the native
+# blake3_dotnet library. The build only places it under runtimes/<rid>/native/,
+# which is resolved automatically when Svrn7.TDA.exe is the host process (via its
+# deps.json), but NOT when pwsh.exe loads the managed DLLs directly via
+# Initialize-Svrn7Assemblies -> Add-Type (this file's workflow). Outside a running
+# TDA, copy the matching-RID native DLL next to the managed assemblies once per
+# build output before calling New-Svrn7Did:
+#
+#   Copy-Item .\runtimes\win-x64\native\blake3_dotnet.dll . -Force
+#
+# Symptom if skipped: New-Svrn7Did throws
+#   "Unable to load DLL 'blake3_dotnet' ... (0x8007007E)"
+# Use win-x64/win-arm64/win-x86 to match $PSVersionTable's architecture
+# ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture).
+#
+# Standalone-session driver guard (fixed, all builds after 2026-08-17):
+# Assert-FederationDriver / Assert-SocietyDriver (Svrn7.Common) used to reference the
+# bare $SVRN7 variable directly. $SVRN7 is only ever assigned inside a real TDA
+# runspace, so under Set-StrictMode -Version Latest a standalone PS session (this
+# file's workflow) threw "The variable '$SVRN7' cannot be retrieved because it has
+# not been set" on the first Federation/Society cmdlet call — even after
+# Initialize-Svrn7FederationDriver. Rebuild if you still see that error.
+
 # Module imports:
 
 Import-Module .\lobes\Svrn7.Federation.0.8.0\Svrn7.Federation.0.8.0.psm1
@@ -140,13 +165,18 @@ Initialize-Svrn7FederationDriver -DbPath "./data-d1" -DidMethodName "drn" -Verbo
 
 Write-Host "--- D1b.2 — Persist the DID Document ---"
 $reg = Initialize-Svrn7Citizen -DidDocument $didDoc -KeyPair $kp
-$reg | Format-List CitizenDid, Success, EndowmentSvrn7
+$reg | Format-List CitizenDid, Success
 
 # Expected output:
 #
-# CitizenDid     : did:drn:bindloss.svrn7.net/citizen/1.0/a3d4e5f6...c3d4
-# Success        : True
-# EndowmentSvrn7 : 1000.000000
+# CitizenDid : did:drn:bindloss.svrn7.net/citizen/1.0/a3d4e5f6...c3d4
+# Success    : True
+#
+# Note: Initialize-Svrn7Citizen (Svrn7.Federation LOBE) creates the CitizenRecord and
+# DidDocument only — it does NOT transfer the 1,000 SVRN7 endowment and does NOT
+# associate the citizen with a Society (no EndowmentSvrn7 field on the result). The
+# endowment + Society-membership path is Register-Svrn7CitizenInSociety (Svrn7.Society
+# LOBE), which requires Connect-Svrn7Society first — see the quick-reference table below.
 
 # Verify the persisted DID Document:
 
@@ -345,7 +375,11 @@ $didDoc.DeactivatedAt # $null while Active
 
 # ---
 #
-# Scenario D4 — DID resolution (TDA running)
+# Scenario D4 — DID resolution (driver context required: standalone D1b or TDA)
+#
+# As scripted below, this continues the standalone session from D1b — Resolve-Svrn7Did
+# just needs an active driver ($Script:FederationDriver, set by Initialize-Svrn7FederationDriver,
+# or $SVRN7 inside a real TDA runspace). No running TDA process is required if D1b already ran.
 #
 # D4.1 — Resolve a DID to its full DIDDocument
 
@@ -428,31 +462,40 @@ Send-LocalDIDCommMessage -Body $msg
 #
 # DIDDocument persistence reference
 #
-# Initialize-Svrn7Federation / Initialize-Svrn7Society / Register-Svrn7Citizen
-#   → ISvrn7Driver.InitialiseFederationAsync / RegisterSocietyAsync / RegisterCitizenAsync
+# Initialize-Svrn7Federation / Initialize-Svrn7Society / Initialize-Svrn7Citizen
+#   → ISvrn7Driver.InitialiseFederationAsync / InitializeSocietyAsync / RegisterCitizenAsync
 #     → LiteDidDocumentRegistry.CreateAsync
 #       → svrn7-dids.db  (Documents + History collections)
 #
-# | Cmdlet                        | Driver method                          | Persists DidDocument |
-# |-------------------------------|----------------------------------------|:--------------------:|
-# | Initialize-Svrn7Federation    | InitialiseFederationAsync(DidDocument) | Yes                  |
-# | Initialize-Svrn7Society       | RegisterSocietyAsync(request)          | Yes                  |
-# | Register-Svrn7Citizen         | RegisterCitizenAsync(request)          | Yes                  |
+# Register-Svrn7CitizenInSociety is separate — it goes through the Society driver
+# (Connect-Svrn7Society), not the Federation driver, and additionally transfers the
+# 1,000 SVRN7 endowment and copies the DidDocument into the Society's own svrn7-dids.db.
+#
+# | Cmdlet                        | Driver method                                    | Persists DidDocument |
+# |-------------------------------|---------------------------------------------------|:--------------------:|
+# | Initialize-Svrn7Federation    | InitialiseFederationAsync(DidDocument)             | Yes                  |
+# | Initialize-Svrn7Society       | InitializeSocietyAsync(request)                    | Yes                  |
+# | Initialize-Svrn7Citizen       | RegisterCitizenAsync(request)                      | Yes                  |
+# | Register-Svrn7CitizenInSociety | RegisterCitizenInSocietyAsync(request) (ISvrn7SocietyDriver) | Yes (Society's copy) |
 #
 # ---
 #
 # Quick-reference: all DID cmdlets
 #
-# | Cmdlet                   | Key parameters                                            | LOBE       | Requires TDA |
-# |--------------------------|-----------------------------------------------------------|------------|:------------:|
-# | New-Svrn7KeyPair         | —                                                         | Federation | No           |
-# | New-Svrn7Did             | -KeyPair -Role [-SocietyName] [-ServiceEndpointUrl] [-Svrn7Name] | Federation | No    |
-# | Initialize-Svrn7Federation | (reads Wanderer DIDDocument)                            | Federation | Yes          |
-# | Initialize-Svrn7Citizen  | -DidDocument -KeyPair                                     | Federation | Yes          |
-# | Register-Svrn7Citizen    | -DidDocument -KeyPair                                     | Society    | Yes          |
-# | Initialize-Svrn7Society  | -DidDocument -KeyPair -Name                               | Federation | Yes          |
-# | Resolve-Svrn7Did         | -Did                                                      | Federation | Yes          |
-# | Test-Svrn7DidActive      | -Did                                                      | Federation | Yes          |
+# | Cmdlet                        | Key parameters                                                    | LOBE       | Requires driver context* |
+# |--------------------------------|--------------------------------------------------------------------|------------|:-------------------------:|
+# | New-Svrn7KeyPair               | —                                                                  | Federation | No                        |
+# | New-Svrn7Did                   | -KeyPair -Role [-SocietyName] [-ServiceEndpointUrl] [-Svrn7Name]   | Federation | No                        |
+# | Initialize-Svrn7Federation     | (reads Wanderer DIDDocument — must already exist in the registry) | Federation | Yes                       |
+# | Initialize-Svrn7Citizen        | -DidDocument -KeyPair                                              | Federation | Yes                       |
+# | Register-Svrn7CitizenInSociety | -DidDocument -KeyPair [-PreferredMethodName] — also needs Connect-Svrn7Society | Society | Yes           |
+# | Initialize-Svrn7Society        | -DidDocument -KeyPair -Name                                        | Federation | Yes                       |
+# | Resolve-Svrn7Did                | -Did                                                              | Federation | Yes                       |
+# | Test-Svrn7DidActive             | -Did                                                              | Federation | Yes                       |
+#
+# * "Requires driver context" means Initialize-Svrn7FederationDriver was called in this
+#   session (Scenario D1b.1, standalone) OR the cmdlet is running inside a live TDA
+#   runspace ($SVRN7 injected by TdaHost). Not literally "requires a running TDA process."
 #
 # ---
 #

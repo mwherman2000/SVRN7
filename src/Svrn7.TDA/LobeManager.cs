@@ -1,10 +1,12 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
 using System.Reflection;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Svrn7.Core;
 
 namespace Svrn7.TDA;
 
@@ -66,14 +68,18 @@ public sealed class LobeManager : IDisposable
         Path.GetDirectoryName(Path.GetFullPath(_opts.LobesConfigPath))
         ?? AppContext.BaseDirectory;
 
+    private readonly LobeInstaller? _installer;
+
     public LobeManager(
         IOptions<TdaOptions>  opts,
         Svrn7RunspaceContext  ctx,
-        ILogger<LobeManager>  log)
+        ILogger<LobeManager>  log,
+        LobeInstaller?        installer = null)
     {
-        _opts = opts.Value;
-        _ctx  = ctx;
-        _log  = log;
+        _opts      = opts.Value;
+        _ctx       = ctx;
+        _log       = log;
+        _installer = installer;
     }
 
     // ── 1. BuildInitialSessionState ───────────────────────────────────────────
@@ -97,6 +103,10 @@ public sealed class LobeManager : IDisposable
         var iss = InitialSessionState.CreateDefault2();
         AddBuiltInCmdlets(iss);
 
+        // Scoped to these isolated runspaces only — independent of the host machine's
+        // Set-ExecutionPolicy, which otherwise blocks Import-Module on unsigned LOBE .psm1 files.
+        iss.ExecutionPolicy = Microsoft.PowerShell.ExecutionPolicy.Bypass;
+
         iss.Variables.Add(new SessionStateVariableEntry(
             "SVRN7", _ctx,
             "Svrn7RunspaceContext — SVRN7 driver, inbox, cache, epoch.",
@@ -116,14 +126,32 @@ public sealed class LobeManager : IDisposable
         foreach (var modulePath in _config.Eager)
         {
             var resolved = ResolveLobePath(modulePath);
+            if (!File.Exists(resolved) && _installer is not null && !string.IsNullOrEmpty(_opts.LobeLibraryDir))
+            {
+                // First reference to an eager LOBE — install its package from the
+                // machine-level lobe-library into this instance's lobes/ (§D6).
+                // A missing package throws LobeNotAvailableException — an eager LOBE
+                // the TDA cannot obtain is a hard startup failure by design.
+                var firstSegment = modulePath.Replace('\\', '/').Split('/', 2)[0];
+                var (id, ver) = LobeLibrary.ParseIdVersion(firstSegment);
+                _installer.EnsureInstalled(id, ver);
+                resolved = ResolveLobePath(modulePath);
+            }
             if (!File.Exists(resolved))
             {
                 _log.LogWarning("LobeManager: eager LOBE not found — {Path}. Skipping.", resolved);
                 continue;
             }
+
+            using var activity = Svrn7Telemetry.Source.StartActivity(
+                Svrn7Telemetry.ActivityImport, ActivityKind.Internal);
+            activity?.SetTag(Svrn7Telemetry.TagLobeModulePath, resolved)
+                     .SetTag(Svrn7Telemetry.TagLobeKind, "eager-iss");
+
             iss.ImportPSModule(resolved);
             _importedModules[resolved] = true;
             _log.LogInformation("LobeManager: eager LOBE imported — {Path}", resolved);
+            activity?.SetStatus(ActivityStatusCode.Ok);
         }
 
         _iss = iss;
@@ -219,12 +247,22 @@ public sealed class LobeManager : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         bool isEager = _importedModules.ContainsKey(modulePath);
+
+        using var activity = Svrn7Telemetry.Source.StartActivity(
+            Svrn7Telemetry.ActivityImport, ActivityKind.Internal);
+        activity?.SetTag(Svrn7Telemetry.TagLobeModulePath, modulePath)
+                 .SetTag(Svrn7Telemetry.TagLobeKind, isEager ? "eager" : "jit");
+
         _log.LogDebug("LobeManager: EnsureLoadedAsync — {Kind} '{Path}'.",
             isEager ? "eager" : "JIT", modulePath);
 
         if (!File.Exists(modulePath))
-            throw new FileNotFoundException(
+        {
+            var notFound = new FileNotFoundException(
                 $"LobeManager: module not found — '{modulePath}'.", modulePath);
+            activity?.SetStatus(ActivityStatusCode.Error, notFound.Message);
+            throw notFound;
+        }
 
         _log.LogInformation("LobeManager: importing into isolated runspace ({Kind}) — {Path}",
             isEager ? "eager/verify" : "JIT", modulePath);
@@ -241,11 +279,13 @@ public sealed class LobeManager : IDisposable
         if (ps.HadErrors)
         {
             var errors = string.Join("; ", ps.Streams.Error.Select(e => e.ToString()));
+            activity?.SetStatus(ActivityStatusCode.Error, errors);
             throw new InvalidOperationException(
                 $"LobeManager: Import-Module failed for '{modulePath}': {errors}");
         }
 
         _log.LogInformation("LobeManager: import complete — {Path}", modulePath);
+        activity?.SetStatus(ActivityStatusCode.Ok);
     }
 
     // ── Protocol registry lookup ──────────────────────────────────────────────
@@ -254,6 +294,100 @@ public sealed class LobeManager : IDisposable
     /// Resolves a DIDComm @type URI to a registration.
     /// Lookup: (1) exact match, (2) longest-prefix match. Returns null if not found.
     /// </summary>
+    // @type URIs that were missed and could not be JIT-installed — remembered so a
+    // flood of the same unroutable message does not re-attempt an install each time.
+    // Cleared whenever the FileSystemWatcher registers a newly-arrived descriptor
+    // (so "Publish the package, then it just works" holds without a restart).
+    private readonly ConcurrentDictionary<string, byte> _jitInstallFailed =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _jitInstallGate = new();
+
+    /// <summary>
+    /// Like <see cref="TryResolveProtocol"/>, but on a miss it derives the LOBE
+    /// package id and version from the @type
+    /// (<c>…/protocols/{id}.{version}/{verb}</c>), installs that package from the
+    /// machine-level lobe-library into this instance's <c>lobes/</c>, registers its
+    /// descriptors, and retries the lookup once (docs/AGENTWALLET.md §D6; backlog
+    /// TDA-006). Returns null when on-demand install is disabled, the @type carries
+    /// no derivable <c>{id}.{version}</c>, or the package is not in the library —
+    /// the caller then dead-letters as before.
+    /// </summary>
+    public LobeProtocolRegistration? TryResolveOrInstallProtocol(string messageType)
+    {
+        var hit = TryResolveProtocol(messageType);
+        if (hit is not null) return hit;
+
+        if (_installer is null || string.IsNullOrEmpty(_opts.LobeLibraryDir)) return null;
+        if (_jitInstallFailed.ContainsKey(messageType)) return null;
+
+        if (!TryParsePackageFromType(messageType, out var id, out var version))
+        {
+            _jitInstallFailed.TryAdd(messageType, 0);
+            return null;
+        }
+
+        lock (_jitInstallGate)
+        {
+            // Another dispatch thread may have installed it while we waited.
+            hit = TryResolveProtocol(messageType);
+            if (hit is not null) return hit;
+
+            string installDir;
+            try
+            {
+                installDir = _installer.EnsureInstalled(id, version);
+            }
+            catch (LobeNotAvailableException ex)
+            {
+                _log.LogWarning("LobeManager: JIT install for @type '{Type}' failed — {Msg}", messageType, ex.Message);
+                _jitInstallFailed.TryAdd(messageType, 0);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "LobeManager: JIT install for @type '{Type}' threw.", messageType);
+                _jitInstallFailed.TryAdd(messageType, 0);
+                return null;
+            }
+
+            foreach (var descriptor in Directory.EnumerateFiles(installDir, "*.lobe.json"))
+                RegisterFromDescriptor(descriptor);
+
+            hit = TryResolveProtocol(messageType);
+            if (hit is null)
+            {
+                _log.LogWarning(
+                    "LobeManager: installed '{Id}' {Ver} for @type '{Type}' but it registers no matching protocol.",
+                    id, version, messageType);
+                _jitInstallFailed.TryAdd(messageType, 0);
+            }
+            else
+            {
+                _log.LogInformation(
+                    "LobeManager: JIT-installed '{Id}' {Ver} on first reference to @type '{Type}'.",
+                    id, version, messageType);
+            }
+            return hit;
+        }
+    }
+
+    /// <summary>Extracts <c>{id}</c> and <c>{version}</c> from a <c>…/protocols/{id}.{version}/{verb}</c> @type URI.</summary>
+    public static bool TryParsePackageFromType(string messageType, out string id, out string version)
+    {
+        id = string.Empty;
+        version = string.Empty;
+        var segs = messageType.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var pi = Array.FindIndex(segs, s => s.Equals("protocols", StringComparison.OrdinalIgnoreCase));
+        if (pi < 0 || pi + 1 >= segs.Length) return false;
+
+        var (parsedId, parsedVersion) = LobeLibrary.ParseIdVersion(segs[pi + 1]);
+        if (parsedVersion is null) return false;
+
+        id = parsedId;
+        version = parsedVersion;
+        return true;
+    }
+
     public LobeProtocolRegistration? TryResolveProtocol(string messageType)
     {
         if (_exactRegistry.TryGetValue(messageType, out var exact)) return exact;
@@ -346,6 +480,14 @@ public sealed class LobeManager : IDisposable
                 await Task.Delay(200);
                 RegisterFromDescriptor(path);
 
+                // A descriptor just arrived on disk — an operator may have Published a
+                // package that a JIT lookup previously gave up on. Let those @types retry.
+                if (!_jitInstallFailed.IsEmpty)
+                {
+                    _jitInstallFailed.Clear();
+                    _log.LogDebug("LobeManager: cleared JIT install-failed cache after descriptor change.");
+                }
+
                 // Warn if the newly detected LOBE is listed as eager in lobes.config.json.
                 // The ISS is built once at startup and cannot be rebuilt at runtime without
                 // restarting the TDA. The LOBE's cmdlets will still run (imported JIT per
@@ -425,13 +567,43 @@ public sealed class LobeManager : IDisposable
     {
         var path = _opts.LobesConfigPath;
         if (!File.Exists(path))
+            MaterializeDefaultLobeConfig(path);
+
+        if (!File.Exists(path))
         {
-            _log.LogWarning("LobeManager: lobes.config.json not found at '{Path}'.", path);
+            _log.LogWarning("LobeManager: lobes.config.json not found at '{Path}' and no embedded default available.", path);
             return new LobeConfig();
         }
         var json = File.ReadAllText(path);
         return JsonSerializer.Deserialize<LobeConfig>(json, LobeDescriptor.JsonOpts)
             ?? new LobeConfig();
+    }
+
+    /// <summary>
+    /// Writes the default eager-LOBE list embedded in this assembly to
+    /// <paramref name="path"/>. Runs once per instance — the per-instance file is
+    /// operator-editable thereafter (hot-reload watcher). docs/AGENTWALLET.md §D6.
+    /// </summary>
+    private void MaterializeDefaultLobeConfig(string path)
+    {
+        try
+        {
+            using var stream = typeof(LobeManager).Assembly
+                .GetManifestResourceStream("lobes.config.json");
+            if (stream is null)
+            {
+                _log.LogWarning("LobeManager: embedded default lobes.config.json resource not found.");
+                return;
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+            using var file = File.Create(path);
+            stream.CopyTo(file);
+            _log.LogInformation("LobeManager: seeded default lobes.config.json → '{Path}'.", path);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "LobeManager: could not seed default lobes.config.json at '{Path}'.", path);
+        }
     }
 
     private string ResolveLobePath(string configPath)

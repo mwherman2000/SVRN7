@@ -54,7 +54,7 @@ function Render-Web7BalanceUpdate {
         or $null if message could not be processed.
 
     .EXAMPLE
-        Render-Web7BalanceUpdate -MessageDid "did:drn:alpha.svrn7.net/inbox/msg/5f43a2..."
+        Render-Web7BalanceUpdate -MessageDid "did:drn:societytest.svrn7.net/inbox/msg/5f43a2..."
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -108,7 +108,7 @@ function Render-Web7Notification {
         Hashtable — { AlertType, Severity, Message, ResourceDid, RenderedAt }
 
     .EXAMPLE
-        Render-Web7Notification -MessageDid "did:drn:alpha.svrn7.net/inbox/msg/5f43a2..."
+        Render-Web7Notification -MessageDid "did:drn:societytest.svrn7.net/inbox/msg/5f43a2..."
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -164,7 +164,7 @@ function Render-Web7RegistrationComplete {
         Hashtable — { CitizenDid, SocietyDid, EndowmentGrana, EndowmentSvrn7, RegisteredAt }
 
     .EXAMPLE
-        Render-Web7RegistrationComplete -MessageDid "did:drn:alpha.svrn7.net/inbox/msg/..."
+        Render-Web7RegistrationComplete -MessageDid "did:drn:societytest.svrn7.net/inbox/msg/..."
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]

@@ -41,7 +41,7 @@ function Import-Web7CalendarEvent {
         Hashtable — calendar event record with parsed fields.
 
     .EXAMPLE
-        Import-Web7CalendarEvent -MessageDid "did:drn:alpha.svrn7.net/inbox/msg/5f43a2..."
+        Import-Web7CalendarEvent -MessageDid "did:drn:societytest.svrn7.net/inbox/msg/5f43a2..."
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]

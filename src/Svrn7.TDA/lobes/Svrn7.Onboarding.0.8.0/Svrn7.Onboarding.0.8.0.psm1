@@ -98,23 +98,24 @@ function New-Web7OnboardReceipt {
         Builds an Svrn7.Onboarding/0.8.0/receipt OutboundMessage after successful registration.
 
     .DESCRIPTION
-        Accepts the registration result hashtable from Register-Svrn7CitizenInSociety
+        Accepts the registration result object from Register-Svrn7CitizenInSociety
         (pipeline input) and constructs a DIDComm receipt for the requesting TDA.
 
     .PARAMETER RegistrationResult
-        Registration result hashtable from Register-Svrn7CitizenInSociety.
-        Expected fields: CitizenDid, EndowmentGrana, EndowmentVcId, SocietyDid.
+        [PSCustomObject] Svrn7.CitizenRegistration returned by Register-Svrn7CitizenInSociety.
+        Fields used: CitizenDid, EndowmentGrana, SocietyDid. Note: Register-Svrn7CitizenInSociety
+        does not currently surface the endowment VC's id, so endowmentVcId is always $null here.
 
     .OUTPUTS
         OutboundMessage — packed DIDComm message ready for Switchboard delivery.
 
     .EXAMPLE
-        ConvertFrom-Web7OnboardRequest | Register-Svrn7CitizenInSociety | New-Web7OnboardReceipt
+        Register-Svrn7CitizenInSociety -DidDocument $didDoc -KeyPair $kp | New-Web7OnboardReceipt
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory, ValueFromPipeline)]
-        [hashtable] $RegistrationResult
+        [PSCustomObject] $RegistrationResult
     )
 
     process {
@@ -145,12 +146,61 @@ function New-Web7OnboardReceipt {
                 societyDidDocument = if ($societyDocJson) { $societyDocJson | ConvertFrom-Json } else { $null }
                 societyEndpointUrl = $SVRN7.ServiceEndpointUrl
                 endowmentGrana     = $RegistrationResult.EndowmentGrana
-                endowmentVcId      = $RegistrationResult.EndowmentVcId
+                endowmentVcId      = $null
                 registeredAt       = [datetimeoffset]::UtcNow.ToString('o')
             }
         } | ConvertTo-Json -Compress -Depth 5
 
         [Svrn7.TDA.OutboundMessage]::new($endpoint, $envelope)
+    }
+}
+
+# ── Invoke-Web7RegisterCitizen ─────────────────────────────────────────────────
+
+function Invoke-Web7RegisterCitizen {
+    <#
+    .SYNOPSIS
+        Handles Svrn7.Onboarding/0.8.0/register-citizen — the registered protocol
+        entrypoint. Runs the full onboarding pipeline described in this LOBE's
+        descriptor (parse, register with endowment, reply with receipt).
+
+    .DESCRIPTION
+        The Switchboard invokes exactly one cmdlet per protocol match — it does not
+        chain multiple cmdlets via a PowerShell pipeline. This function performs that
+        chain itself: ConvertFrom-Web7OnboardRequest (parse) -> Register-Svrn7CitizenInSociety
+        (Svrn7.Society LOBE — endowment + membership) -> New-Web7OnboardReceipt (reply).
+        On any failure, replies with a success=false receipt via Send-Web7OnboardError
+        instead of leaving the request to dead-letter silently.
+
+    .PARAMETER MessageDid
+        TDA resource DID URL of the inbox message.
+
+    .OUTPUTS
+        [Svrn7.TDA.OutboundMessage] or $null if the request could not be parsed or no
+        reply endpoint could be resolved.
+    #>
+    [CmdletBinding()]
+    [OutputType([Svrn7.TDA.OutboundMessage])]
+    param(
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [string] $MessageDid
+    )
+    process {
+        $req = ConvertFrom-Web7OnboardRequest -MessageDid $MessageDid
+        if (-not $req) { return }
+
+        try {
+            # The Society never receives the citizen's private key over DIDComm — only
+            # publicKeyHex, already baked into $req.DidDocument by ConvertFrom-Web7OnboardRequest.
+            # PrivateKeyBytes is optional on RegisterCitizenInSocietyRequest (defaults to empty).
+            $emptyKeyPair = [PSCustomObject]@{ PrivateKeyBytes = [byte[]]@() }
+            $regResult = Register-Svrn7CitizenInSociety -DidDocument $req.DidDocument -KeyPair $emptyKeyPair -Confirm:$false
+            $regResult | New-Web7OnboardReceipt
+        }
+        catch {
+            Write-Warning "Invoke-Web7RegisterCitizen: registration failed for '$($req.DidDocument.Did)' — $_"
+            Send-Web7OnboardError -CitizenDid $req.DidDocument.Did -ErrorMessage $_.Exception.Message
+        }
     }
 }
 
@@ -258,6 +308,7 @@ function Send-Web7OnboardError {
 Export-ModuleMember -Function @(
     'ConvertFrom-Web7OnboardRequest',
     'Invoke-Web7OnboardReceipt',
+    'Invoke-Web7RegisterCitizen',
     'New-Web7OnboardReceipt',
     'Send-Web7OnboardError'
 )

@@ -44,7 +44,7 @@ URIs diverge from the code that handles them.
 **Examples:**
 
 ```
-Svrn7.Email 0.8.0          did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/message
+Svrn7.Email 0.8.0          did:drn:svrn7.net/protocols/PandoMail.0.8.0/message
 Svrn7.Onboarding 0.8.0     did:drn:svrn7.net/protocols/Svrn7.Onboarding.0.8.0/register-citizen
 Pando.Diagnostics 0.1.0    did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/date-query
 ```
@@ -144,12 +144,12 @@ All outbound DIDComm messages follow this rule:
 | Transport | Pack mode | Rationale |
 |---|---|---|
 | HTTP (`POST /didcomm`) | SignThenEncrypt (secp256k1 JWS inside X25519 JWE) | Peer authentication + confidentiality required for all TDA-to-TDA traffic |
-| WebSocket (`/didcomm-notify`) | Plaintext | Localhost-only UI attachment; PandoMail holds no key material and shares the Citizen TDA's DID |
+| WebSocket (`/localcomm-ws`) | Plaintext | Localhost-only UI attachment; PandoMail holds no key material and shares the Citizen TDA's DID |
 
 **HTTP enforcement point:** `DIDCommMessageSwitchboard.PackOutboundAsync`.  LOBEs construct
 plaintext envelopes and return `OutboundMessage`; the Switchboard applies SignThenEncrypt
 at delivery time.  This mirrors the decrypt-at-boundary pattern on the inbound side
-(`KestrelListenerService.HandleInboundAsync`).
+(`DrawbridgeService.HandleInboundAsync`).
 
 **Fallback behaviour:** If the recipient's DID Document does not contain an
 `X25519KeyAgreementKey2020` entry, `PackOutboundAsync` logs a warning and sends
@@ -157,7 +157,7 @@ plaintext.  This is a degraded mode; the correct fix is to ensure the recipient 
 was bootstrapped with an X25519 key pair (all TDAs bootstrapped with this codebase
 include the key by default).
 
-**WebSocket rule is permanent:** The `/didcomm-notify` channel is a localhost-only
+**WebSocket rule is permanent:** The `/localcomm-ws` channel is a localhost-only
 UI attachment point.  Encryption would require giving PandoMail long-lived key
 material, which contradicts P-003 (no public APIs) and the shared-DID design.
 If PandoMail ever runs on a separate host, this rule must be revisited.

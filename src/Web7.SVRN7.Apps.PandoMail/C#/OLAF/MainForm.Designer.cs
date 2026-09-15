@@ -1831,7 +1831,7 @@ namespace Web7.SVRN7.Apps
             this.PandoMailHelpToolStripMenuItem.Name = "PandoMailHelpToolStripMenuItem";
             this.PandoMailHelpToolStripMenuItem.ShortcutKeys = System.Windows.Forms.Keys.F1;
             this.PandoMailHelpToolStripMenuItem.Size = new System.Drawing.Size(244, 22);
-            this.PandoMailHelpToolStripMenuItem.Text = "Web7 Mail &Help";
+            this.PandoMailHelpToolStripMenuItem.Text = "Pando Mail &Help";
             // 
             // showtheOfficeAssistantToolStripMenuItem
             // 
@@ -1894,7 +1894,7 @@ namespace Web7.SVRN7.Apps
             // 
             this.aboutPandoMailToolStripMenuItem.Name = "aboutPandoMailToolStripMenuItem";
             this.aboutPandoMailToolStripMenuItem.Size = new System.Drawing.Size(244, 22);
-            this.aboutPandoMailToolStripMenuItem.Text = "&About Web7 Mail";
+            this.aboutPandoMailToolStripMenuItem.Text = "&About Pando Mail";
             // 
             // toolStripComboBox1
             // 
@@ -1922,7 +1922,7 @@ namespace Web7.SVRN7.Apps
             this.Controls.Add(this.menuStrip1);
             this.MainMenuStrip = this.menuStrip1;
             this.Name = "MainForm";
-            this.Text = "Web 7.0 Pando Mail";
+            this.Text = "Pando Mail";
             this.WindowState = System.Windows.Forms.FormWindowState.Maximized;
             this.Load += new System.EventHandler(this.Form1_Load);
             this.toolStripContainer1.BottomToolStripPanel.ResumeLayout(false);

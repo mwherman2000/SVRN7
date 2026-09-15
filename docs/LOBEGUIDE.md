@@ -7,6 +7,70 @@ Each LOBE owns one or more DIDComm protocol URIs.  The Switchboard routes by `@t
 
 ---
 
+## Division of Responsibility: C# Host vs. LOBE
+
+The TDA Switchboard and a LOBE split responsibility along a security/trust boundary, not
+just a "backend vs. plugin" boundary:
+
+| Layer | Owns | Never does |
+|---|---|---|
+| **C# host** — `DrawbridgeService`, storage (`LiteInboxStore`/DID/VC registries), `DIDCommMessageSwitchboard`, `LobeManager` | Decrypt/verify at the inbound boundary; durable persistence; routing by `@type`; SignThenEncrypt at the outbound boundary; runspace pool lifecycle | Run LOBE-author-supplied business logic |
+| **LOBE** (`.psm1` protocol entrypoints) | Application/protocol logic on an already-decrypted message body; returns a plaintext `[Svrn7.TDA.OutboundMessage]` (or `$null`) — see Appendix D | Touch DIDComm envelope crypto (JWE/JWS) or the TDA's own transport signing/key-agreement key material — both stay C#-only |
+
+This split exists to bound the blast radius of a LOBE, which is by design hot-reloadable
+and may be authored by anyone: `Import-Module -Force` runs on every JIT dispatch, so a
+LOBE is trusted far less than the host loading it. Injecting DIDComm transport key
+material into a LOBE runspace would mean a buggy or malicious LOBE could decrypt or forge
+any message the TDA handles — so the C# host does all envelope packing/unpacking, and a
+LOBE only ever sees plaintext, curated through `$SVRN7` (Appendix A).
+
+### Is this boundary clean today?
+
+Mostly, with caveats worth knowing before you take other code as a model to copy:
+
+- **Verified clean on the security axis — structurally, not just by omission.** No LOBE
+  `.psm1` references `AgentSigningPrivateKey` or `AgentKeyAgreementPrivateKey` (the TDA's own
+  transport keys) anywhere. The cmdlets that handle *citizen/payer* secp256k1 key material
+  (`New-Svrn7KeyPair`, `Invoke-Svrn7Transfer`, `Invoke-Svrn7BatchTransfer`,
+  `Invoke-Svrn7ExternalTransfer`, `Invoke-Svrn7FederationTransfer`,
+  `Invoke-Svrn7SignSecp256k1`) used to live inside `Svrn7.Federation.0.8.0.psm1` /
+  `Svrn7.Society.0.8.0.psm1` — eager LOBEs, meaning every one of their functions is loaded
+  into the shared `InitialSessionState` every dispatch runspace is built from, reachable by
+  name from *any* handler's runspace regardless of which protocol triggered it (PowerShell
+  has no per-function ACL within a session). "Not a registered entrypoint" prevented the
+  Switchboard from calling them, but not a hypothetical dynamic-invocation bug in some other
+  registered handler from reaching them. They've since moved to
+  `src/Svrn7.TDA/admin-tools/Svrn7.AdminTools/Svrn7.AdminTools.psm1` — outside `lobes/`, with no `.lobe.json`
+  descriptor, so `LobeManager` never discovers or loads it into any dispatch runspace at all.
+  No inbound DIDComm message can reach these cmdlets now, full stop; a human imports the
+  module directly in a standalone PowerShell session (the same way Appendix I's testing flow
+  uses `Send-LocalDIDCommMessage`) and passes an explicit `-Driver`/`-SocietyDriver`, since
+  the module has no access to Federation/Society's own private script-scoped driver
+  singleton.
+- **Not perfectly clean historically, on the C# side.** `DIDCommMessageProcessorService` used
+  to run its own inbox-drain loop alongside the Switchboard, violating "the Switchboard is the
+  sole inbox reader" — it raced the Switchboard for messages and could dead-letter ones it
+  grabbed first but didn't recognize. Fixed, but it's evidence the boundary needs active
+  maintenance, not just a diagram.
+- **Legacy prototype scripts still sit in `lobes/`.** `Agent1-Coordinator.ps1`,
+  `Agent2-Onboarding.ps1`, and `AgentN-Invoicing.ps1` predate `LobeManager`/`.lobe.json` and
+  use an older `Enqueue-Svrn7Message` cmdlet-wrapper pattern that no current registered LOBE
+  uses — `DIDCommMessageSwitchboard.EnqueueOutbound`'s own doc-comment still describes it.
+  The live mechanism is the pipeline-return pattern in Appendix D. Don't copy from the
+  `Agent*.ps1` files.
+- **The guidance itself isn't immune.** This guide's own Appendix D previously pre-serialized
+  the reply body with `ConvertTo-Json` before embedding it in the envelope, then serialized
+  the whole envelope again — double-encoding `body` into a JSON string instead of a JSON
+  object (`"body":"{\"foo\":123}"` instead of `"body":{"foo":123}"`), exactly the bug a recent
+  commit fixed on the C# packing side. That C# fix never touched the WebSocket delivery path
+  (a LOBE's envelope is pushed verbatim, with zero server-side correction) or this guide, so
+  following the old example as written would have broken replies to local UI clients like
+  PandoMail. Fixed below to match what every real registered LOBE
+  (`Invoke-Web7SocietyList`, `Invoke-Web7RegisterSociety`, etc.) already does — build `body`
+  as a nested hashtable, never pre-stringify it.
+
+---
+
 ## Step 1 — Define the Protocol URI(s)
 
 Every inbound DIDComm message type the LOBE handles needs a URI.
@@ -20,7 +84,7 @@ did:drn:svrn7.net/protocols/{domain}/{version}/{action}
 Examples:
 - `did:drn:svrn7.net/protocols/Svrn7.Onboarding.0.8.0/register-citizen`
 - `did:drn:svrn7.net/protocols/Svrn7.Invoicing.0.8.0/request`
-- `did:drn:svrn7.net/protocols/payments/1.0/request`
+- `did:drn:svrn7.net/protocols/payments.0.1.0/request`
 
 One URI maps to exactly one entrypoint cmdlet.  If the LOBE handles multiple message
 types (request + confirmation, for example), define a URI and entrypoint for each.
@@ -131,7 +195,7 @@ Not all LOBEs send a reply.  If this one does, specify:
 
 | Item | Detail |
 |---|---|
-| Outbound `@type` URI | e.g. `did:drn:svrn7.net/protocols/payments/1.0/receipt` |
+| Outbound `@type` URI | e.g. `did:drn:svrn7.net/protocols/payments.0.1.0/receipt` |
 | Reply body fields | camelCase JSON field names and types |
 | Endpoint resolution | DID Document lookup via `Resolve-SocietySenderEndpoint -Did $msg.FromDid` |
 
@@ -235,14 +299,22 @@ src/Svrn7.TDA/lobes/
     └── Svrn7.MyLobe.lobe.json   ← LOBE descriptor
 ```
 
-Then register in `src/Svrn7.TDA/lobes/lobes.config.json`:
+The `lobes/` tree is **LOBE source for packaging** — the `BuildLOBEPackages`
+target turns each `{Name}/` into `dist/{Name}.{version}.nupkg`, and Publish (or
+`tools/Initialize-Testnet.ps1`) copies those into `~/.web7-pando/lobe-library/`.
+A TDA installs a LOBE from there into its own `<instance>/lobes/` on first
+reference (docs/AGENTWALLET.md §D6).
+
+To make a LOBE **eager** (pre-loaded at startup rather than JIT on first
+message), add it to the default eager list — `src/Svrn7.TDA/lobes.config.json`
+(project root, embedded in the assembly and materialized per instance):
 
 ```json
-{
-  "eager": [ ... ],
-  "jit":   [ ..., "Svrn7.MyLobe/Svrn7.MyLobe.psm1" ]
-}
+{ "eager": [ ..., "Svrn7.MyLobe.1.0.0/Svrn7.MyLobe.1.0.0.psm1" ] }
 ```
+
+JIT LOBEs are not listed anywhere — they are discovered by `@type` and installed
+on demand.
 
 ### The `.Impl.psm1` pattern
 
@@ -307,7 +379,7 @@ function Invoke-PandoMyLobeRequest {
         return @{
             PeerEndpoint  = $endpoint
             PackedMessage = (@{ success = $true } | ConvertTo-Json -Compress)
-            MessageType   = 'did:drn:svrn7.net/protocols/mylobe/1.0/result'
+            MessageType   = 'did:drn:svrn7.net/protocols/mylobe.0.1.0/result'
         }
     }
 }
@@ -338,7 +410,7 @@ Minimum required structure:
   },
   "protocols": [
     {
-      "uri":           "did:drn:svrn7.net/protocols/mylobe/1.0/request",
+      "uri":           "did:drn:svrn7.net/protocols/mylobe.0.1.0/request",
       "title":         "MyLobe Request",
       "description":   "What this message does. Body: { requiredField1, requiredField2 }",
       "direction":     "inbound",
@@ -507,16 +579,23 @@ Returning `$null`, an empty pipeline, or a bare `return` means no reply is sent.
 ### With reply
 
 ```powershell
-$payload = @{ ... } | ConvertTo-Json -Compress   # the data to send
-
 $envelope = [ordered]@{
     typ  = 'application/didcomm-plain+json'
     id   = [Svrn7.Core.TdaResourceId]::DIDCommMessage([Guid]::NewGuid().ToString('N'))
-    type = 'did:drn:svrn7.net/protocols/domain/1.0/result'   # outbound @type URI
+    type = 'did:drn:svrn7.net/protocols/domain.0.1.0/result'   # outbound @type URI
     from = $SVRN7.Driver.SocietyDid
     to   = @($msg.FromDid)
-    body = $payload   # $payload is a JSON string; stored as a string literal in the envelope
-} | ConvertTo-Json -Compress
+    body = [ordered]@{ ... }   # a nested hashtable/object — never pre-stringify this with
+                                # ConvertTo-Json first. The outer ConvertTo-Json below
+                                # recursively serializes it as a real JSON object; a
+                                # pre-stringified value would be embedded as an escaped JSON
+                                # STRING instead ("body":"{\"foo\":123}" instead of
+                                # "body":{"foo":123}) — DIDComm v2 requires body, when
+                                # present, to be an object. See every registered LOBE's
+                                # own reply construction (e.g. Invoke-Web7SocietyList,
+                                # Invoke-Web7RegisterSociety in Svrn7.Federation.0.8.0.psm1)
+                                # for the pattern this follows.
+} | ConvertTo-Json -Compress -Depth 10
 
 [Svrn7.TDA.OutboundMessage]::new($endpoint, $envelope)
 ```
@@ -524,7 +603,7 @@ $envelope = [ordered]@{
 | Parameter | Type | Description |
 |---|---|---|
 | `PeerEndpoint` (1st arg) | `string` | HTTP/2 (h2c) URL of the recipient's TDA endpoint (e.g. `http://peer.svrn7.net:8443`). Resolved via `Resolve-SocietySenderEndpoint -Did $msg.FromDid`. |
-| `PackedMessage` (2nd arg) | `string` | Full DIDComm plaintext envelope (`typ`/`id`/`type`/`from`/`to`/`body`). The Switchboard POSTs this verbatim; the recipient's `KestrelListenerService` routes on the `type` field. |
+| `PackedMessage` (2nd arg) | `string` | Full DIDComm plaintext envelope (`typ`/`id`/`type`/`from`/`to`/`body`). The Switchboard POSTs this verbatim; the recipient's `DrawbridgeService` routes on the `type` field. |
 
 ### No reply
 
@@ -684,7 +763,7 @@ if (-not $result.Success) {
     return @{
         PeerEndpoint  = $endpoint
         PackedMessage = (@{ success = $false; error = $result.ErrorMessage } | ConvertTo-Json -Compress)
-        MessageType   = 'did:drn:svrn7.net/protocols/domain/1.0/receipt'
+        MessageType   = 'did:drn:svrn7.net/protocols/domain.0.1.0/receipt'
     }
 }
 ```
@@ -721,8 +800,8 @@ understand existing patterns; confirm that any new URI is unique before register
 | `Svrn7.Calendar` | `did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/event` | inbound | *(see lobe.json)* |
 | `Svrn7.Calendar` | `did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/invite` | inbound | *(see lobe.json)* |
 | `Svrn7.Calendar` | `did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/response` | inbound | *(see lobe.json)* |
-| `Svrn7.Email` | `did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/message` | inbound | *(see lobe.json)* |
-| `Svrn7.Email` | `did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/receipt` | outbound | — |
+| `Svrn7.Email` | `did:drn:svrn7.net/protocols/PandoMail.0.8.0/message` | inbound | *(see lobe.json)* |
+| `Svrn7.Email` | `did:drn:svrn7.net/protocols/PandoMail.0.8.0/receipt` | outbound | — |
 | `Svrn7.Notifications` | `did:drn:svrn7.net/protocols/Svrn7.Notifications.0.8.0/alert` | inbound | *(see lobe.json)* |
 | `Svrn7.Presence` | `did:drn:svrn7.net/protocols/Svrn7.Presence.0.8.0/status` | inbound | *(see lobe.json)* |
 | `Svrn7.Presence` | `did:drn:svrn7.net/protocols/Svrn7.Presence.0.8.0/subscribe` | inbound | *(see lobe.json)* |
@@ -765,7 +844,7 @@ The fastest way to exercise a new LOBE end-to-end:
    $msg  = @{
        typ  = "application/didcomm-plain+json"
        id   = "did:drn:svrn7.net/didcomm/msg/$([System.Guid]::NewGuid().ToString('N'))"
-       type = "did:drn:svrn7.net/protocols/mylobe/1.0/request"
+       type = "did:drn:svrn7.net/protocols/mylobe.0.1.0/request"
        from = "did:drn:foundation.svrn7.net"
        to   = @("did:drn:bindloss.svrn7.net")
        body = $body
@@ -780,7 +859,7 @@ The fastest way to exercise a new LOBE end-to-end:
 At `LogLevel.Information`:
 ```
 Switchboard: routing did:drn:.../inbox/msg/<id>
-    (type=did:drn:svrn7.net/protocols/mylobe/1.0/request) → Invoke-PandoMyLobeRequest [Svrn7.MyLobe]
+    (type=did:drn:svrn7.net/protocols/mylobe.0.1.0/request) → Invoke-PandoMyLobeRequest [Svrn7.MyLobe]
 ```
 
 At `LogLevel.Trace`, all PS streams are forwarded (see Appendix F).
@@ -798,5 +877,6 @@ Connect-Svrn7Society -SocietyDid "did:drn:bindloss.svrn7.net" -FederationDid "di
 
 ### Full test lifecycle
 
-See `docs/DEBUG.md` for the complete Scenario E bootstrap sequence (federation init →
-society register → citizen onboard) and Scenario F (database teardown).
+See `docs/FEDERATIONDEBUG.ps1` §E.0-E.2 for the federation init → society register
+bootstrap sequence, `docs/CITIZENDEBUG.ps1`/`docs/SOCIETYDEBUG.ps1` for citizen onboarding,
+and `docs/DEBUG.ps1` Scenario F for database teardown.

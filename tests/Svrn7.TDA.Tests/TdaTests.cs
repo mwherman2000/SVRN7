@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Net.WebSockets;
+using System.Text;
 using FluentAssertions;
 using Svrn7.Core.Interfaces;
 using LiteDB;
@@ -18,7 +20,7 @@ namespace Svrn7.TDA.Tests;
 
 public class TdaResourceIdTests
 {
-    private const string Network = "alpha.svrn7.net";
+    private const string Network = "societytest.svrn7.net";
 
     // ── Build / parse round-trips ─────────────────────────────────────────────
 
@@ -82,9 +84,9 @@ public class TdaResourceIdTests
     // ── NetworkIdFromDid ──────────────────────────────────────────────────────
 
     [Theory]
-    [InlineData("did:drn:alpha.svrn7.net",      "alpha.svrn7.net")]
+    [InlineData("did:drn:societytest.svrn7.net",      "societytest.svrn7.net")]
     [InlineData("did:drn:foundation.svrn7.net", "foundation.svrn7.net")]
-    [InlineData("alpha.svrn7.net",              "alpha.svrn7.net")]   // passthrough
+    [InlineData("societytest.svrn7.net",              "societytest.svrn7.net")]   // passthrough
     public void NetworkIdFromDid_Strips_Prefix(string input, string expected)
     {
         TdaResourceId.NetworkIdFromDid(input).Should().Be(expected);
@@ -95,7 +97,7 @@ public class TdaResourceIdTests
     [Fact]
     public void ParseKey_Returns_Null_For_Bare_Did()
     {
-        TdaResourceId.ParseKey("did:drn:alpha.svrn7.net").Should().BeNull();
+        TdaResourceId.ParseKey("did:drn:societytest.svrn7.net").Should().BeNull();
     }
 
     [Fact]
@@ -116,7 +118,7 @@ public class TdaResourceIdTests
     public void ParseNetworkId_Returns_Null_For_Bare_Did()
     {
         // Bare DID has no slash — no path
-        TdaResourceId.ParseNetworkId("did:drn:alpha.svrn7.net").Should().BeNull();
+        TdaResourceId.ParseNetworkId("did:drn:societytest.svrn7.net").Should().BeNull();
     }
 
     // ── Build ─────────────────────────────────────────────────────────────────
@@ -124,8 +126,8 @@ public class TdaResourceIdTests
     [Fact]
     public void Build_Produces_Correct_Form()
     {
-        var result = TdaResourceId.Build("alpha.svrn7.net", "inbox", "msg", "abc123");
-        result.Should().Be("did:drn:alpha.svrn7.net/inbox/msg/abc123");
+        var result = TdaResourceId.Build("societytest.svrn7.net", "inbox", "msg", "abc123");
+        result.Should().Be("did:drn:societytest.svrn7.net/inbox/msg/abc123");
     }
 
     [Fact]
@@ -137,7 +139,7 @@ public class TdaResourceIdTests
             TdaResourceId.Citizen(Network, "alice"),
             TdaResourceId.Wallet(Network, "alice"),
             TdaResourceId.Utxo(Network, new string('a', 64)),
-            TdaResourceId.Society(Network, "alpha.svrn7.net"),
+            TdaResourceId.Society(Network, "societytest.svrn7.net"),
             TdaResourceId.Membership(Network, "alice"),
             TdaResourceId.LogEntry(Network, new string('b', 64)),
             TdaResourceId.TreeHead(Network, new string('c', 64)),
@@ -152,13 +154,38 @@ public class TdaResourceIdTests
     }
 }
 
+// ── TdaOptions Tests ─────────────────────────────────────────────────────────
+
+public class TdaOptionsTests
+{
+    /// <summary>
+    /// Societies and Federation are not yet fully implemented (docs/BACKLOG.md), so every
+    /// TDA in practice — Wanderer, or one that has completed onboarding — currently
+    /// resolves to Svrn7Role.Wanderer: Program.cs seeds this default at service
+    /// registration, then refreshes it from the resolved DID Document's Role once this
+    /// TDA's own identity is known, but no live registration/init flow yet ever writes
+    /// Citizen/Society/Federation onto that document's Role for a running TDA to pick up.
+    /// This test pins today's observable behavior (the property's own default) as a
+    /// marker: once Societies/Federation land and a TDA can genuinely resolve to a
+    /// non-Wanderer role, this assumption — and the HasFoundationSigningKey-based Merkle
+    /// auto-sign gate in DIDCommMessageProcessorService.RunSweepAsync and
+    /// Svrn7BackgroundService that stands in for role-based gating in the meantime —
+    /// should be revisited.
+    /// </summary>
+    [Fact]
+    public void Role_DefaultsToWanderer()
+    {
+        new TdaOptions().Role.Should().Be(Svrn7Role.Wanderer);
+    }
+}
+
 // ── LiteInboxStore DID URL Tests ──────────────────────────────────────────────
 
 public class LiteInboxStoreDIDUrlTests : IDisposable
 {
     private readonly MsgLiteContext   _ctx;
     private readonly LiteInboxStore     _store;
-    private const string                SocietyDid = "did:drn:alpha.svrn7.net";
+    private const string                SocietyDid = "did:drn:societytest.svrn7.net";
 
     public LiteInboxStoreDIDUrlTests()
     {
@@ -179,9 +206,9 @@ public class LiteInboxStoreDIDUrlTests : IDisposable
         batch.Should().HaveCount(1);
 
         var id = batch[0].Id;
-        id.Should().StartWith("did:drn:alpha.svrn7.net/inbox/msg/");
+        id.Should().StartWith("did:drn:societytest.svrn7.net/inbox/msg/");
         TdaResourceId.ParseKey(id).Should().HaveLength(24); // ObjectId hex
-        TdaResourceId.ParseNetworkId(id).Should().Be("alpha.svrn7.net");
+        TdaResourceId.ParseNetworkId(id).Should().Be("societytest.svrn7.net");
     }
 
     [Fact]
@@ -200,7 +227,7 @@ public class LiteInboxStoreDIDUrlTests : IDisposable
     [Fact]
     public async Task GetByIdAsync_Returns_Null_For_Unknown_DID_URL()
     {
-        var unknown = TdaResourceId.InboundMessage("alpha.svrn7.net",
+        var unknown = TdaResourceId.InboundMessage("societytest.svrn7.net",
             ObjectId.NewObjectId().ToString());
         var result  = await _store.GetByIdAsync(unknown);
         result.Should().BeNull();
@@ -327,7 +354,7 @@ public class SchemaRegistryTests : IDisposable
             SchemaJson = """{"type":"object"}""",
         });
 
-        var didUrl = "did:drn:alpha.svrn7.net/schemas/schema/CitizenEndowmentCredential";
+        var didUrl = "did:drn:societytest.svrn7.net/schemas/schema/CitizenEndowmentCredential";
         var result = await _resolver.ResolveByDidUrlAsync(didUrl);
         result.Should().Be("""{"type":"object"}""");
     }
@@ -335,7 +362,7 @@ public class SchemaRegistryTests : IDisposable
     [Fact]
     public async Task ResolveByDidUrl_Returns_Null_For_Unknown()
     {
-        var didUrl = "did:drn:alpha.svrn7.net/schemas/schema/NonExistent";
+        var didUrl = "did:drn:societytest.svrn7.net/schemas/schema/NonExistent";
         var result = await _resolver.ResolveByDidUrlAsync(didUrl);
         result.Should().BeNull();
     }
@@ -419,14 +446,14 @@ public class LobeDescriptorTests
         d.Protocols.Should().HaveCount(2);
 
         var prefix = d.Protocols[0];
-        prefix.Uri.Should().Be("https://test.example/protocols/Svrn7.Email.0.8.0/Signal-PandoMail");
+        prefix.Uri.Should().Be("https://test.example/protocols/PandoMail.0.8.0/Signal-PandoMail");
         prefix.Match.Should().Be("prefix");
         prefix.Entrypoint.Should().Be("Receive-TestEmail");
         prefix.Direction.Should().Be("inbound");
         prefix.EpochRequired.Should().Be(0);
 
         var exact = d.Protocols[1];
-        exact.Uri.Should().Be("https://test.example/protocols/Svrn7.Email.0.8.0/issue-receipt");
+        exact.Uri.Should().Be("https://test.example/protocols/PandoMail.0.8.0/issue-receipt");
         exact.Match.Should().Be("exact");
         exact.Entrypoint.Should().Be("Receive-TestEmailReceipt");
     }
@@ -564,7 +591,7 @@ public class LobeManagerRegistryTests : IDisposable
 
         _tdaOpts = new TdaOptions
         {
-            SocietyDid = "did:drn:alpha.svrn7.net",
+            SocietyDid = "did:drn:societytest.svrn7.net",
             SocietyMessagingPrivateKeyEd25519 = Array.Empty<byte>(),
             LobesConfigPath = Path.Combine(_tmpDir, "lobes.config.json"),
         };
@@ -589,9 +616,9 @@ public class LobeManagerRegistryTests : IDisposable
         var path = Path.Combine(_tmpDir, "Test.Email.lobe.json");
         _manager.RegisterFromDescriptor(path);
 
-        // Prefix match: "https://test.example/protocols/Svrn7.Email.0.8.0/Signal-PandoMail" prefix
+        // Prefix match: "https://test.example/protocols/PandoMail.0.8.0/Signal-PandoMail" prefix
         var reg = _manager.TryResolveProtocol(
-            "https://test.example/protocols/Svrn7.Email.0.8.0/Signal-PandoMail");
+            "https://test.example/protocols/PandoMail.0.8.0/Signal-PandoMail");
         reg.Should().NotBeNull();
         reg!.Entrypoint.Should().Be("Receive-TestEmail");
         reg.LobeName.Should().Be("Test.Email");
@@ -605,7 +632,7 @@ public class LobeManagerRegistryTests : IDisposable
         _manager.RegisterFromDescriptor(path);
 
         var reg = _manager.TryResolveProtocol(
-            "https://test.example/protocols/Svrn7.Email.0.8.0/issue-receipt");
+            "https://test.example/protocols/PandoMail.0.8.0/issue-receipt");
         reg.Should().NotBeNull();
         reg!.Entrypoint.Should().Be("Receive-TestEmailReceipt");
         reg.Match.Should().Be("exact");
@@ -632,7 +659,7 @@ public class LobeManagerRegistryTests : IDisposable
 
         // Registry should still have exactly one entry per URI
         _manager.ExactRegistrations.Keys
-            .Count(k => k == "https://test.example/protocols/Svrn7.Email.0.8.0/issue-receipt")
+            .Count(k => k == "https://test.example/protocols/PandoMail.0.8.0/issue-receipt")
             .Should().Be(1);
     }
 
@@ -667,11 +694,11 @@ public class LobeManagerRegistryTests : IDisposable
         _manager.RegisterFromDescriptor(Path.Combine(_tmpDir, "Test.Email.lobe.json"));
 
         // The receipt URI matches both:
-        //   prefix: "https://test.example/protocols/Svrn7.Email.0.8.0/Signal-PandoMail" (prefix of receipt? no)
-        //   exact:  "https://test.example/protocols/Svrn7.Email.0.8.0/issue-receipt"
+        //   prefix: "https://test.example/protocols/PandoMail.0.8.0/Signal-PandoMail" (prefix of receipt? no)
+        //   exact:  "https://test.example/protocols/PandoMail.0.8.0/issue-receipt"
         // Exact should win
         var reg = _manager.TryResolveProtocol(
-            "https://test.example/protocols/Svrn7.Email.0.8.0/issue-receipt");
+            "https://test.example/protocols/PandoMail.0.8.0/issue-receipt");
         reg!.Entrypoint.Should().Be("Receive-TestEmailReceipt");
     }
 
@@ -680,10 +707,10 @@ public class LobeManagerRegistryTests : IDisposable
     {
         _manager.RegisterFromDescriptor(Path.Combine(_tmpDir, "Test.Email.lobe.json"));
 
-        // The prefix "https://test.example/protocols/Svrn7.Email.0.8.0/Signal-PandoMail" should match
+        // The prefix "https://test.example/protocols/PandoMail.0.8.0/Signal-PandoMail" should match
         // any URI starting with that string
         var reg = _manager.TryResolveProtocol(
-            "https://test.example/protocols/Svrn7.Email.0.8.0/Signal-PandoMail/extended");
+            "https://test.example/protocols/PandoMail.0.8.0/Signal-PandoMail/extended");
         reg.Should().NotBeNull();
         reg!.Entrypoint.Should().Be("Receive-TestEmail");
     }
@@ -813,11 +840,110 @@ public class LobeManagerRegistryTests : IDisposable
     }
 }
 
+// ── LobeManager JIT install-on-unknown-@type Tests (TDA-006) ──────────────────
+
+public class LobeJitInstallTests : IDisposable
+{
+    private readonly string _tmpRoot;
+    private readonly string _lobesDir;
+    private readonly string _libraryDir;
+    private readonly LobeManager _manager;
+
+    private const string DiagnosticsPkg  = "Pando.Diagnostics.0.1.0.nupkg";
+    private const string DiagnosticsType = "did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/Query-TOD";
+
+    public LobeJitInstallTests()
+    {
+        _tmpRoot    = Path.Combine(Path.GetTempPath(), $"lobe-jit-{Guid.NewGuid():N}");
+        _lobesDir   = Path.Combine(_tmpRoot, "instance", "lobes");
+        _libraryDir = Path.Combine(_tmpRoot, "lobe-library");
+        Directory.CreateDirectory(_lobesDir);
+        Directory.CreateDirectory(_libraryDir);
+
+        // Seed the "library" with a real built LOBE package from the repo's dist/.
+        var distNupkg = Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "..", "dist", DiagnosticsPkg);
+        if (File.Exists(distNupkg))
+            File.Copy(distNupkg, Path.Combine(_libraryDir, DiagnosticsPkg), overwrite: true);
+
+        var opts = new TdaOptions
+        {
+            SocietyDid = "did:drn:societytest.svrn7.net",
+            SocietyMessagingPrivateKeyEd25519 = Array.Empty<byte>(),
+            LobesConfigPath = Path.Combine(_lobesDir, "lobes.config.json"),
+            LobeLibraryDir = _libraryDir,
+        };
+        File.WriteAllText(opts.LobesConfigPath, """{"eager":[],"jit":[]}""");
+
+        var cache = new Microsoft.Extensions.Caching.Memory.MemoryCache(
+            new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+        var ctx = new Svrn7RunspaceContext(
+            new NullSocietyDriver(), new NullInboxStore(), new NullDeadLetterStore(),
+            cache, new NullProcessedOrderStore(), new PendingResolutionStore(), initialEpoch: 0);
+
+        var library   = new LobeLibrary(_libraryDir, NullLogger<LobeLibrary>.Instance);
+        var installer = new LobeInstaller(library, _lobesDir, NullLogger<LobeInstaller>.Instance);
+        _manager = new LobeManager(Options.Create(opts), ctx, NullLogger<LobeManager>.Instance, installer);
+    }
+
+    [Theory]
+    [InlineData("did:drn:svrn7.net/protocols/Svrn7.Invoicing.0.8.0/request", "Svrn7.Invoicing", "0.8.0")]
+    [InlineData("did:drn:svrn7.net/protocols/Pando.Diagnostics.0.1.0/Query-TOD", "Pando.Diagnostics", "0.1.0")]
+    public void TryParsePackageFromType_ExtractsIdAndVersion(string type, string id, string ver)
+    {
+        LobeManager.TryParsePackageFromType(type, out var gotId, out var gotVer).Should().BeTrue();
+        gotId.Should().Be(id);
+        gotVer.Should().Be(ver);
+    }
+
+    [Theory]
+    [InlineData("did:drn:svrn7.net/protocols/NoVersionHere/request")]   // no {id}.{version}
+    [InlineData("did:drn:svrn7.net/not-a-protocol-uri")]                 // no /protocols/ segment
+    public void TryParsePackageFromType_RejectsMalformed(string type)
+    {
+        LobeManager.TryParsePackageFromType(type, out _, out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void TryResolveOrInstall_InstallsFromLibrary_OnFirstReference()
+    {
+        if (!File.Exists(Path.Combine(_libraryDir, DiagnosticsPkg)))
+            return; // dist/ not built in this environment — skip
+
+        _manager.TryResolveProtocol(DiagnosticsType).Should().BeNull("not installed yet");
+
+        var reg = _manager.TryResolveOrInstallProtocol(DiagnosticsType);
+
+        reg.Should().NotBeNull();
+        reg!.LobeName.Should().Be("Pando.Diagnostics");
+        Directory.Exists(Path.Combine(_lobesDir, "Pando.Diagnostics.0.1.0")).Should().BeTrue();
+        Directory.GetFiles(Path.Combine(_lobesDir, "Pando.Diagnostics.0.1.0"), "*.lobe.json")
+            .Should().NotBeEmpty();
+
+        // Idempotent: a second call resolves from the now-registered descriptor.
+        _manager.TryResolveOrInstallProtocol(DiagnosticsType).Should().NotBeNull();
+    }
+
+    [Fact]
+    public void TryResolveOrInstall_ReturnsNull_WhenPackageNotInLibrary()
+    {
+        var reg = _manager.TryResolveOrInstallProtocol(
+            "did:drn:svrn7.net/protocols/Nonexistent.Lobe.9.9.9/whatever");
+        reg.Should().BeNull();
+    }
+
+    public void Dispose()
+    {
+        _manager.Dispose();
+        try { Directory.Delete(_tmpRoot, recursive: true); } catch { }
+    }
+}
+
 // ── Null stubs for test isolation ─────────────────────────────────────────────
 
 internal sealed class NullInboxStore : Svrn7.Core.Interfaces.IInboxStore
 {
-    public Task EnqueueAsync(string t, string p, string? fromDid = null, string? wireId = null, string? jweEnvelope = null, CancellationToken ct = default) => Task.CompletedTask;
+    public Task EnqueueAsync(string t, string p, string? fromDid = null, string? wireId = null, string? thid = null, string? jweEnvelope = null, string? traceContext = null, CancellationToken ct = default) => Task.CompletedTask;
     public Task<Svrn7.Core.Models.InboundMessage?> GetByIdAsync(string id, CancellationToken ct = default) => Task.FromResult<Svrn7.Core.Models.InboundMessage?>(null);
     public Task<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.InboundMessage>> DequeueBatchAsync(int b = 20, CancellationToken ct = default) => Task.FromResult<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.InboundMessage>>(Array.Empty<Svrn7.Core.Models.InboundMessage>());
     public Task MarkProcessedAsync(string id, CancellationToken ct = default) => Task.CompletedTask;
@@ -825,6 +951,7 @@ internal sealed class NullInboxStore : Svrn7.Core.Interfaces.IInboxStore
     public Task ResetStuckMessagesAsync(CancellationToken ct = default) => Task.CompletedTask;
     public Task<System.Collections.Generic.IReadOnlyDictionary<Svrn7.Core.Models.InboundMessageStatus, int>> GetStatusCountsAsync(CancellationToken ct = default) => Task.FromResult<System.Collections.Generic.IReadOnlyDictionary<Svrn7.Core.Models.InboundMessageStatus, int>>(new System.Collections.Generic.Dictionary<Svrn7.Core.Models.InboundMessageStatus, int>());
     public Task<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.InboundMessage>> ListByTypeAsync(string typePrefix, int limit = 50, CancellationToken ct = default) => Task.FromResult<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.InboundMessage>>(System.Array.Empty<Svrn7.Core.Models.InboundMessage>());
+    public Task<int> CountByTypeAsync(string typePrefix, CancellationToken ct = default) => Task.FromResult(0);
 }
 
 internal sealed class NullDeadLetterStore : Svrn7.Core.Interfaces.IDeadLetterStore
@@ -832,6 +959,7 @@ internal sealed class NullDeadLetterStore : Svrn7.Core.Interfaces.IDeadLetterSto
     public Task EnqueueAsync(Svrn7.Core.Models.DeadLetterRecord record, CancellationToken ct = default) => Task.CompletedTask;
     public Task<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.DeadLetterRecord>> GetPendingAsync(CancellationToken ct = default) => Task.FromResult<System.Collections.Generic.IReadOnlyList<Svrn7.Core.Models.DeadLetterRecord>>(System.Array.Empty<Svrn7.Core.Models.DeadLetterRecord>());
     public Task MarkRetriedAsync(string id, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<int> CountPendingAsync(CancellationToken ct = default) => Task.FromResult(0);
 }
 
 internal sealed class NullProcessedOrderStore : Svrn7.Core.Interfaces.IProcessedOrderStore
@@ -845,7 +973,7 @@ internal sealed class NullSocietyDriver : Svrn7.Society.ISvrn7SocietyDriver
     // All methods throw NotImplementedException — tests do not call them.
 
     // ── ISvrn7SocietyDriver members ────────────────────────────────────────────
-    public string SocietyDid => "did:drn:alpha.svrn7.net";
+    public string SocietyDid => "did:drn:societytest.svrn7.net";
     public Task<Svrn7.Core.Models.OperationResult> RegisterCitizenInSocietyAsync(Svrn7.Core.Models.RegisterCitizenInSocietyRequest r, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<bool> IsMemberAsync(string did, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<System.Collections.Generic.IReadOnlyList<string>> GetMemberCitizenDidsAsync(CancellationToken ct = default) => throw new NotImplementedException();
@@ -904,6 +1032,7 @@ internal sealed class NullSocietyDriver : Svrn7.Society.ISvrn7SocietyDriver
     public Task<int> ExpireStaleVcsAsync(CancellationToken ct = default) => throw new NotImplementedException();
     public Task<string> AppendToLogAsync(string entryType, string payloadJson, CancellationToken ct = default) => throw new NotImplementedException();
     public Task<string> GetMerkleRootAsync(CancellationToken ct = default) => throw new NotImplementedException();
+    public bool HasFoundationSigningKey => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.TreeHead> SignMerkleTreeHeadAsync(CancellationToken ct = default) => throw new NotImplementedException();
     public Task<long> GetLogSizeAsync(CancellationToken ct = default) => throw new NotImplementedException();
     public Task<Svrn7.Core.Models.TreeHead?> GetLatestTreeHeadAsync(CancellationToken ct = default) => throw new NotImplementedException();
@@ -919,19 +1048,19 @@ internal sealed class NullSocietyDriver : Svrn7.Society.ISvrn7SocietyDriver
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }
 
-// ── KestrelListenerService Integration Tests ──────────────────────────────────
+// ── DrawbridgeService Integration Tests ──────────────────────────────────
 //
 // Starts a real Kestrel server in cleartext HTTP/2 dev mode (no TLS cert).
 // Uses stub IDIDCommService and a recording IInboxStore to verify the
 // POST /didcomm inbound pipeline end-to-end.
 
-public sealed class KestrelListenerServiceIntegrationTests : IAsyncLifetime
+public sealed class DrawbridgeServiceIntegrationTests : IAsyncLifetime
 {
-    private readonly KestrelListenerService _listener;
+    private readonly DrawbridgeService _listener;
     private readonly RecordingInboxStore   _inbox;
     private readonly int                   _port;
 
-    public KestrelListenerServiceIntegrationTests()
+    public DrawbridgeServiceIntegrationTests()
     {
         _port  = FindFreePort();
         _inbox = new RecordingInboxStore();
@@ -945,12 +1074,12 @@ public sealed class KestrelListenerServiceIntegrationTests : IAsyncLifetime
             RequireMutualTls                  = false,
         });
 
-        _listener = new KestrelListenerService(
+        _listener = new DrawbridgeService(
             opts,
             new StubDIDCommService("test/1.0/msg", """{"amount":500}"""),
             _inbox,
             new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance),
-            NullLogger<KestrelListenerService>.Instance);
+            NullLogger<DrawbridgeService>.Instance);
     }
 
     public Task InitializeAsync() => _listener.StartAsync(CancellationToken.None);
@@ -1042,7 +1171,7 @@ public sealed class KestrelListenerServiceIntegrationTests : IAsyncLifetime
 
         var port        = FindFreePort();
         var inbox       = new RecordingInboxStore();
-        var badListener = new KestrelListenerService(
+        var badListener = new DrawbridgeService(
             Options.Create(new TdaOptions
             {
                 SocietyDid                        = "did:drn:test.svrn7.net",
@@ -1054,7 +1183,7 @@ public sealed class KestrelListenerServiceIntegrationTests : IAsyncLifetime
             new ThrowingDIDCommService(),
             inbox,
             new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance),
-            NullLogger<KestrelListenerService>.Instance);
+            NullLogger<DrawbridgeService>.Instance);
 
         await badListener.StartAsync(CancellationToken.None);
         try
@@ -1092,13 +1221,13 @@ public sealed class KestrelListenerServiceIntegrationTests : IAsyncLifetime
     }
 }
 
-// ── Stubs for KestrelListenerService integration tests ────────────────────────
+// ── Stubs for DrawbridgeService integration tests ────────────────────────
 
 internal sealed class RecordingInboxStore : IInboxStore
 {
     public List<(string Type, string Payload)> Messages { get; } = new();
 
-    public Task EnqueueAsync(string messageType, string packedPayload, string? fromDid = null, string? wireId = null, string? jweEnvelope = null, CancellationToken ct = default)
+    public Task EnqueueAsync(string messageType, string packedPayload, string? fromDid = null, string? wireId = null, string? thid = null, string? jweEnvelope = null, string? traceContext = null, CancellationToken ct = default)
     {
         Messages.Add((messageType, packedPayload));
         return Task.CompletedTask;
@@ -1117,10 +1246,11 @@ internal sealed class RecordingInboxStore : IInboxStore
             new Dictionary<InboundMessageStatus, int>());
     public Task<IReadOnlyList<InboundMessage>> ListByTypeAsync(string typePrefix, int limit = 50, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<InboundMessage>>(Array.Empty<InboundMessage>());
+    public Task<int> CountByTypeAsync(string typePrefix, CancellationToken ct = default) => Task.FromResult(0);
 }
 
 /// <summary>Stub IDIDCommService: UnpackAsync always returns a pre-configured message.</summary>
-internal sealed class StubDIDCommService(string type, string body) : IDIDCommService
+internal sealed class StubDIDCommService(string type, string body, string? id = null) : IDIDCommService
 {
     public DIDCommMessageBuilder NewMessage() => new();
     public Task<string> PackPlaintextAsync(DIDCommMessage m, CancellationToken ct = default) =>
@@ -1135,7 +1265,7 @@ internal sealed class StubDIDCommService(string type, string body) : IDIDCommSer
     public Task<DIDCommUnpackedMessage> UnpackAsync(string packed,
         byte[]? recipientPrivateKey = null, CancellationToken ct = default) =>
         Task.FromResult(new DIDCommUnpackedMessage
-            { Type = type, Body = body, Mode = DIDCommPackMode.Plaintext });
+            { Id = id, Type = type, Body = body, Mode = DIDCommPackMode.Plaintext });
 }
 
 /// <summary>Stub IDIDCommService: UnpackAsync always throws — simulates a malformed message.</summary>
@@ -1217,7 +1347,7 @@ public class LiteInboxStoreStuckMessageTests : IDisposable
 {
     private readonly MsgLiteContext   _ctx;
     private readonly LiteInboxStore     _store;
-    private const string                SocietyDid = "did:drn:alpha.svrn7.net";
+    private const string                SocietyDid = "did:drn:societytest.svrn7.net";
 
     public LiteInboxStoreStuckMessageTests()
     {
@@ -1365,6 +1495,44 @@ public class SwitchboardStartupTests : IDisposable
     }
 
     [Fact]
+    public async Task StartupAsync_Marks_ReEnqueued_Records_As_Retried()
+    {
+        // Regression test: without this, GetPendingAsync (filtered on !IsRetried) returns the
+        // same record on every future startup forever, and if the retry fails again the normal
+        // outbound-failure path inserts a brand new dead-letter record for it — silently
+        // duplicating every persistently undeliverable message once per restart.
+        var inbox = new TrackingInboxStore();
+        var pending = new[]
+        {
+            new Svrn7.Core.Models.DeadLetterRecord
+            {
+                Id            = TdaResourceId.Build("test.svrn7.net", "inbox", "outbox",
+                                    LiteDB.ObjectId.NewObjectId().ToString()),
+                PeerEndpoint  = "https://peer.example",
+                PackedMessage = "packed-1",
+                MessageType   = "outbound",
+                AttemptCount  = 3,
+            },
+            new Svrn7.Core.Models.DeadLetterRecord
+            {
+                Id            = TdaResourceId.Build("test.svrn7.net", "inbox", "outbox",
+                                    LiteDB.ObjectId.NewObjectId().ToString()),
+                PeerEndpoint  = "https://peer2.example",
+                PackedMessage = "packed-2",
+                MessageType   = "outbound",
+                AttemptCount  = 3,
+            },
+        };
+        var outbox      = new TrackingDeadLetterStore(pending);
+        var switchboard = CreateSwitchboard(inbox, outbox);
+
+        await switchboard.StartupAsync(CancellationToken.None);
+
+        outbox.MarkedRetriedIds.Should().BeEquivalentTo(pending.Select(r => r.Id),
+            because: "every re-enqueued dead letter must be marked retried so it is not re-processed and re-duplicated on the next startup");
+    }
+
+    [Fact]
     public async Task StartupAsync_Continues_If_InboxStore_Throws()
     {
         var inbox      = new ThrowingResetInboxStore();
@@ -1433,18 +1601,18 @@ public class SwitchboardStartupTests : IDisposable
     }
 }
 
-// ── KestrelListenerService Rate Limit Tests ───────────────────────────────────
+// ── DrawbridgeService Rate Limit Tests ───────────────────────────────────
 
 public sealed class KestrelListenerRateLimitTests : IAsyncLifetime
 {
-    private readonly KestrelListenerService _listener;
+    private readonly DrawbridgeService _listener;
     private readonly int                   _port;
 
     public KestrelListenerRateLimitTests()
     {
         _port = FindFreePort();
 
-        _listener = new KestrelListenerService(
+        _listener = new DrawbridgeService(
             Options.Create(new TdaOptions
             {
                 SocietyDid                        = "did:drn:test.svrn7.net",
@@ -1457,7 +1625,7 @@ public sealed class KestrelListenerRateLimitTests : IAsyncLifetime
             new StubDIDCommService("test/1.0/msg", "{}"),
             new RecordingInboxStore(),
             new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance),
-            NullLogger<KestrelListenerService>.Instance);
+            NullLogger<DrawbridgeService>.Instance);
     }
 
     public Task InitializeAsync() => _listener.StartAsync(CancellationToken.None);
@@ -1498,7 +1666,7 @@ public sealed class KestrelListenerRateLimitTests : IAsyncLifetime
     {
         // Spin up a separate listener with rate limiting disabled.
         var port      = FindFreePort();
-        var noLimit   = new KestrelListenerService(
+        var noLimit   = new DrawbridgeService(
             Options.Create(new TdaOptions
             {
                 SocietyDid                        = "did:drn:test.svrn7.net",
@@ -1511,7 +1679,7 @@ public sealed class KestrelListenerRateLimitTests : IAsyncLifetime
             new StubDIDCommService("test/1.0/msg", "{}"),
             new RecordingInboxStore(),
             new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance),
-            NullLogger<KestrelListenerService>.Instance);
+            NullLogger<DrawbridgeService>.Instance);
 
         await noLimit.StartAsync(CancellationToken.None);
         try
@@ -1574,13 +1742,14 @@ internal sealed class TrackingInboxStore : IInboxStore
 {
     public bool ResetStuckCalled { get; private set; }
 
-    public Task EnqueueAsync(string t, string p, string? fromDid = null, string? wireId = null, string? jweEnvelope = null, CancellationToken ct = default) => Task.CompletedTask;
+    public Task EnqueueAsync(string t, string p, string? fromDid = null, string? wireId = null, string? thid = null, string? jweEnvelope = null, string? traceContext = null, CancellationToken ct = default) => Task.CompletedTask;
     public Task<InboundMessage?> GetByIdAsync(string id, CancellationToken ct = default) => Task.FromResult<InboundMessage?>(null);
     public Task<IReadOnlyList<InboundMessage>> DequeueBatchAsync(int b = 20, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<InboundMessage>>(Array.Empty<InboundMessage>());
     public Task MarkProcessedAsync(string id, CancellationToken ct = default) => Task.CompletedTask;
     public Task MarkFailedAsync(string id, string err, bool retry = true, int maxAttempts = Svrn7Constants.InboxMaxAttempts, CancellationToken ct = default) => Task.CompletedTask;
     public Task<IReadOnlyDictionary<InboundMessageStatus, int>> GetStatusCountsAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyDictionary<InboundMessageStatus, int>>(new Dictionary<InboundMessageStatus, int>());
     public Task<IReadOnlyList<InboundMessage>> ListByTypeAsync(string typePrefix, int limit = 50, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<InboundMessage>>(Array.Empty<InboundMessage>());
+    public Task<int> CountByTypeAsync(string typePrefix, CancellationToken ct = default) => Task.FromResult(0);
     public Task ResetStuckMessagesAsync(CancellationToken ct = default)
     {
         ResetStuckCalled = true;
@@ -1588,11 +1757,12 @@ internal sealed class TrackingInboxStore : IInboxStore
     }
 }
 
-/// <summary>IDeadLetterStore stub: returns a pre-configured list of pending records; tracks whether GetPendingAsync was called.</summary>
+/// <summary>IDeadLetterStore stub: returns a pre-configured list of pending records; tracks whether GetPendingAsync was called and which ids were marked retried.</summary>
 internal sealed class TrackingDeadLetterStore : Svrn7.Core.Interfaces.IDeadLetterStore
 {
     private readonly IReadOnlyList<Svrn7.Core.Models.DeadLetterRecord> _pending;
     public bool GetPendingCalled { get; private set; }
+    public List<string> MarkedRetriedIds { get; } = new();
 
     public TrackingDeadLetterStore(IEnumerable<Svrn7.Core.Models.DeadLetterRecord> pending)
         => _pending = pending.ToList();
@@ -1607,19 +1777,25 @@ internal sealed class TrackingDeadLetterStore : Svrn7.Core.Interfaces.IDeadLette
     }
 
     public Task MarkRetriedAsync(string id, CancellationToken ct = default)
-        => Task.CompletedTask;
+    {
+        MarkedRetriedIds.Add(id);
+        return Task.CompletedTask;
+    }
+
+    public Task<int> CountPendingAsync(CancellationToken ct = default) => Task.FromResult(_pending.Count);
 }
 
 /// <summary>IInboxStore stub: ResetStuckMessagesAsync throws to simulate a failed store.</summary>
 internal sealed class ThrowingResetInboxStore : IInboxStore
 {
-    public Task EnqueueAsync(string t, string p, string? fromDid = null, string? wireId = null, string? jweEnvelope = null, CancellationToken ct = default) => Task.CompletedTask;
+    public Task EnqueueAsync(string t, string p, string? fromDid = null, string? wireId = null, string? thid = null, string? jweEnvelope = null, string? traceContext = null, CancellationToken ct = default) => Task.CompletedTask;
     public Task<InboundMessage?> GetByIdAsync(string id, CancellationToken ct = default) => Task.FromResult<InboundMessage?>(null);
     public Task<IReadOnlyList<InboundMessage>> DequeueBatchAsync(int b = 20, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<InboundMessage>>(Array.Empty<InboundMessage>());
     public Task MarkProcessedAsync(string id, CancellationToken ct = default) => Task.CompletedTask;
     public Task MarkFailedAsync(string id, string err, bool retry = true, int maxAttempts = Svrn7Constants.InboxMaxAttempts, CancellationToken ct = default) => Task.CompletedTask;
     public Task<IReadOnlyDictionary<InboundMessageStatus, int>> GetStatusCountsAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyDictionary<InboundMessageStatus, int>>(new Dictionary<InboundMessageStatus, int>());
     public Task<IReadOnlyList<InboundMessage>> ListByTypeAsync(string typePrefix, int limit = 50, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<InboundMessage>>(Array.Empty<InboundMessage>());
+    public Task<int> CountByTypeAsync(string typePrefix, CancellationToken ct = default) => Task.FromResult(0);
     public Task ResetStuckMessagesAsync(CancellationToken ct = default)
         => throw new InvalidOperationException("Simulated inbox store failure on reset.");
 }
@@ -1628,4 +1804,172 @@ internal sealed class ThrowingResetInboxStore : IInboxStore
 internal sealed class NullHttpClientFactory : System.Net.Http.IHttpClientFactory
 {
     public HttpClient CreateClient(string name) => new HttpClient();
+}
+
+// ── WebSocketNotifyHub: Hello/subscription/correlation routing tests (TDA-011) ────
+
+public sealed class WebSocketNotifyHubTests : IAsyncLifetime
+{
+    private readonly int _port;
+    private readonly WebSocketNotifyHub _hub;
+    private readonly DrawbridgeService _listener;
+
+    public WebSocketNotifyHubTests()
+    {
+        _port = FindFreePort();
+        _hub  = new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance);
+        _listener = new DrawbridgeService(
+            Options.Create(new TdaOptions
+            {
+                SocietyDid                        = "did:drn:test.svrn7.net",
+                SocietyMessagingPrivateKeyEd25519 = Array.Empty<byte>(),
+                ListenPort                        = _port,
+                TlsCertificatePath                = null,
+                RequireMutualTls                  = false,
+            }),
+            new StubDIDCommService(
+                "did:drn:svrn7.net/protocols/Test.0.1.0/request",
+                "{}",
+                id: "corr-1"),
+            new RecordingInboxStore(),
+            _hub,
+            NullLogger<DrawbridgeService>.Instance);
+    }
+
+    public Task InitializeAsync() => _listener.StartAsync(CancellationToken.None);
+
+    public async Task DisposeAsync()
+    {
+        await _listener.StopAsync(CancellationToken.None);
+        await _listener.DisposeAsync();
+    }
+
+    private async Task<ClientWebSocket> ConnectAsync()
+    {
+        AppContext.SetSwitch("System.Net.Http.SocketsHttpHandler.Http2UnencryptedSupport", true);
+        var ws = new ClientWebSocket();
+        ws.Options.HttpVersion       = new Version(2, 0);
+        ws.Options.HttpVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
+        var http = new HttpClient(new System.Net.Http.SocketsHttpHandler { EnableMultipleHttp2Connections = true });
+        await ws.ConnectAsync(new Uri($"ws://localhost:{_port}/localcomm-ws"), http, CancellationToken.None);
+        return ws;
+    }
+
+    private static Task SendAsync(ClientWebSocket ws, string json) =>
+        ws.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, true, CancellationToken.None);
+
+    private static async Task<string?> TryReceiveAsync(ClientWebSocket ws, TimeSpan timeout)
+    {
+        var buffer = new byte[8192];
+        using var cts = new CancellationTokenSource(timeout);
+        try
+        {
+            var result = await ws.ReceiveAsync(buffer, cts.Token);
+            return Encoding.UTF8.GetString(buffer, 0, result.Count);
+        }
+        catch (OperationCanceledException) { return null; }
+    }
+
+    private static int FindFreePort()
+    {
+        using var listener = new TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
+
+    [Fact]
+    public async Task Connection_Without_Hello_Receives_No_Broadcast()
+    {
+        using var ws = await ConnectAsync();
+
+        await _hub.PushAsync("""{"type":"did:drn:svrn7.net/protocols/Test.Notify.0.1.0/ping"}""");
+
+        var received = await TryReceiveAsync(ws, TimeSpan.FromMilliseconds(500));
+        received.Should().BeNull(
+            because: "a connection that hasn't sent Hello has no subscriptions — fail-closed, no unfiltered fallback");
+    }
+
+    [Fact]
+    public async Task Hello_Receives_Subscribed_Ack()
+    {
+        using var ws = await ConnectAsync();
+
+        await SendAsync(ws, """
+            {"type":"did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Hello",
+             "body":{"app":"Test","subscriptions":[{"uri":"did:drn:svrn7.net/protocols/Test.Notify.0.1.0/","match":"prefix"}]}}
+            """);
+
+        var ack = await TryReceiveAsync(ws, TimeSpan.FromSeconds(2));
+        ack.Should().NotBeNull();
+        ack.Should().Contain("Svrn7.LocalUI.0.1.0/Subscribed");
+    }
+
+    [Fact]
+    public async Task Connection_With_Matching_Prefix_Subscription_Receives_Broadcast()
+    {
+        using var ws = await ConnectAsync();
+        await SendAsync(ws, """
+            {"type":"did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Hello",
+             "body":{"app":"Test","subscriptions":[{"uri":"did:drn:svrn7.net/protocols/Test.Notify.0.1.0/","match":"prefix"}]}}
+            """);
+        await TryReceiveAsync(ws, TimeSpan.FromSeconds(2)); // consume the Subscribed ack
+
+        await _hub.PushAsync("""{"type":"did:drn:svrn7.net/protocols/Test.Notify.0.1.0/ping"}""");
+
+        var received = await TryReceiveAsync(ws, TimeSpan.FromSeconds(2));
+        received.Should().NotBeNull();
+        received.Should().Contain("Test.Notify.0.1.0/ping");
+    }
+
+    [Fact]
+    public async Task Connection_With_NonMatching_Subscription_Does_Not_Receive_Broadcast()
+    {
+        using var ws = await ConnectAsync();
+        await SendAsync(ws, """
+            {"type":"did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Hello",
+             "body":{"app":"Test","subscriptions":[{"uri":"did:drn:svrn7.net/protocols/Other.Notify.0.1.0/","match":"prefix"}]}}
+            """);
+        await TryReceiveAsync(ws, TimeSpan.FromSeconds(2)); // consume the Subscribed ack
+
+        await _hub.PushAsync("""{"type":"did:drn:svrn7.net/protocols/Test.Notify.0.1.0/ping"}""");
+
+        var received = await TryReceiveAsync(ws, TimeSpan.FromMilliseconds(500));
+        received.Should().BeNull(
+            because: "the pushed type does not match any declared subscription");
+    }
+
+    [Fact]
+    public async Task Correlated_Reply_Is_Unicast_To_Requesting_Connection_Only()
+    {
+        using var wsA = await ConnectAsync();
+        using var wsB = await ConnectAsync();
+
+        // Both connections subscribe to nothing — irrelevant to this test, since correlated
+        // replies bypass subscription filtering entirely.
+        const string hello = """
+            {"type":"did:drn:svrn7.net/protocols/Svrn7.LocalUI.0.1.0/Hello","body":{"app":"Test","subscriptions":[]}}
+            """;
+        await SendAsync(wsA, hello);
+        await TryReceiveAsync(wsA, TimeSpan.FromSeconds(2));
+        await SendAsync(wsB, hello);
+        await TryReceiveAsync(wsB, TimeSpan.FromSeconds(2));
+
+        // wsA sends a "request". StubDIDCommService always unpacks to id "corr-1" regardless
+        // of the actual frame contents — enough to exercise TrackCorrelation end-to-end.
+        await SendAsync(wsA, """{"type":"did:drn:svrn7.net/protocols/Test.0.1.0/request"}""");
+        await Task.Delay(300); // let ProcessWebSocketMessageAsync run and register the correlation
+
+        await _hub.PushAsync(
+            """{"type":"did:drn:svrn7.net/protocols/Test.0.1.0/reply","thid":"corr-1","body":{}}""");
+
+        var receivedA = await TryReceiveAsync(wsA, TimeSpan.FromSeconds(2));
+        var receivedB = await TryReceiveAsync(wsB, TimeSpan.FromMilliseconds(500));
+
+        receivedA.Should().NotBeNull();
+        receivedA.Should().Contain("corr-1");
+        receivedB.Should().BeNull(
+            because: "the reply is correlated to wsA's request and must not broadcast to wsB");
+    }
 }

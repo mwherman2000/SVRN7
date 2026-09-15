@@ -153,13 +153,13 @@ NOT RECOMMENDED, MAY, and OPTIONAL are to be interpreted as described in BCP 14 
   `FromDid` is required by all `society/1.0/*` protocol handlers to route reply messages
   back to the sender.
 
-- **FromDid threading**: `KestrelListenerService.HandleInboundAsync` extracts `unpacked.From`
+- **FromDid threading**: `DrawbridgeService.HandleInboundAsync` extracts `unpacked.From`
   from the `DIDCommUnpackedMessage` after `UnpackAsync` and passes it as the optional
   `fromDid` parameter to `IInboxStore.EnqueueAsync(messageType, packedPayload, fromDid?, wireId?, ct)`.
   The `LiteInboxStore` persists it in `InboxMessage.FromDid`. The Switchboard reads it
   back when constructing the `InboxMessageView` passed to LOBE cmdlets.
 
-- **WireId threading**: `KestrelListenerService.HandleInboundAsync` also extracts `unpacked.Id`
+- **WireId threading**: `DrawbridgeService.HandleInboundAsync` also extracts `unpacked.Id`
   from the `DIDCommUnpackedMessage` and passes it as the optional `wireId` parameter to
   `IInboxStore.EnqueueAsync`. The `LiteInboxStore` persists it in `InboxMessage.WireId`.
   `WireId` holds the sender's DIDComm wire `id` field (e.g. `did:drn:svrn7.net/didcomm/msg/{guid}`),
@@ -184,7 +184,7 @@ directory is configured via `TdaOptions.LobesConfigPath` and defaults to `./lobe
 
 Examples:
 ```
-Svrn7.Email.0.8.0.psm1
+PandoMail.0.8.0.psm1
 Svrn7.Email.psd1
 Svrn7.Email.lobe.json
 ```
@@ -321,7 +321,7 @@ entry with a protocol prefix covers all message subtypes in a protocol family:
 
 ```json
 {
-  "uri":       "did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/",
+  "uri":       "did:drn:svrn7.net/protocols/PandoMail.0.8.0/",
   "match":     "prefix",
   "entrypoint":"Dequeue-PandoMail"
 }
@@ -538,7 +538,7 @@ the LOBE entry-point cmdlet, not the message payload. This is the pass-by-refere
 pattern mandated by DSA 0.24:
 
 ```powershell
-Dequeue-Svrn7Message -Did "did:drn:alpha.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678" |
+Dequeue-Svrn7Message -Did "did:drn:societytest.svrn7.net/inbox/msg/5f43a2b1c8e9d7f012345678" |
     Dequeue-PandoMail |
     Enqueue-Svrn7Message
 ```
@@ -715,7 +715,7 @@ The following nine LOBEs are shipped with the SVRN7 TDA Host v0.8.0.
 
 | LOBE                   | Module                      | Protocols Handled                          |
 |------------------------|-----------------------------|--------------------------------------------|
-| Svrn7.Email            | Svrn7.Email.0.8.0.psm1            | email/1.0/*                                |
+| Svrn7.Email            | PandoMail.0.8.0.psm1            | email/1.0/*                                |
 | Svrn7.Calendar         | Svrn7.Calendar.0.8.0.psm1         | calendar/1.0/*                             |
 | Svrn7.Presence         | Svrn7.Presence.0.8.0.psm1         | presence/1.0/*                             |
 | Svrn7.Notifications    | Svrn7.Notifications.0.8.0.psm1    | Svrn7.Notifications/0.8.0/*                         |
@@ -742,7 +742,7 @@ handling in the Switchboard before being routed to the registered cmdlet:
 | `did:drn:svrn7.net/protocols/Svrn7.Society.0.8.0/transfer-order`             | Svrn7.Society       | Invoke-Svrn7IncomingTransfer  | 1     |
 | `did:drn:svrn7.net/protocols/Svrn7.Society.0.8.0/transfer-order-receipt`     | Svrn7.Society       | Confirm-Svrn7Settlement       | 1     |
 | `did:drn:svrn7.net/protocols/Svrn7.Onboarding.0.8.0/`                   | Svrn7.Onboarding    | ConvertFrom-Web7OnboardRequest| 0     |
-| `did:drn:svrn7.net/protocols/Svrn7.Email.0.8.0/`                     | Svrn7.Email         | Dequeue-PandoMail             | 0     |
+| `did:drn:svrn7.net/protocols/PandoMail.0.8.0/`                     | Svrn7.Email         | Dequeue-PandoMail             | 0     |
 | `did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/invite`            | Svrn7.Calendar      | Receive-Web7MeetingRequest    | 0     |
 | `did:drn:svrn7.net/protocols/Svrn7.Calendar.0.8.0/`                  | Svrn7.Calendar      | Import-Web7CalendarEvent      | 0     |
 | `did:drn:svrn7.net/protocols/Svrn7.Presence.0.8.0/subscribe`         | Svrn7.Presence      | Add-Web7PresenceSubscription  | 0     |

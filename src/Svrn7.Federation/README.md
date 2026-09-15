@@ -44,6 +44,11 @@ builder.Services.AddSvrn7Federation(opts =>
     opts.DidsDbPath   = "data/svrn7-dids.db";
     opts.VcsDbPath    = "data/svrn7-vcs.db";
     opts.DidMethodName = "drn";
+
+    // Optional at-rest encryption. When set, every database is opened as
+    // Filename="…";Password=<this> (docs/AGENTWALLET.md §D9). The TDA host
+    // supplies the hex of the wallet's DB master key here; unset ⇒ cleartext.
+    opts.DatabasePassword = null;
 });
 ```
 
@@ -56,7 +61,7 @@ var keyPair = driver.GenerateSecp256k1KeyPair();
 
 await driver.InitialiseFederationAsync(new InitialiseFederationRequest
 {
-    Did                      = "did:drn:foundation",
+    Did                      = "did:drn:federation.svrn7.net",
     PublicKeyHex             = keyPair.PublicKeyHex,
     FederationName           = "Web 7.0 Foundation",
     PrimaryDidMethodName     = "drn",

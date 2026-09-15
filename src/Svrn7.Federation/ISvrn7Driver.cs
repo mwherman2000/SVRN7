@@ -24,6 +24,23 @@ public class Svrn7Options
     public string VcsDbPath    { get; set; } = "data/svrn7-vcs.db";
 
     /// <summary>
+    /// LiteDB password — hex of the instance's 32-byte database master key (from the
+    /// unlocked AgentWallet). When set, every <c>svrn7-*.db</c> is AES-encrypted at
+    /// rest (docs/AGENTWALLET.md §D9). Null/empty ⇒ cleartext, which is what tests and
+    /// standalone tooling passing bare paths get.
+    /// </summary>
+    public string? DatabasePassword { get; set; }
+
+    /// <summary>
+    /// The connection string a database file should be opened with: the bare path when
+    /// <see cref="DatabasePassword"/> is unset, otherwise <c>Filename="…";Password=…</c>.
+    /// </summary>
+    public string DbConnectionString(string path) =>
+        string.IsNullOrEmpty(DatabasePassword)
+            ? path
+            : $"Filename=\"{path}\";Password={DatabasePassword}";
+
+    /// <summary>
     /// DID method name for this Federation deployment.
     /// Must match [a-z0-9]+ per W3C DID spec.
     /// </summary>
@@ -136,6 +153,15 @@ public interface ISvrn7Driver : IAsyncDisposable
     Task<string> AppendToLogAsync(string entryType, string payloadJson,
         CancellationToken ct = default);
     Task<string> GetMerkleRootAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// True when this driver was constructed with real Foundation signing key
+    /// material (32-byte secp256k1 private key) — i.e. this is a genuine Federation
+    /// authority, not a Wanderer/Citizen/Society TDA. SignMerkleTreeHeadAsync can
+    /// only succeed when this is true; callers that run unattended (background
+    /// sweeps) should check it first rather than let signing fail every interval.
+    /// </summary>
+    bool HasFoundationSigningKey { get; }
     Task<TreeHead> SignMerkleTreeHeadAsync(CancellationToken ct = default);
     Task<long> GetLogSizeAsync(CancellationToken ct = default);
     Task<TreeHead?> GetLatestTreeHeadAsync(CancellationToken ct = default);

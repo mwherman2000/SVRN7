@@ -246,15 +246,29 @@ public sealed class Svrn7Driver : ISvrn7Driver
         ArgumentException.ThrowIfNullOrWhiteSpace(request.DidDocument.MethodName);
 
         var did          = request.DidDocument.Did;
+        var methodName   = request.DidDocument.MethodName;
         var publicKeyHex = request.DidDocument.VerificationMethod.FirstOrDefault()?.PublicKeyHex ?? string.Empty;
+
+        // A DID method name identifies exactly one owning Society for DID resolution routing
+        // (see Resolve-Svrn7Did's Federation branch, which looks up the owning Society by
+        // MethodName). Two Societies claiming the same method would make that routing
+        // ambiguous, even if their DID strings differ — so uniqueness is enforced on
+        // MethodName here, not on Did.
+        var existingWithMethod = await _didRegistry.QueryAsync(methodName, DidStatus.Active, ct);
+        if (existingWithMethod.Count > 0)
+        {
+            return OperationResult.Fail(
+                $"Society method '{methodName}' is already registered.");
+        }
 
         try
         {
             var society = new SocietyRecord
             {
-                Did          = did,
-                PublicKeyHex = publicKeyHex,
-                SocietyName  = request.SocietyName,
+                Did           = did,
+                PublicKeyHex  = publicKeyHex,
+                SocietyName   = request.SocietyName,
+                DidMethodName = methodName,
             };
             await _registry.RegisterSocietyAsync(society, ct);
 
@@ -545,6 +559,7 @@ public sealed class Svrn7Driver : ISvrn7Driver
             Did                      = federationDid,
             PublicKeyHex             = publicKeyHex,
             FederationName           = federationName,
+            DidMethodName            = didDocument.MethodName,
             TotalSupplyGrana         = Svrn7Constants.FederationInitialSupplyGrana,
             EndowmentPerSocietyGrana = 0,
         };
@@ -629,6 +644,7 @@ public sealed class Svrn7Driver : ISvrn7Driver
     { ThrowIfDisposed(); return _merkle.AppendAsync(t, p, ct); }
     public Task<string>  GetMerkleRootAsync(CancellationToken ct = default)
     { ThrowIfDisposed(); return _merkle.ComputeRootAsync(ct); }
+    public bool HasFoundationSigningKey => _foundationPrivateKey.Length == 32; // secp256k1 private key size
     public Task<TreeHead> SignMerkleTreeHeadAsync(CancellationToken ct = default)
     { ThrowIfDisposed(); return _merkle.SignTreeHeadAsync(_foundationPrivateKey, ct); }
     public Task<long>    GetLogSizeAsync(CancellationToken ct = default)

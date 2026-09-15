@@ -61,9 +61,13 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PandoMail", "src\Web7.SVRN7
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PandoBoard", "src\Web7.SVRN7.Apps.PandoBoard\PandoBoard\PandoBoard.csproj", "{A13813C4-5806-D99D-84A1-04947F2BEE39}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WSClient1", "src\WsExample1\WSClient1\WSClient1.csproj", "{F74CA015-D188-5C0E-A8DE-F61697AA5BC0}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WSClient1", "src\WsExample2-Kestrel\WSClient1\WSClient1.csproj", "{F74CA015-D188-5C0E-A8DE-F61697AA5BC0}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WSServer1", "src\WsExample1\WSServer1\WSServer1.csproj", "{B209693E-6844-0243-BC63-85B17519315A}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WSServer1", "src\WsExample2-Kestrel\WSServer1\WSServer1.csproj", "{B209693E-6844-0243-BC63-85B17519315A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Svrn7.Trust.AgentWallet", "src\Svrn7.Trust.AgentWallet\Svrn7.Trust.AgentWallet.csproj", "{A1B2C3D4-0015-0000-0000-000000000015}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Svrn7.Trust.AgentWallet.Tests", "src\Svrn7.Trust.AgentWallet.Tests\Svrn7.Trust.AgentWallet.Tests.csproj", "{A1B2C3D4-0016-0000-0000-000000000016}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -135,6 +139,14 @@ Global
 		{B209693E-6844-0243-BC63-85B17519315A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B209693E-6844-0243-BC63-85B17519315A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B209693E-6844-0243-BC63-85B17519315A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-0015-0000-0000-000000000015}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-0015-0000-0000-000000000015}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-0015-0000-0000-000000000015}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-0015-0000-0000-000000000015}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-0016-0000-0000-000000000016}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-0016-0000-0000-000000000016}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-0016-0000-0000-000000000016}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-0016-0000-0000-000000000016}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -156,6 +168,8 @@ Global
 		{A13813C4-5806-D99D-84A1-04947F2BEE39} = {B0000001-0000-0000-0000-000000000001}
 		{F74CA015-D188-5C0E-A8DE-F61697AA5BC0} = {B0000001-0000-0000-0000-000000000001}
 		{B209693E-6844-0243-BC63-85B17519315A} = {B0000001-0000-0000-0000-000000000001}
+		{A1B2C3D4-0015-0000-0000-000000000015} = {B0000001-0000-0000-0000-000000000001}
+		{A1B2C3D4-0016-0000-0000-000000000016} = {B0000002-0000-0000-0000-000000000002}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {4971CB3C-8CDD-4887-8750-664911974772}

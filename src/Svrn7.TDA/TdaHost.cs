@@ -24,12 +24,19 @@ public sealed class TdaOptions
 {
     // ── Role ──────────────────────────────────────────────────────────────────
 
-    /// <summary>Functional role of this TDA instance. Always Wanderer at startup.</summary>
+    /// <summary>
+    /// Functional role of this TDA instance. Defaults to Wanderer; Program.cs refreshes
+    /// this from the resolved DID Document's Role once this TDA's own identity is known
+    /// (Wanderer on a fresh instance, or Citizen/Society/Federation once the relevant
+    /// registration/init flow has updated the DID Document). Societies and Federation are
+    /// not yet fully implemented (see docs/BACKLOG.md), so in practice every TDA observed
+    /// today still resolves to Wanderer — see TdaOptionsTests.Role_DefaultsToWanderer.
+    /// </summary>
     public Svrn7Role Role { get; set; } = Svrn7Role.Wanderer;
 
     // ── Society identity ──────────────────────────────────────────────────────
 
-    /// <summary>Society DID — e.g., "did:drn:alpha.svrn7.net". Empty until Society role is initialized.</summary>
+    /// <summary>Society DID — e.g., "did:drn:societytest.svrn7.net". Empty until Society role is initialized.</summary>
     public string SocietyDid { get; set; } = string.Empty;
 
     /// <summary>
@@ -41,12 +48,12 @@ public sealed class TdaOptions
 
     /// <summary>
     /// Society Ed25519 messaging private key (raw 32 bytes).
-    /// Used by KestrelListenerService for UnpackAsync (DIDComm V2 Messaging boundary).
+    /// Used by DrawbridgeService for UnpackAsync (DIDComm V2 Messaging boundary).
     /// </summary>
     [Required]
     public byte[] SocietyMessagingPrivateKeyEd25519 { get; set; } = [];
 
-    /// <summary>X25519 key agreement private key (raw 32 bytes). Used by KestrelListenerService for JWE decryption in UnpackAsync.</summary>
+    /// <summary>X25519 key agreement private key (raw 32 bytes). Used by DrawbridgeService for JWE decryption in UnpackAsync.</summary>
     public byte[] AgentKeyAgreementPrivateKey { get; set; } = [];
 
     /// <summary>secp256k1 signing private key (raw 32 bytes). Used by DIDCommMessageSwitchboard for SignThenEncrypt on outbound HTTP messages.</summary>
@@ -54,8 +61,29 @@ public sealed class TdaOptions
 
     // ── Network ───────────────────────────────────────────────────────────────
 
-    /// <summary>Port for Kestrel HTTP/2 + mTLS inbound listener (default 8443).</summary>
+    /// <summary>
+    /// Port the Kestrel HTTP/2 + mTLS inbound listener is bound to. On a first run this
+    /// is the port <see cref="ListenPortClaim"/> actually claimed (auto-selected from
+    /// <see cref="ListenPortBase"/>); on later runs it is the published port read from
+    /// <c>identity.meta.json</c> / the DID Document. Default 8443.
+    /// </summary>
     public int ListenPort { get; set; } = 8443;
+
+    /// <summary>First candidate port for first-run auto-selection (<c>--port-base</c>, default 8440).</summary>
+    public int ListenPortBase { get; set; } = 8440;
+
+    /// <summary>How many consecutive ports first-run auto-selection may try (<c>--port-span</c>, default 64).</summary>
+    public int ListenPortSpan { get; set; } = 64;
+
+    /// <summary>
+    /// True only on a first-run bootstrap: the listener may auto-select a free port from
+    /// <see cref="ListenPortBase"/>. False afterwards — the published port is bound exactly
+    /// or startup fails (docs/AGENTWALLET.md §D11/§D12).
+    /// </summary>
+    public bool AllowPortAutoSelect { get; set; }
+
+    /// <summary>Base URL (scheme + host, no port/path) advertised in the DID Document service endpoint — from <c>--url</c>.</summary>
+    public string BaseUrl { get; set; } = "http://localhost";
 
     /// <summary>TLS certificate path (.pfx or .pem). Null = cleartext development mode.</summary>
     public string? TlsCertificatePath { get; set; }
@@ -91,6 +119,24 @@ public sealed class TdaOptions
 
     /// <summary>Path to lobes.config.json. Default: "./lobes/lobes.config.json".</summary>
     public string LobesConfigPath { get; set; } = "./lobes/lobes.config.json";
+
+    /// <summary>
+    /// Machine-level LOBE package source (<c>~/.web7-pando/lobe-library/</c>) — a folder
+    /// of <c>{Id}.{Version}.nupkg</c> files. LOBEs are installed from here into this
+    /// instance's <c>lobes/</c> on first reference (docs/AGENTWALLET.md §D6). Empty ⇒
+    /// on-demand install disabled (only LOBEs already on disk are used).
+    /// </summary>
+    public string LobeLibraryDir { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional fallback source for a LOBE package that is not in
+    /// <see cref="LobeLibraryDir"/>: a directory / UNC path, or an HTTP(S) base URL
+    /// (flat <c>{feed}/{id}.{version}.nupkg</c> or NuGet-v3 flat-container layout).
+    /// Fetched packages are cached into <see cref="LobeLibraryDir"/>. Empty ⇒ a
+    /// missing package is a hard error (docs/AGENTWALLET.md §D6/§14). Set via
+    /// <c>--lobe-feed</c> or <c>Tda:LobeRemoteFeed</c>.
+    /// </summary>
+    public string LobeRemoteFeed { get; set; } = string.Empty;
 
     /// <summary>
     /// Maximum age of an inbound message before it is dead-lettered without processing.
@@ -139,11 +185,25 @@ public sealed class TdaOptions
     public string ServiceEndpointUrl { get; set; } = string.Empty;
 
     /// <summary>
-    /// Absolute path to agent-identity.json for this TDA instance.
-    /// Set by Program.cs; used by <see cref="Svrn7RunspaceContext.SetParentTda"/> to persist
-    /// parent TDA wiring across restarts.
+    /// Absolute path to the JSON file <see cref="Svrn7RunspaceContext.SetParentTda"/>
+    /// persists parent-tier wiring into — this instance's <c>identity.meta.json</c>.
+    /// (Historically <c>agent-identity.json</c>; key material now lives in the encrypted
+    /// <c>agent-identity.wallet</c> — docs/AGENTWALLET.md, SECURITY.md.)
     /// </summary>
     public string AgentIdentityPath { get; set; } = string.Empty;
+
+    /// <summary>Absolute path to this instance's <c>identity.meta.json</c> (cleartext locator record).</summary>
+    public string IdentityMetaPath { get; set; } = string.Empty;
+
+    /// <summary>Absolute path to this instance's runtime directory (<c>&lt;dataRoot&gt;/&lt;name&gt;-&lt;hash8&gt;</c>).</summary>
+    public string InstanceDir { get; set; } = string.Empty;
+
+    /// <summary>
+    /// LiteDB master key (32 bytes) for this instance's databases — hex(this) is the
+    /// <c>Password=</c> for every <c>svrn7-*.db</c>. Held for the process lifetime; never
+    /// enters a LOBE runspace. Consumed by the Society/Federation DB wiring (unit 2b).
+    /// </summary>
+    public byte[] DatabaseMasterKey { get; set; } = [];
 
     /// <summary>
     /// Domain used to discover the Federation TDA endpoint via drn.directory DNS TXT lookup.
@@ -237,7 +297,7 @@ public sealed class SwitchboardHostedService : BackgroundService
 ///   5.  IsolatedRunspaceFactory (PowerShell Runspace Pool lifecycle)
 ///   6.  DIDCommMessageSwitchboard (sole inbox reader + outbound queue)
 ///   7.  SwitchboardHostedService (drain loop BackgroundService)
-///   8.  KestrelListenerService (POST /didcomm, HTTP/2 + mTLS)
+///   8.  DrawbridgeService (POST /didcomm, HTTP/2 + mTLS)
 ///
 /// Call after AddSvrn7Society() in Program.cs.
 /// </summary>
@@ -286,8 +346,24 @@ public static class TdaServiceCollectionExtensions
         // 4a. WebSocketNotifyHub — local PandoMail push channel singleton.
         services.AddSingleton<WebSocketNotifyHub>();
 
-        // 4. LobeManager
+        // 4. LobeManager (+ on-demand install from the machine-level lobe-library)
         // Derived from: "LobeManager" (LOBE layer) — DSA 0.24 Epoch 0.
+        services.AddSingleton<LobeLibrary>(sp =>
+        {
+            var o = sp.GetRequiredService<IOptions<TdaOptions>>().Value;
+            return new LobeLibrary(o.LobeLibraryDir,
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<LobeLibrary>());
+        });
+        services.AddSingleton<LobeInstaller>(sp =>
+        {
+            var o = sp.GetRequiredService<IOptions<TdaOptions>>().Value;
+            var lobesDir = Path.GetDirectoryName(Path.GetFullPath(o.LobesConfigPath))
+                           ?? AppContext.BaseDirectory;
+            return new LobeInstaller(
+                sp.GetRequiredService<LobeLibrary>(), lobesDir,
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<LobeInstaller>(),
+                remoteFeed: o.LobeRemoteFeed);
+        });
         services.AddSingleton<LobeManager>();
 
         // 5. IsolatedRunspaceFactory
@@ -343,9 +419,9 @@ public static class TdaServiceCollectionExtensions
                 hostOpts.ShutdownTimeout = TimeSpan.FromSeconds(
                     tdaOpts.Value.LobeInvocationTimeoutSeconds + 10));
 
-        // 8. KestrelListenerService (POST /didcomm, HTTP/2 + mTLS)
+        // 8. DrawbridgeService (POST /didcomm, HTTP/2 + mTLS)
         // Derived from: "HTTP Listener/Sender (HTTPClient)" — DSA 0.24 Epoch 0.
-        services.AddHostedService<KestrelListenerService>();
+        services.AddHostedService<DrawbridgeService>();
 
         return services;
     }
