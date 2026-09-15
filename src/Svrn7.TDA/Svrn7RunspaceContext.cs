@@ -42,6 +42,7 @@ public sealed class Svrn7RunspaceContext
     private readonly IProcessedOrderStore    _processedOrders;
     private readonly PendingResolutionStore  _pendingResolutions;
     private readonly string                  _agentIdentityPath;
+    private readonly string                  _instanceDir;
     private volatile int                     _currentEpoch;
     private volatile string                  _parentTdaDid         = string.Empty;
     private volatile string                  _parentTdaEndpointUrl = string.Empty;
@@ -124,7 +125,8 @@ public sealed class Svrn7RunspaceContext
         string                 parentTdaEndpointUrl   = "",
         string                 serviceEndpointUrl     = "",
         string                 agentIdentityPath      = "",
-        string                 federationEndpointUrl  = "")
+        string                 federationEndpointUrl  = "",
+        string                 instanceDir            = "")
     {
         Driver                 = driver;
         Role                   = role;
@@ -134,6 +136,7 @@ public sealed class Svrn7RunspaceContext
         _parentTdaEndpointUrl  = parentTdaEndpointUrl;
         _federationEndpointUrl = federationEndpointUrl;
         _agentIdentityPath     = agentIdentityPath;
+        _instanceDir           = instanceDir;
         _inbox                 = inbox;
         _deadLetter            = deadLetter;
         _cache                 = cache;
@@ -334,6 +337,79 @@ public sealed class Svrn7RunspaceContext
         return new FolderCounts(inbox, sent, dead);
     }
 
+    // ── Wallet password verification (Svrn7.Signin LOBE) ─────────────────────
+
+    // Attempt limiter for VerifyWalletPasswordAsync — deliberately separate from
+    // AgentWalletService's own UnlockThrottle (exponential backoff persisted next to the
+    // wallet file, shared with this TDA's own bootstrap unlock). A local-UI client
+    // mistyping a password a few times must not compound with, or accelerate, the
+    // wallet's own backoff for this TDA's *next restart*. In-memory only — resets on
+    // TDA restart — and gates whether AgentWalletService.Unlock() is even attempted.
+    private readonly object _signinLock = new();
+    private int _signinWindowFailures;
+    private DateTimeOffset _signinWindowStart = DateTimeOffset.MinValue;
+    private const int MaxSigninAttemptsPerWindow = 5;
+    private static readonly TimeSpan SigninAttemptWindow = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Verifies a candidate wallet password against this TDA's own wallet — the same
+    /// Argon2id + AES-256-GCM decrypt Program.cs performs at bootstrap — without ever
+    /// returning key material to the caller. Called by the generic Svrn7.Signin LOBE;
+    /// the password itself travels to this TDA in plaintext, same as everything else on
+    /// /localcomm-ws (P-008: localhost-only is the trust boundary for this channel, not
+    /// per-message encryption). Not a server-side access gate — see
+    /// docs/BACKLOG.md for that discussion; this is verification only.
+    /// </summary>
+    public WalletPasswordVerification VerifyWalletPassword(string password)
+    {
+        lock (_signinLock)
+        {
+            var now = DateTimeOffset.UtcNow;
+            if (now - _signinWindowStart > SigninAttemptWindow)
+            {
+                _signinWindowStart     = now;
+                _signinWindowFailures  = 0;
+            }
+            if (_signinWindowFailures >= MaxSigninAttemptsPerWindow)
+                return new WalletPasswordVerification(false, "Too many attempts. Try again in a few minutes.");
+        }
+
+        if (string.IsNullOrEmpty(password))
+            return new WalletPasswordVerification(false, "Password required.");
+
+        if (string.IsNullOrEmpty(_instanceDir))
+            return new WalletPasswordVerification(false, "This TDA instance has no wallet configured.");
+
+        var walletPath = PandoPaths.WalletPath(_instanceDir);
+        var pinStore   = Svrn7.Trust.AgentWallet.PinStores.CreateDefault().Store;
+        var wallet     = new Svrn7.Trust.AgentWallet.AgentWalletService(walletPath, pinStore);
+
+        var result = wallet.Unlock(() => password.ToCharArray());
+        switch (result)
+        {
+            case Svrn7.Trust.AgentWallet.AgentUnlockResult.Success ok:
+                ok.Identity.Dispose(); // never held, never returned — verification only
+                lock (_signinLock) { _signinWindowFailures = 0; }
+                return new WalletPasswordVerification(true, null);
+
+            case Svrn7.Trust.AgentWallet.AgentUnlockResult.WrongPassword:
+                lock (_signinLock) { _signinWindowFailures++; }
+                return new WalletPasswordVerification(false, "Wrong password.");
+
+            case Svrn7.Trust.AgentWallet.AgentUnlockResult.Throttled t:
+                return new WalletPasswordVerification(false, $"Wallet is temporarily locked — retry after {t.RetryAfter.TotalSeconds:0}s.");
+
+            case Svrn7.Trust.AgentWallet.AgentUnlockResult.NoWallet:
+                return new WalletPasswordVerification(false, "No wallet found for this TDA.");
+
+            case Svrn7.Trust.AgentWallet.AgentUnlockResult.PinMismatch:
+                return new WalletPasswordVerification(false, "Wallet identity check failed.");
+
+            default:
+                return new WalletPasswordVerification(false, "Unexpected wallet error.");
+        }
+    }
+
     // ── Pass-by-reference message resolution ─────────────────────────────────
 
     /// <summary>
@@ -375,6 +451,14 @@ public sealed class Svrn7RunspaceContext
 /// <c>$counts.Inbox</c>, <c>$counts.Sent</c>, <c>$counts.DeadLetters</c>.
 /// </summary>
 public sealed record FolderCounts(int Inbox, int Sent, int DeadLetters);
+
+/// <summary>
+/// Result of <see cref="Svrn7RunspaceContext.VerifyWalletPassword"/>. A named record
+/// (vs. value tuple) so PowerShell can access fields by name: <c>$result.Authenticated</c>,
+/// <c>$result.Reason</c> — a plain <c>ValueTuple</c>'s element names are compiler sugar
+/// only and would appear to PowerShell as <c>.Item1</c>/<c>.Item2</c>.
+/// </summary>
+public sealed record WalletPasswordVerification(bool Authenticated, string? Reason);
 
 // ── InboundMessageView ──────────────────────────────────────────────────────────
 

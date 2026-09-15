@@ -3,6 +3,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Svrn7.TDA;
 
@@ -58,13 +59,15 @@ public sealed class WebSocketNotifyHub : IDisposable
     private static readonly TimeSpan CorrelationTtl   = TimeSpan.FromMinutes(5);
 
     private readonly ILogger<WebSocketNotifyHub> _log;
+    private readonly IOptions<TdaOptions> _opts;
     private readonly ConcurrentDictionary<Guid, Connection> _connections = new();
     private readonly ConcurrentDictionary<string, PendingCorrelation> _pendingCorrelations = new();
     private readonly Timer _watchdogTimer;
 
-    public WebSocketNotifyHub(ILogger<WebSocketNotifyHub> log)
+    public WebSocketNotifyHub(ILogger<WebSocketNotifyHub> log, IOptions<TdaOptions> opts)
     {
         _log = log;
+        _opts = opts;
         _watchdogTimer = new Timer(_ => CloseIdleConnections(), null, WatchdogInterval, WatchdogInterval);
     }
 
@@ -160,6 +163,12 @@ public sealed class WebSocketNotifyHub : IDisposable
                 "({Count} subscription(s)).",
                 conn.App, conn.AppVersion, conn.InstanceId, conn.Subscriptions.Count);
 
+            // Identity in the Subscribed ack is discovery-only, not a secret: name and DID
+            // are already public in this TDA's own DID Document. This is what lets a client
+            // (e.g. PandoMail's TDA picker) show "name / port / DID" for an unauthenticated
+            // connection before the user has entered a password — Authenticate below is the
+            // actual access gate.
+            var meta = IdentityMeta.TryLoad(_opts.Value.IdentityMetaPath);
             var ack = JsonSerializer.Serialize(new
             {
                 typ  = "application/didcomm-plain+json",
@@ -167,7 +176,9 @@ public sealed class WebSocketNotifyHub : IDisposable
                 type = SubscribedType,
                 body = new
                 {
-                    subscriptions = conn.Subscriptions.Select(s => new { uri = s.Uri, match = s.Match })
+                    subscriptions = conn.Subscriptions.Select(s => new { uri = s.Uri, match = s.Match }),
+                    name = meta?.Name ?? "",
+                    did  = meta?.Did  ?? _opts.Value.LocalDid
                 }
             });
             await SendToConnectionAsync(id, ack, ct);

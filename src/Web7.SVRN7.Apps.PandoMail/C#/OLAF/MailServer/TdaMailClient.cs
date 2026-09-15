@@ -33,6 +33,10 @@ namespace Web7.SVRN7.Apps
         string RequestedDid,
         string Svrn7Name);
 
+    public sealed record AuthResult(
+        bool    Authenticated,
+        string Reason);
+
     /// <summary>
     /// PandoMail ↔ local Citizen TDA transport over WebSocket (ws://localhost:{port}/localcomm-ws).
     /// All outbound messages (Enqueue-PandoMail, List-Emails requests) go over the WebSocket.
@@ -55,7 +59,7 @@ namespace Web7.SVRN7.Apps
         // meant to behave like Outlook — it should keep quietly retrying, backing off, for
         // as long as the app is open, not go permanently dark after 10 seconds because the
         // TDA happened to be restarting for a LOBE deploy.
-        private static readonly TimeSpan ConnectTimeout      = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan ConnectTimeout      = TimeSpan.FromSeconds(10);
         private static readonly TimeSpan ReconnectBaseDelay  = TimeSpan.FromSeconds(1);
         private static readonly TimeSpan ReconnectMaxDelay   = TimeSpan.FromSeconds(30);
 
@@ -185,7 +189,8 @@ namespace Web7.SVRN7.Apps
         /// <summary>
         /// Opens the socket, starts the receive loop, and sends Hello. Shared by the
         /// initial ConnectAsync and every background reconnect attempt. Bounds the
-        /// connect itself to ConnectTimeout (5s) via a linked token, same as
+        /// connect itself to ConnectTimeout (10s — cold HTTP/2 h2c upgrades are not
+        /// instant) via a linked token, same as
         /// src/WsExample2-Kestrel's WSClient1 — a server that accepts the TCP connection
         /// but stalls the WebSocket upgrade must not hang the caller indefinitely.
         /// </summary>
@@ -601,6 +606,42 @@ namespace Web7.SVRN7.Apps
             }
         }
 
+        // ── Signin: verify the wallet password (Svrn7.Signin.0.1.0) ────────────
+
+        /// <summary>
+        /// Verifies the TDA operator's wallet password via the generic Svrn7.Signin LOBE.
+        /// The TDA re-runs its own wallet unlock and discards the result immediately —
+        /// no key material is ever returned here, only pass/fail (+ a reason on failure).
+        /// This is a client-side gate only: PandoMail simply won't proceed past its
+        /// password prompt without Authenticated == true. See docs/BACKLOG.md TDA-019
+        /// for the separate, not-yet-built AuthZ gate for TDA-to-TDA traffic.
+        /// </summary>
+        public async Task<AuthResult> AuthenticateAsync(string password, CancellationToken ct = default)
+        {
+            string id = NewMessageId();
+            var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _pending[id] = tcs;
+
+            try
+            {
+                string msgBody = JsonSerializer.Serialize(new { password });
+                await SendEnvelopeAsync(
+                    "did:drn:svrn7.net/protocols/Svrn7.Signin.0.1.0/Authenticate",
+                    id, msgBody, ct);
+
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(TimeSpan.FromSeconds(10));
+                timeout.Token.Register(() => tcs.TrySetCanceled());
+
+                string replyJson = await tcs.Task;
+                return ParseAuthResult(replyJson);
+            }
+            finally
+            {
+                _pending.TryRemove(id, out _);
+            }
+        }
+
         // ── Startup: request current folder counts ─────────────────────────────
 
         public async Task RequestFolderCountsAsync(CancellationToken ct = default)
@@ -761,6 +802,12 @@ namespace Web7.SVRN7.Apps
                     if (!string.IsNullOrEmpty(thid) && _pending.TryGetValue(thid, out var tcs))
                         tcs.TrySetResult(json);
                 }
+                else if (type.EndsWith("/AuthResult", StringComparison.Ordinal))
+                {
+                    string thid = ExtractThid(root);
+                    if (!string.IsNullOrEmpty(thid) && _pending.TryGetValue(thid, out var tcs))
+                        tcs.TrySetResult(json);
+                }
                 else if (type.EndsWith("/Notify-FolderCounts", StringComparison.Ordinal))
                 {
                     var (inbox, sent, dead) = ParseFolderCounts(json);
@@ -853,6 +900,25 @@ namespace Web7.SVRN7.Apps
                     ? nameEl.GetString() ?? string.Empty : string.Empty;
             }
             catch { return string.Empty; }
+        }
+
+        private static AuthResult ParseAuthResult(string envelopeJson)
+        {
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(envelopeJson);
+                JsonElement root = doc.RootElement;
+                if (!root.TryGetProperty("body", out JsonElement bodyEl))
+                    return new AuthResult(false, "Malformed AuthResult (no body).");
+
+                bool authenticated = bodyEl.TryGetProperty("authenticated", out var a) &&
+                                      a.ValueKind == JsonValueKind.True;
+                string reason = bodyEl.TryGetProperty("reason", out var r) &&
+                                  r.ValueKind == JsonValueKind.String
+                    ? r.GetString() : null;
+                return new AuthResult(authenticated, reason);
+            }
+            catch (Exception ex) { return new AuthResult(false, $"Malformed AuthResult ({ex.Message})."); }
         }
 
         private static (int Inbox, int Sent, int DeadLetters) ParseFolderCounts(string envelopeJson)

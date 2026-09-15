@@ -1144,3 +1144,26 @@ in its **own AgentWallet**, and the `AgentWallet` library is generalized from
 **No code change now** — backlog item; sequence after TDA-016 (shared transport
 extraction) so the enrollment handshake and encrypted-channel work land in one
 place for both apps.
+
+## TDA-019 — AuthZ gate for external (TDA-to-TDA) inbound traffic in DrawbridgeService
+
+**Area:** `DrawbridgeService`, `POST /didcomm` inbound path only — not
+`/localcomm-ws` (see the Svrn7.Signin LOBE, added alongside this entry, for the
+separate local-UI password-verification mechanism, which is deliberately not a
+server-side gate — see its own design note).
+
+**Summary:** `DrawbridgeService.HandleInboundAsync` currently accepts any
+inbound `POST /didcomm` message that passes UnpackAsync (JWE decrypt + JWS
+verify) and the DID discovery plaintext whitelist. There is no authorization
+layer beyond "the signature verifies" — any TDA that can produce a validly
+signed envelope from a resolvable DID can reach the inbox. The existing
+blacklist functionality (rejecting known-bad peer DIDs/endpoints) is the
+current example of a gate at this boundary; a proper AuthZ layer would
+generalize that into an explicit allow/deny policy (e.g., per-protocol,
+per-sender-DID, or per-Society-membership rules) evaluated after UnpackAsync
+succeeds and before `IInboxStore.EnqueueAsync`.
+
+**No code change now** — backlog item; needs a design pass on what the policy
+model looks like (allowlist vs. blacklist vs. reputation, where rules are
+configured/persisted, how a Society's membership roster factors in) before
+implementation.

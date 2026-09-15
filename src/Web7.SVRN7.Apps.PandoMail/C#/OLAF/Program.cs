@@ -15,15 +15,31 @@ namespace Web7.SVRN7.Apps
 		[STAThread]
 		static void Main(string[] args)
 		{
+			bool portGivenExplicitly = false;
 			for (int i = 0; i < args.Length - 1; i++)
 				if (args[i] == "--port" && int.TryParse(args[i + 1], out int p))
+				{
 					TdaPort = p;
+					portGivenExplicitly = true;
+				}
 
 			InstallGlobalExceptionHandlers();
 
 			Application.EnableVisualStyles();
 			Application.SetCompatibleTextRenderingDefault(false);
 			Application.SetHighDpiMode(HighDpiMode.SystemAware);
+
+			// Scan for locally running TDAs (or, with --port, verify just that one) and
+			// require the wallet password before anything else runs. TdaPickerForm never
+			// receives key material — it only learns pass/fail from the TDA's own
+			// Svrn7.Signin LOBE (see docs/BACKLOG.md TDA-019 for the related, separate,
+			// not-yet-built AuthZ gate for TDA-to-TDA traffic).
+			int? picked = TdaPickerForm.PickTda(portGivenExplicitly ? TdaPort : (int?)null);
+			if (picked is null)
+				return; // user cancelled — exit quietly, no TDA selected
+
+			TdaPort = picked.Value;
+
 			Application.Run(new MainForm());
 		}
 

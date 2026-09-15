@@ -340,7 +340,8 @@ public static class TdaServiceCollectionExtensions
                 parentTdaEndpointUrl:  opts.ParentTdaEndpointUrl,
                 serviceEndpointUrl:    opts.ServiceEndpointUrl,
                 agentIdentityPath:     opts.AgentIdentityPath,
-                federationEndpointUrl: opts.FederationEndpointUrl);
+                federationEndpointUrl: opts.FederationEndpointUrl,
+                instanceDir:           opts.InstanceDir);
         });
 
         // 4a. WebSocketNotifyHub — local PandoMail push channel singleton.

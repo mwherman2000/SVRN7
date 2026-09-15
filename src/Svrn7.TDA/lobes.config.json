@@ -4,6 +4,7 @@
     "Svrn7.Federation.0.8.0/Svrn7.Federation.0.8.0.psm1",
     "Svrn7.Society.0.8.0/Svrn7.Society.0.8.0.psm1",
     "Svrn7.UX.0.8.0/Svrn7.UX.0.8.0.psm1",
-    "Svrn7.SMTPEmail.0.8.0/Svrn7.SMTPEmail.0.8.0.psm1"
+    "Svrn7.SMTPEmail.0.8.0/Svrn7.SMTPEmail.0.8.0.psm1",
+    "Svrn7.Signin.0.1.0/Svrn7.Signin.0.1.0.psm1"
   ]
 }

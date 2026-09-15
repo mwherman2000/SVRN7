@@ -1078,7 +1078,7 @@ public sealed class DrawbridgeServiceIntegrationTests : IAsyncLifetime
             opts,
             new StubDIDCommService("test/1.0/msg", """{"amount":500}"""),
             _inbox,
-            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance),
+            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, opts),
             NullLogger<DrawbridgeService>.Instance);
     }
 
@@ -1182,7 +1182,7 @@ public sealed class DrawbridgeServiceIntegrationTests : IAsyncLifetime
             }),
             new ThrowingDIDCommService(),
             inbox,
-            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance),
+            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, Options.Create(new TdaOptions())),
             NullLogger<DrawbridgeService>.Instance);
 
         await badListener.StartAsync(CancellationToken.None);
@@ -1589,7 +1589,7 @@ public class SwitchboardStartupTests : IDisposable
         return new DIDCommMessageSwitchboard(
             ctx, pool, inbox, outbox, lobes,
             new NullHttpClientFactory(),
-            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance),
+            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, Options.Create(tdaOpts)),
             new StubDIDCommService("test/1.0/msg", "{}"),
             Options.Create(tdaOpts),
             NullLogger<DIDCommMessageSwitchboard>.Instance);
@@ -1624,7 +1624,7 @@ public sealed class KestrelListenerRateLimitTests : IAsyncLifetime
             }),
             new StubDIDCommService("test/1.0/msg", "{}"),
             new RecordingInboxStore(),
-            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance),
+            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, Options.Create(new TdaOptions())),
             NullLogger<DrawbridgeService>.Instance);
     }
 
@@ -1678,7 +1678,7 @@ public sealed class KestrelListenerRateLimitTests : IAsyncLifetime
             }),
             new StubDIDCommService("test/1.0/msg", "{}"),
             new RecordingInboxStore(),
-            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance),
+            new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, Options.Create(new TdaOptions())),
             NullLogger<DrawbridgeService>.Instance);
 
         await noLimit.StartAsync(CancellationToken.None);
@@ -1817,7 +1817,7 @@ public sealed class WebSocketNotifyHubTests : IAsyncLifetime
     public WebSocketNotifyHubTests()
     {
         _port = FindFreePort();
-        _hub  = new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance);
+        _hub  = new WebSocketNotifyHub(NullLogger<WebSocketNotifyHub>.Instance, Options.Create(new TdaOptions()));
         _listener = new DrawbridgeService(
             Options.Create(new TdaOptions
             {

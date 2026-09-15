@@ -722,9 +722,11 @@ internal sealed class Program
     }
 
     // Pauses so a console window opened by double-click (or any detached launch) doesn't
-    // vanish before the error/crash message above it can be read, then exits.
+    // vanish before the error/crash message above it can be read, then exits. Internal
+    // (not private) so other classes in this assembly with their own error-exit paths
+    // (e.g. WalletPasswordPrompt) can reuse it instead of duplicating the pause.
     [DoesNotReturn]
-    static void ExitWithPause(int code)
+    internal static void ExitWithPause(int code)
     {
         Console.Write("Press Enter to exit...");
         Console.ReadLine();

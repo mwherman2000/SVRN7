@@ -479,8 +479,16 @@ public sealed class DrawbridgeService : IHostedService, IAsyncDisposable
             "DrawbridgeService: WebSocket processing message — length={Length}, preview='{Preview}'.",
             json.Length, json.Length > 120 ? json[..120] : json);
 
-        // Svrn7.LocalUI.0.1.0 control frames (Hello/Goodbye) are connection-lifecycle
+        // Svrn7.LocalUI.0.1.0 control frames (Hello/Goodbye/Ping) are connection-lifecycle
         // concerns handled directly by the hub — never enqueued to the inbox/Switchboard.
+        // Password verification for local UI clients (e.g. PandoMail's TDA picker) is a
+        // separate, generic LOBE-routed protocol (Svrn7.Signin.0.1.0/Authenticate) — real
+        // verification against the wallet with no key material ever crossing the wire, but
+        // deliberately not a server-side gate on every other message: /localcomm-ws is
+        // documented (P-008) as accepting all local traffic, and existing tools
+        // (Send-LocalDIDCommMessage, admin scripts) rely on that today. The gate lives in
+        // PandoMail's own client code instead, which won't proceed past its password
+        // prompt without a successful AuthResult.
         if (await _hub.TryHandleControlFrameAsync(clientId, json, ct))
         {
             activity?.SetTag(Svrn7Telemetry.TagOutcome, "control_frame");

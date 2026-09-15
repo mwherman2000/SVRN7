@@ -24,14 +24,14 @@ public static class WalletPasswordPrompt
             Console.Error.WriteLine(
                 $"ERROR: {EnvVar} is not set and there is no interactive console to prompt on. " +
                 "Set the environment variable or run the TDA attached to a terminal.");
-            Environment.Exit(1);
+            Program.ExitWithPause(1);
         }
 
         var first = ReadHidden(firstRunCreate ? "Create wallet password: " : "Wallet password: ");
         if (first.Length == 0)
         {
             Console.Error.WriteLine("ERROR: empty password.");
-            Environment.Exit(1);
+            Program.ExitWithPause(1);
         }
 
         if (firstRunCreate)
@@ -43,13 +43,15 @@ public static class WalletPasswordPrompt
             {
                 Array.Clear(first);
                 Console.Error.WriteLine("ERROR: passwords do not match.");
-                Environment.Exit(1);
+                Program.ExitWithPause(1);
             }
         }
 
         return first;
     }
 
+    // Echoes '*' per keystroke (erased on Backspace) instead of the raw character, so the
+    // user gets typing feedback without the password itself ever touching the console buffer.
     private static char[] ReadHidden(string prompt)
     {
         Console.Write(prompt);
@@ -63,10 +65,18 @@ public static class WalletPasswordPrompt
                     Console.WriteLine();
                     return buf.ToArray();
                 case ConsoleKey.Backspace:
-                    if (buf.Count > 0) buf.RemoveAt(buf.Count - 1);
+                    if (buf.Count > 0)
+                    {
+                        buf.RemoveAt(buf.Count - 1);
+                        Console.Write("\b \b");
+                    }
                     break;
                 default:
-                    if (!char.IsControl(key.KeyChar)) buf.Add(key.KeyChar);
+                    if (!char.IsControl(key.KeyChar))
+                    {
+                        buf.Add(key.KeyChar);
+                        Console.Write('*');
+                    }
                     break;
             }
         }
