@@ -1154,6 +1154,20 @@ held in its own app wallet (a `Svrn7.Trust.AgentWallet`-family wallet file,
 per the "AgentWallet generalization" point above), never in the TDA's wallet
 and never in a LOBE runspace.
 
+**Update (2026-09-15) — answers the Enrollment/pairing flow question above:**
+registration should be able to happen automatically on an app's first
+successful login, not as a separate manual enrollment step. Sketch: on first
+Authenticate success (see Svrn7.Trust.AppAuthn), if the app has no keypair yet,
+it generates one (secp256k1 + X25519, same shape as a TDA's own identity),
+stores it in its own app wallet, builds a DID Document for itself, and sends
+that document to the TDA over `/localcomm-ws` for storage in the TDA's DID
+registry — the same registry path a Wanderer's own DID Document already goes
+through, just for a second, app-scoped identity paired with this TDA. Later
+logins detect the existing app keypair/wallet and skip straight to
+Authenticate. Still needs the enrollment/pairing design questions above
+resolved first (delegation vs. separate identity model; user confirmation
+before granting an app write access to the DID registry; revocation).
+
 ## TDA-019 — AuthZ gate for external (TDA-to-TDA) inbound traffic in DrawbridgeService
 
 **Area:** `DrawbridgeService`, `POST /didcomm` inbound path only — not

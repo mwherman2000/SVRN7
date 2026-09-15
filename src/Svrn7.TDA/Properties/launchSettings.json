@@ -2,6 +2,7 @@
   "profiles": {
     "Svrn7.TDA": {
       "commandName": "Project",
+      "commandLineArgs": "--name Tim",
       "launchBrowser": true,
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
