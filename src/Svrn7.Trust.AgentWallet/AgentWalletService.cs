@@ -31,6 +31,17 @@ public abstract record AgentUnlockResult
 
     /// <summary>Wrong password, or the sealed payload failed its authentication tag. A throttle failure has been recorded.</summary>
     public sealed record WrongPassword : AgentUnlockResult;
+
+    /// <summary>Wrong recovery phrase, or the sealed slot failed its authentication tag. A throttle failure has been recorded.</summary>
+    public sealed record WrongRecoveryPhrase : AgentUnlockResult;
+
+    /// <summary>
+    /// This wallet has no <c>"recoveryPhrase"</c> key slot yet — a legacy v1
+    /// file that has not been migrated by a successful password unlock, or
+    /// (should not occur via <see cref="AgentWalletService.Create"/>) a wallet
+    /// with no phrase stored. No password/phrase was checked.
+    /// </summary>
+    public sealed record RecoveryPhraseUnavailable : AgentUnlockResult;
 }
 
 /// <summary>Read-only view of the wallet file's cleartext header — no decryption.</summary>
@@ -181,6 +192,7 @@ public sealed class AgentWalletService
         try
         {
             AgentWalletPayload payload;
+            var needsV2Migration = file.Version == 1;
             try
             {
                 payload = file.Decrypt(password);
@@ -194,7 +206,16 @@ public sealed class AgentWalletService
             }
 
             AgentWalletDiagnostics.RecordKdfDuration(startTs, AgentWalletResult.Success);
-            UnlockThrottle.Reset(_walletPath);
+
+            // A v1 (legacy, password-only) file is transparently upgraded to the
+            // v2 DEK-envelope format on its next successful password unlock —
+            // WriteWallet always writes v2, so no separate migration path is
+            // needed. This is what makes a phrase-based reset/unlock possible
+            // for a wallet created before that format existed.
+            if (needsV2Migration)
+                WriteWallet(payload, password, "migrate_v1_to_v2");
+            else
+                UnlockThrottle.Reset(_walletPath);
 
             if (pinCheck == PinCheck.FirstUse && _pinStore.Enabled)
                 _pinStore.Set(_walletId, actualPin);
@@ -211,7 +232,95 @@ public sealed class AgentWalletService
         }
     }
 
+    /// <summary>
+    /// Attempts to unlock the wallet using its 12-word recovery phrase instead
+    /// of the password. Same throttle and pin gating as <see cref="Unlock"/>,
+    /// sharing the same throttle counter. Requires this wallet to already be
+    /// on the v2 (DEK-envelope) format — a legacy v1 wallet must be unlocked
+    /// once with its password first (which migrates it); see
+    /// <see cref="AgentUnlockResult.RecoveryPhraseUnavailable"/>.
+    /// </summary>
+    public AgentUnlockResult UnlockWithRecoveryPhrase(string phrase)
+    {
+        using var activity = AgentWalletDiagnostics.ActivitySource.StartActivity("AgentWallet.UnlockWithRecoveryPhrase");
+
+        if (!WalletExists)
+            return new AgentUnlockResult.NoWallet(_walletPath);
+
+        var throttle = UnlockThrottle.Load(_walletPath);
+        var wait = throttle.GetRemainingWait();
+        if (wait > TimeSpan.Zero)
+            return new AgentUnlockResult.Throttled(wait);
+
+        var file = AgentWalletFile.Load(_walletPath);
+        var actualPin = WalletPin.Compute(file.Secp256k1PublicKeyHex);
+        var pinned = _pinStore.TryGet(_walletId);
+        var pinCheck = pinned is null
+            ? PinCheck.FirstUse
+            : CryptographicOperations.FixedTimeEquals(pinned, actualPin) ? PinCheck.Match : PinCheck.Mismatch;
+
+        if (pinCheck == PinCheck.Mismatch)
+            return new AgentUnlockResult.PinMismatch(pinned!, actualPin);
+
+        AgentWalletPayload payload;
+        try
+        {
+            payload = file.DecryptWithRecoveryPhrase(phrase);
+        }
+        catch (RecoveryPhraseSlotUnavailableException)
+        {
+            return new AgentUnlockResult.RecoveryPhraseUnavailable();
+        }
+        catch (Exception ex) when (ex is CryptographicException or FormatException)
+        {
+            throttle.RecordFailure(_walletPath);
+            return new AgentUnlockResult.WrongRecoveryPhrase();
+        }
+
+        UnlockThrottle.Reset(_walletPath);
+        if (pinCheck == PinCheck.FirstUse && _pinStore.Enabled)
+            _pinStore.Set(_walletId, actualPin);
+
+        var dbMaster = Convert.FromHexString(payload.DbMasterKeyHex);
+        var identity = BuildIdentity(payload, dbMaster, GenesisHash.Compute(payload.Secp256k1PublicKeyHex));
+        return new AgentUnlockResult.Success(identity);
+    }
+
     // ── Maintenance ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Verifies <paramref name="phrase"/> against the wallet's recovery-phrase
+    /// key slot and, on a match, re-wraps the wallet's Data Encryption Key
+    /// under <paramref name="newPassword"/> — the "forgot password" reset
+    /// path. Shares the same unlock throttle as <see cref="Unlock"/> and
+    /// <see cref="UnlockWithRecoveryPhrase"/>.
+    /// </summary>
+    /// <exception cref="UnauthorizedAccessException">The phrase does not match this wallet, or the wallet is throttled.</exception>
+    /// <exception cref="RecoveryPhraseSlotUnavailableException">This wallet has no recovery-phrase slot yet — unlock once with the password first.</exception>
+    public void ChangePasswordUsingRecoveryPhrase(string phrase, char[] newPassword)
+    {
+        if (!WalletExists)
+            throw new FileNotFoundException($"No wallet at '{_walletPath}'.", _walletPath);
+
+        var throttle = UnlockThrottle.Load(_walletPath);
+        var wait = throttle.GetRemainingWait();
+        if (wait > TimeSpan.Zero)
+            throw new UnauthorizedAccessException($"Wallet is locked out for another {wait.TotalSeconds:0}s after repeated failures.");
+
+        var file = AgentWalletFile.Load(_walletPath);
+        AgentWalletPayload payload;
+        try
+        {
+            payload = file.DecryptWithRecoveryPhrase(phrase);
+        }
+        catch (Exception ex) when (ex is CryptographicException or FormatException)
+        {
+            throttle.RecordFailure(_walletPath);
+            throw new UnauthorizedAccessException("Recovery phrase does not match this wallet.", ex);
+        }
+
+        WriteWallet(payload, newPassword, "reset_password_via_recovery_phrase");
+    }
 
     /// <summary>
     /// Re-encrypts the payload under <paramref name="newPassword"/> and rewrites

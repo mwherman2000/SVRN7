@@ -73,6 +73,13 @@ public static class WalletCrypto
 
     public static byte[] NewSalt() => RandomNumberGenerator.GetBytes(SaltSize);
 
+    /// <summary>A fresh random 32-byte key — used for a wallet's Data Encryption Key (DEK).</summary>
+    public static byte[] GenerateKey() => RandomNumberGenerator.GetBytes(KeySize);
+
+    /// <summary>Current Argon2id cost parameters for a new/re-wrapped "password" <see cref="WalletKeySlot"/>.</summary>
+    public static (int MemoryKiB, int Iterations, int Parallelism) DefaultArgon2Params =>
+        (Argon2MemoryKiB, Argon2Iterations, Argon2Parallelism);
+
     /// <summary>
     /// Derives the Argon2id key with AgentWallet's default cost parameters,
     /// against a fresh salt. Returned as <c>(key, salt)</c>; the caller must
@@ -187,6 +194,48 @@ public static class WalletCrypto
             CryptographicOperations.ZeroMemory(key);
         }
 
+        return plaintext;
+    }
+
+    /// <summary>
+    /// Raw AES-256-GCM encrypt under an already-derived key — no password/KDF
+    /// involved. Used for the wallet's DEK-envelope format (§7): sealing the
+    /// Data Encryption Key under a credential-derived key-encryption key, and
+    /// sealing the payload itself under the DEK. Returns <c>nonce ‖ tag ‖
+    /// ciphertext</c>. Does <b>not</b> zero <paramref name="key"/> — the
+    /// caller owns its lifetime (unlike <see cref="EncryptWithKey"/>, which is
+    /// always the last use of its key).
+    /// </summary>
+    public static byte[] EncryptRaw(byte[] key, byte[] plaintext)
+    {
+        var nonce = RandomNumberGenerator.GetBytes(NonceSize);
+        var ciphertext = new byte[plaintext.Length];
+        var tag = new byte[TagSize];
+
+        using (var aesGcm = new AesGcm(key, TagSize))
+            aesGcm.Encrypt(nonce, plaintext, ciphertext, tag);
+
+        var result = new byte[NonceSize + TagSize + ciphertext.Length];
+        var offset = 0;
+        Buffer.BlockCopy(nonce, 0, result, offset, NonceSize); offset += NonceSize;
+        Buffer.BlockCopy(tag, 0, result, offset, TagSize); offset += TagSize;
+        Buffer.BlockCopy(ciphertext, 0, result, offset, ciphertext.Length);
+        return result;
+    }
+
+    /// <summary>
+    /// Reverses <see cref="EncryptRaw"/>. Throws <see cref="CryptographicException"/>
+    /// on a wrong key or tampered data. Does not zero <paramref name="key"/>.
+    /// </summary>
+    public static byte[] DecryptRaw(byte[] key, byte[] blob)
+    {
+        var nonce = blob[0..NonceSize];
+        var tag = blob[NonceSize..(NonceSize + TagSize)];
+        var ciphertext = blob[(NonceSize + TagSize)..];
+        var plaintext = new byte[ciphertext.Length];
+
+        using var aesGcm = new AesGcm(key, TagSize);
+        aesGcm.Decrypt(nonce, ciphertext, tag, plaintext);
         return plaintext;
     }
 }

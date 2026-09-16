@@ -1190,3 +1190,41 @@ succeeds and before `IInboxStore.EnqueueAsync`.
 model looks like (allowlist vs. blacklist vs. reputation, where rules are
 configured/persisted, how a Society's membership roster factors in) before
 implementation.
+
+---
+
+## TDA-020 — Google device authn as a third TDA wallet-unlock method
+
+**Area:** `Svrn7.Trust.AgentWallet` (`AgentWalletFile`, `AgentWalletService`,
+`WalletKeySlot`), `WalletPasswordPrompt`/`Program.cs` console flow; related to
+the envelope/DEK-wrap wallet-file format (v2) introduced alongside this entry
+for phrase-based password reset (see docs/AGENTWALLET.md).
+
+**Summary:** The TDA console's wallet-unlock flow is being generalized (2026-09-15)
+to a Data-Encryption-Key (DEK) envelope: the wallet payload is encrypted once
+under a random DEK, and the DEK itself is wrapped separately per unlock method
+(`WalletKeySlot.Method`) — today `"password"` (Argon2id-derived KEK) and
+`"recoveryPhrase"` (HKDF-derived KEK from the BIP39 phrase). A third method,
+device-bound authentication via an existing Google-auth library the user
+already has, is a planned future unlock method under this same model: derive
+or obtain a KEK from the device-authn credential, wrap the DEK a third way,
+add a `"deviceAuthn"` key slot alongside the existing two. No payload
+re-encryption is needed to add it — only a new wrap.
+
+**Why not built now:** the specific Google-auth library/flow to integrate
+hasn't been chosen yet — the user has an existing library earmarked for this
+but deferred picking it up until this backlog item is prioritized.
+
+**What would be required:**
+- A concrete decision on the credential shape (what the chosen library
+  actually hands back — a raw secret, a device-bound key, an assertion — since
+  that determines how the `"deviceAuthn"` KEK is derived/obtained).
+- `AgentWalletService`: `UnlockWithDeviceAuthn(...)` mirroring
+  `UnlockWithRecoveryPhrase`, plus enrollment (adding the slot to an existing
+  wallet) and revocation (removing it) operations.
+- Console/UX flow in `WalletPasswordPrompt`/`Program.cs` for when device authn
+  is available/preferred over password entry.
+- Decide whether device authn can also drive a password-reset flow (like the
+  recovery phrase does) or is unlock-only.
+
+**No code change now** — backlog item.

@@ -26,6 +26,7 @@ public static class RecoveryPhrase
     public static readonly KeyPath IdentityKeyPath = new("7'/0'/0'/0/0");
 
     private static readonly byte[] X25519Info = "web7-pando/x25519/v1"u8.ToArray();
+    private static readonly byte[] WalletUnlockInfo = "web7-pando/wallet-unlock-kek/v1"u8.ToArray();
 
     private const int EntropyBytes = 16; // 128-bit → 12 words
 
@@ -102,6 +103,32 @@ public static class RecoveryPhrase
                 nsecKey.PublicKey.Export(KeyBlobFormat.RawPublicKey)).ToLowerInvariant(); // 64 hex
 
             return new DerivedKeys(secpPriv, secpPubHex, xPriv, xPubHex, phrase);
+        }
+        finally
+        {
+            if (seed is not null) CryptographicOperations.ZeroMemory(seed);
+        }
+    }
+
+    /// <summary>
+    /// Derives a 32-byte key-encryption key from the phrase, on its own HKDF
+    /// info string — independent of the identity keys and of
+    /// <see cref="Derive"/>. This is the key a wallet's "recoveryPhrase" key
+    /// slot wraps its Data Encryption Key under (docs/AGENTWALLET.md §7).
+    /// Deterministic: the same phrase always yields the same key. The caller
+    /// must zero the returned array.
+    /// </summary>
+    /// <exception cref="FormatException">The phrase is invalid.</exception>
+    public static byte[] DeriveWalletUnlockKey(string phrase, string? passphrase = null)
+    {
+        Validate(phrase);
+        var mnemonic = new Mnemonic(phrase, Wordlist.English);
+
+        byte[]? seed = null;
+        try
+        {
+            seed = mnemonic.DeriveSeed(passphrase);
+            return HKDF.DeriveKey(HashAlgorithmName.SHA256, seed, 32, salt: null, info: WalletUnlockInfo);
         }
         finally
         {

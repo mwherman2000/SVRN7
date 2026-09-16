@@ -161,7 +161,6 @@ internal sealed class Program
         bool            isFirstRun;
         int             listenPort;
         string?         publishedEndpoint = null; // this instance's own endpoint from its (encrypted) DID Document, later runs only
-        string?         freshRecoveryPhrase = null;
         ListenPortClaim? portClaim = null;
         string?         crashDir = null;
 
@@ -219,10 +218,10 @@ internal sealed class Program
             if (pinWarn is not null)
                 Console.Error.WriteLine($"WARNING: public-key pinning disabled — {pinWarn}");
 
-            char[] password = WalletPasswordPrompt.Acquire(firstRunCreate: isFirstRun);
-            try
+            if (isFirstRun)
             {
-                if (isFirstRun)
+                char[] password = WalletPasswordPrompt.Acquire(firstRunCreate: true);
+                try
                 {
                     var phrase = recoveryPhraseArg ?? RecoveryPhrase.Generate();
                     string genesisHash;
@@ -258,61 +257,42 @@ internal sealed class Program
                     parentTdaDid = null;
                     parentTdaEndpointUrl = null;
 
+                    // Shown immediately after wallet creation — the earliest point the
+                    // phrase exists, right on the heels of the password's double-entry
+                    // confirmation in Acquire() above. Skipped when the user supplied
+                    // their own phrase via --recovery-phrase (they already have it).
                     if (recoveryPhraseArg is null)
-                        freshRecoveryPhrase = phrase;
+                        WalletPasswordPrompt.ShowAndConfirmRecoveryPhrase(phrase);
                 }
-                else
+                finally
                 {
-                    instanceDir = foundDir!;
-                    crashDir = instanceDir;
-                    walletPath = PandoPaths.WalletPath(instanceDir);
-                    metaPath = PandoPaths.MetaPath(instanceDir);
-
-                    var svc = new AgentWalletService(walletPath, pinStore);
-                    var unlock = svc.Unlock(() => (char[])password.Clone());
-                    switch (unlock)
-                    {
-                        case AgentUnlockResult.Success ok:
-                            using (ok.Identity)
-                            {
-                                agentDid = ok.Identity.Did;
-                                svrn7Name = foundMeta!.Name;
-                                role = Enum.TryParse<Svrn7Role>(ok.Identity.Role, out var r) ? r : Svrn7Role.Wanderer;
-                                secpPubHex = ok.Identity.Secp256k1PublicKeyHex;
-                                x25519PubHex = ok.Identity.X25519PublicKeyHex;
-                                signingKey = ok.Identity.Secp256k1PrivateKey.ToArray();
-                                keyAgreementKey = ok.Identity.X25519PrivateKey.ToArray();
-                                dbMasterKey = ok.Identity.DbMasterKey.ToArray();
-                                // Parent-tier DID is a routing pointer: identity.meta.json first
-                                // (written by SetParentTda after registration), wallet payload as
-                                // the fallback. The parent ENDPOINT is never persisted anywhere —
-                                // it is resolved from the parent's DID Document after .Build().
-                                parentTdaDid = string.IsNullOrEmpty(foundMeta!.ParentTdaDid)
-                                    ? ok.Identity.ParentTdaDid : foundMeta.ParentTdaDid;
-                            }
-                            break;
-
-                        case AgentUnlockResult.WrongPassword:
-                            Die("wrong wallet password.");
-                            return;
-                        case AgentUnlockResult.Throttled t:
-                            Die($"wallet is locked out for another {t.RetryAfter.TotalSeconds:0}s after repeated failures.");
-                            return;
-                        case AgentUnlockResult.PinMismatch:
-                            Die($"wallet public key does not match its pin — '{walletPath}' was replaced or rolled back.");
-                            return;
-                        case AgentUnlockResult.NoWallet:
-                            Die($"no wallet at '{walletPath}'. Run with --reset to re-bootstrap this identity.");
-                            return;
-                        default:
-                            Die($"unexpected unlock result: {unlock.GetType().Name}");
-                            return;
-                    }
+                    Array.Clear(password);
                 }
             }
-            finally
+            else
             {
-                Array.Clear(password);
+                instanceDir = foundDir!;
+                crashDir = instanceDir;
+                walletPath = PandoPaths.WalletPath(instanceDir);
+                metaPath = PandoPaths.MetaPath(instanceDir);
+
+                var svc = new AgentWalletService(walletPath, pinStore);
+                using var identity = WalletPasswordPrompt.UnlockInteractive(svc);
+
+                agentDid = identity.Did;
+                svrn7Name = foundMeta!.Name;
+                role = Enum.TryParse<Svrn7Role>(identity.Role, out var r) ? r : Svrn7Role.Wanderer;
+                secpPubHex = identity.Secp256k1PublicKeyHex;
+                x25519PubHex = identity.X25519PublicKeyHex;
+                signingKey = identity.Secp256k1PrivateKey.ToArray();
+                keyAgreementKey = identity.X25519PrivateKey.ToArray();
+                dbMasterKey = identity.DbMasterKey.ToArray();
+                // Parent-tier DID is a routing pointer: identity.meta.json first
+                // (written by SetParentTda after registration), wallet payload as
+                // the fallback. The parent ENDPOINT is never persisted anywhere —
+                // it is resolved from the parent's DID Document after .Build().
+                parentTdaDid = string.IsNullOrEmpty(foundMeta!.ParentTdaDid)
+                    ? identity.ParentTdaDid : foundMeta.ParentTdaDid;
             }
 
             memDir = PandoPaths.MemDir(instanceDir);
@@ -675,12 +655,6 @@ internal sealed class Program
                 Console.WriteLine($"  Federation  : (not yet initialised)");
             }
             Console.WriteLine(hr);
-            if (freshRecoveryPhrase is not null)
-            {
-                Console.WriteLine("  RECOVERY PHRASE — write this down now, it is shown only once:");
-                Console.WriteLine($"    {freshRecoveryPhrase}");
-                Console.WriteLine(hr);
-            }
             Console.WriteLine();
         }
 
@@ -714,8 +688,10 @@ internal sealed class Program
         return i >= 0 && i + 1 < args.Length && !string.IsNullOrWhiteSpace(args[i + 1]) ? args[i + 1] : null;
     }
 
+    // Internal (not private) so WalletPasswordPrompt's own error-exit paths can
+    // reuse it instead of duplicating the "ERROR: ..." + pause-and-exit pattern.
     [DoesNotReturn]
-    static void Die(string message)
+    internal static void Die(string message)
     {
         Console.Error.WriteLine($"ERROR: {message}");
         ExitWithPause(1);
